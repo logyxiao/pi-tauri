@@ -1,17 +1,50 @@
-import { CircleDot, GitFork, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings, Sparkles } from "lucide-react";
-import { demoSessions } from "@/shared/pi/mock-data";
+import { CircleDot, Download, GitFork, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Search, Settings, Sparkles, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/shared/lib/cn";
+import type { PiSessionSummary } from "@/shared/pi/types";
 
 interface LeftSidebarProps {
   collapsed: boolean;
+  sessions: PiSessionSummary[];
+  currentSessionId?: string;
   onToggle: () => void;
   onNewSession: () => void;
+  onContinueRecent: () => Promise<void> | void;
+  onSwitchSession: (sessionPath: string) => Promise<void> | void;
+  onSetSessionName: (name: string) => Promise<void> | void;
+  onDeleteSession: (sessionPath: string) => Promise<void> | void;
+  onExportHtml: () => Promise<string | null> | string | null;
   onOpenSettings: () => void;
 }
 
-export function LeftSidebar({ collapsed, onToggle, onNewSession, onOpenSettings }: LeftSidebarProps) {
+export function LeftSidebar({
+  collapsed,
+  sessions,
+  currentSessionId,
+  onToggle,
+  onNewSession,
+  onContinueRecent,
+  onSwitchSession,
+  onSetSessionName,
+  onDeleteSession,
+  onExportHtml,
+  onOpenSettings,
+}: LeftSidebarProps) {
+  async function renameCurrentSession() {
+    const current = sessions.find((session) => session.id === currentSessionId) ?? sessions[0];
+    const name = window.prompt("Session name", current?.name ?? "");
+    if (name == null) return;
+    await onSetSessionName(name);
+  }
+
+  async function deleteSession(session: PiSessionSummary) {
+    if (!session.filePath) return;
+    const confirmed = window.confirm(`Delete session file?\n\n${session.name}\n${session.filePath}`);
+    if (!confirmed) return;
+    await onDeleteSession(session.filePath);
+  }
+
   return (
     <aside
       className={cn(
@@ -27,7 +60,7 @@ export function LeftSidebar({ collapsed, onToggle, onNewSession, onOpenSettings 
           {!collapsed ? (
             <div>
               <div className="text-sm font-semibold">Pi Desktop</div>
-              <div className="text-xs text-muted-foreground">coding agent workbench</div>
+              <div className="text-xs text-muted-foreground">sessions, tools, extensions</div>
             </div>
           ) : null}
         </div>
@@ -72,10 +105,28 @@ export function LeftSidebar({ collapsed, onToggle, onNewSession, onOpenSettings 
         </div>
       ) : (
         <>
-          <div className="px-4 pb-3">
+          <div className="space-y-2 px-4 pb-3">
             <Button className="w-full justify-start" variant="primary" onClick={onNewSession}>
               <Plus size={16} /> New session
             </Button>
+            <div className="grid grid-cols-3 gap-1">
+              <Button size="sm" variant="ghost" onClick={() => void onContinueRecent()}>
+                Recent
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => void renameCurrentSession()}>
+                <Pencil size={13} /> Name
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={async () => {
+                  const path = await onExportHtml();
+                  if (path) console.info("pi session exported", path);
+                }}
+              >
+                <Download size={13} /> HTML
+              </Button>
+            </div>
           </div>
 
           <div className="px-4 pb-3">
@@ -94,47 +145,68 @@ export function LeftSidebar({ collapsed, onToggle, onNewSession, onOpenSettings 
           </div>
         ) : null}
         <div className="space-y-1.5">
-          {demoSessions.map((session, index) =>
-            collapsed ? (
-              <Tooltip key={session.id}>
-                <TooltipTrigger asChild>
-                  <button
-                    className={cn(
-                      "flex size-11 items-center justify-center rounded-md border transition",
-                      index === 0
-                        ? "border-primary/45 bg-surface/70 shadow-[inset_2px_0_0_var(--primary)]"
-                        : "border-transparent hover:bg-surface/70",
-                    )}
-                  >
-                    <CircleDot size={16} className={session.status === "running" ? "text-primary" : "text-muted-foreground"} />
+          {sessions.length ? (
+            sessions.map((session) => {
+              const selected = session.id === currentSessionId || session.filePath === currentSessionId;
+              const switchTarget = session.filePath ?? session.id;
+              return collapsed ? (
+                <Tooltip key={session.id}>
+                  <TooltipTrigger asChild>
+                    <button
+                      className={cn(
+                        "flex size-11 items-center justify-center rounded-md border transition",
+                        selected
+                          ? "border-primary/45 bg-surface/70 shadow-[inset_2px_0_0_var(--primary)]"
+                          : "border-transparent hover:bg-surface/70",
+                      )}
+                      onClick={() => void onSwitchSession(switchTarget)}
+                    >
+                      <CircleDot size={16} className={session.status === "running" ? "text-primary" : "text-muted-foreground"} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{session.name}</TooltipContent>
+                </Tooltip>
+              ) : (
+                <div
+                  key={session.id}
+                  className={cn(
+                    "group rounded-md border transition",
+                    selected
+                      ? "border-primary/45 bg-surface/70 shadow-[inset_2px_0_0_var(--primary)]"
+                      : "border-transparent hover:border-border hover:bg-surface/70",
+                  )}
+                >
+                  <button className="w-full p-3 text-left" onClick={() => void onSwitchSession(switchTarget)}>
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <div className="line-clamp-2 text-sm font-medium leading-snug">{session.name}</div>
+                      <CircleDot
+                        size={13}
+                        className={session.status === "running" ? "mt-0.5 text-primary" : "mt-0.5 text-muted-foreground"}
+                      />
+                    </div>
+                    <div className="truncate text-xs text-muted-foreground">{session.cwd}</div>
+                    <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                      <span className="truncate">{session.model}</span>
+                      <span>{session.messageCount ?? 0} msgs</span>
+                    </div>
+                    <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground" title={session.filePath}>
+                      {session.updatedAt}
+                    </div>
                   </button>
-                </TooltipTrigger>
-                <TooltipContent>{session.name}</TooltipContent>
-              </Tooltip>
-            ) : (
-              <button
-                key={session.id}
-                className={cn(
-                  "w-full rounded-md border p-3 text-left transition",
-                  index === 0
-                    ? "border-primary/45 bg-surface/70 shadow-[inset_2px_0_0_var(--primary)]"
-                    : "border-transparent hover:border-border hover:bg-surface/70",
-                )}
-              >
-                <div className="mb-2 flex items-start justify-between gap-2">
-                  <div className="line-clamp-2 text-sm font-medium leading-snug">{session.name}</div>
-                  <CircleDot
-                    size={13}
-                    className={session.status === "running" ? "mt-0.5 text-primary" : "mt-0.5 text-muted-foreground"}
-                  />
+                  {session.filePath ? (
+                    <div className="flex justify-end border-t border-border/70 px-2 py-1 opacity-0 transition group-hover:opacity-100">
+                      <Button size="sm" variant="ghost" onClick={() => void deleteSession(session)}>
+                        <Trash2 size={12} /> Delete
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
-                <div className="truncate text-xs text-muted-foreground">{session.cwd}</div>
-                <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-                  <span>{session.model}</span>
-                  <span>{session.updatedAt}</span>
-                </div>
-              </button>
-            ),
+              );
+            })
+          ) : (
+            <div className={collapsed ? "px-0" : "rounded-md border border-border bg-surface/70 p-3 text-xs text-muted-foreground"}>
+              {!collapsed ? "No saved sessions for this cwd yet." : null}
+            </div>
           )}
         </div>
       </div>

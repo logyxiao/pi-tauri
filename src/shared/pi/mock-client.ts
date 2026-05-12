@@ -7,6 +7,7 @@ import {
   demoFiles,
   demoMessages,
   demoModels,
+  demoSessions,
   demoPiState,
   demoSafetyEvents,
   demoSessionStats,
@@ -24,6 +25,7 @@ import type {
   PiModel,
   PiSafetyEvent,
   PiSessionStats,
+  PiSessionSummary,
   PiSettings,
   PiSettingsUpdate,
   PiState,
@@ -42,6 +44,7 @@ export class MockPiClient implements PiClient {
   private messages: PiMessage[] = demoMessages;
   private state: PiState = demoPiState;
   private settings: PiSettings = demoSettings;
+  private sessions: PiSessionSummary[] = demoSessions;
   private commands: PiCommand[] = demoCommands;
   private extensionPanels: PiExtensionPanel[] = demoExtensionPanels;
   private extensionMessages: PiExtensionMessage[] = demoExtensionMessages;
@@ -138,7 +141,60 @@ export class MockPiClient implements PiClient {
   async newSession(): Promise<void> {
     this.aborted = true;
     this.messages = [];
-    this.state = { ...this.state, runState: "idle", tokenCount: 0, costUsd: 0 };
+    const sessionId = crypto.randomUUID();
+    const session: PiSessionSummary = {
+      id: sessionId,
+      name: "Untitled pi session",
+      cwd: this.state.cwd,
+      updatedAt: "now",
+      model: this.state.model,
+      status: "idle",
+      filePath: `~/.pi/agent/sessions/mock/${sessionId}.jsonl`,
+      messageCount: 0,
+    };
+    this.sessions = [session, ...this.sessions];
+    this.state = { ...this.state, runState: "idle", tokenCount: 0, costUsd: 0, sessionId, sessionName: session.name, sessionFile: session.filePath };
+  }
+
+  async continueRecent(): Promise<void> {
+    const recent = this.sessions[0];
+    if (recent?.filePath) await this.switchSession(recent.filePath);
+    else await this.newSession();
+  }
+
+  async switchSession(sessionPath: string): Promise<void> {
+    const session = this.sessions.find((item) => item.filePath === sessionPath || item.id === sessionPath);
+    if (!session) throw new Error(`Mock session not found: ${sessionPath}`);
+    this.aborted = true;
+    this.messages = demoMessages;
+    this.state = {
+      ...this.state,
+      runState: "idle",
+      sessionId: session.id,
+      sessionName: session.name,
+      sessionFile: session.filePath,
+      cwd: session.cwd,
+      model: session.model,
+    };
+  }
+
+  async setSessionName(name: string): Promise<void> {
+    const nextName = name.trim() || "Untitled pi session";
+    const sessionId = this.state.sessionId;
+    this.state = { ...this.state, sessionName: nextName };
+    this.sessions = this.sessions.map((item) => (item.id === sessionId ? { ...item, name: nextName } : item));
+  }
+
+  async deleteSession(sessionPath: string): Promise<void> {
+    this.sessions = this.sessions.filter((item) => item.filePath !== sessionPath && item.id !== sessionPath);
+  }
+
+  async exportHtml(): Promise<string | null> {
+    return "~/.pi/agent/exports/mock-session.html";
+  }
+
+  async listSessions(): Promise<PiSessionSummary[]> {
+    return this.sessions;
   }
 
   async getState(): Promise<PiState> {

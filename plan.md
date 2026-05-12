@@ -156,15 +156,15 @@ interface PiClient {
 
 任务：
 
-- [ ] 列出当前项目 sessions
+- [x] 列出当前项目 sessions（Rust 扫描 `~/.pi/agent/sessions` 并解析 JSONL）
 - [x] 新建 session（`PiClient.newSession` + RPC `new_session` + UI 按钮）
-- [ ] 切换 session
-- [ ] 继续最近 session
-- [ ] 设置 session name
-- [ ] 删除 session（确认）
+- [x] 切换 session（RPC `switch_session` + 左侧列表点击）
+- [x] 继续最近 session（最近 session 优先，否则新建）
+- [x] 设置 session name（RPC `set_session_name`）
+- [x] 删除 session（确认后只删除 sessions dir 内 `.jsonl`）
 - [x] 显示 session stats（`get_session_stats` + Inspector State）
 - [x] 显示 session file path（State 区块）
-- [ ] 支持 export html
+- [x] 支持 export html（RPC `export_html`）
 
 SDK 重点：
 
@@ -185,9 +185,9 @@ RPC 重点：
 
 验收标准：
 
-- [ ] 左侧可切换历史会话
+- [x] 左侧可切换历史会话
 - [x] 新建 session 后主区域清空/刷新 messages
-- [ ] 切换后主区域更新消息
+- [x] 切换后主区域更新消息
 - [x] session replacement 后事件订阅仍由统一 client/hook 保持
 
 ---
@@ -508,6 +508,11 @@ RPC/SDK 下 extension UI 与桌面 UI 需要桥接。
 - 阶段 9：复用 `SafetyConfirmDialog` 增强 dangerous command 确认，记录 allowed/blocked
 - 阶段 9：ToolCall/Command 支持 safety 标记，RightInspector 新增 Safety 策略和最近事件
 - 阶段 9：Mock 增加危险命令/危险 bash 示例，RPC client 标记危险工具并说明预执行阻断限制
+- 阶段 4：新增 `PiClient.listSessions()` / `switchSession()` / `continueRecent()` / `setSessionName()` / `deleteSession()` / `exportHtml()`
+- 阶段 4：Tauri Rust 增加 `pi_list_sessions`，扫描 `~/.pi/agent/sessions` 并解析 session JSONL metadata/session_info/message/model_change
+- 阶段 4：Tauri Rust 增加 `pi_delete_session`，确认后仅允许删除 sessions dir 内 `.jsonl`
+- 阶段 4：LeftSidebar 改用真实 session list，支持点击切换、继续最近、命名、导出 HTML、删除确认
+- 阶段 4 验证：`pnpm build` / `pnpm lint` / `pnpm pi:rpc:smoke` / `cargo check` 通过
 - `pnpm build` / `pnpm lint` / `pnpm pi:rpc:smoke` / `cargo check` 再次通过
 
 ## 当前下一步

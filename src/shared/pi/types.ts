@@ -55,6 +55,8 @@ export interface PiSessionSummary {
   updatedAt: string;
   model: string;
   status: "idle" | "running";
+  filePath?: string;
+  messageCount?: number;
 }
 
 export interface PiFileEntry {

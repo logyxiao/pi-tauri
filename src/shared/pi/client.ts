@@ -10,6 +10,7 @@ import type {
   PiModel,
   PiSafetyEvent,
   PiSessionStats,
+  PiSessionSummary,
   PiSettings,
   PiSettingsUpdate,
   PiState,
@@ -56,6 +57,12 @@ export interface PiClient {
   followUp(message: string): Promise<void>;
   abort(): Promise<void>;
   newSession(): Promise<void>;
+  continueRecent(): Promise<void>;
+  switchSession(sessionPath: string): Promise<void>;
+  setSessionName(name: string): Promise<void>;
+  deleteSession(sessionPath: string): Promise<void>;
+  exportHtml(outputPath?: string): Promise<string | null>;
+  listSessions(): Promise<PiSessionSummary[]>;
   getState(): Promise<PiState>;
   getMessages(): Promise<PiMessage[]>;
   getSessionStats(): Promise<PiSessionStats>;

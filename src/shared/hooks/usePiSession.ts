@@ -12,6 +12,7 @@ import type {
   PiModel,
   PiSafetyEvent,
   PiSessionStats,
+  PiSessionSummary,
   PiSettings,
   PiSettingsUpdate,
   PiState,
@@ -33,6 +34,7 @@ export function usePiSession() {
   const [messages, setMessages] = useState<PiMessage[]>([]);
   const [state, setState] = useState<PiState | null>(null);
   const [stats, setStats] = useState<PiSessionStats | null>(null);
+  const [sessions, setSessions] = useState<PiSessionSummary[]>([]);
   const [models, setModels] = useState<PiModel[]>([]);
   const [settings, setSettings] = useState<PiSettings | null>(null);
   const [commands, setCommands] = useState<PiCommand[]>([]);
@@ -54,6 +56,7 @@ export function usePiSession() {
         nextMessages,
         nextState,
         nextStats,
+        nextSessions,
         nextModels,
         nextSettings,
         nextCommands,
@@ -66,6 +69,7 @@ export function usePiSession() {
         client.getMessages(),
         client.getState(),
         client.getSessionStats(),
+        client.listSessions(),
         client.listModels(),
         client.getSettings(),
         client.listCommands(),
@@ -78,6 +82,7 @@ export function usePiSession() {
       setMessages(nextMessages);
       setState(nextState);
       setStats(nextStats);
+      setSessions(nextSessions);
       setModels(nextModels);
       setSettings(nextSettings);
       setCommands(nextCommands);
@@ -240,6 +245,67 @@ export function usePiSession() {
     }
   }
 
+  async function continueRecent() {
+    try {
+      await client.continueRecent();
+      activeAssistantIdRef.current = null;
+      setFilePreview(null);
+      setError(null);
+      await refresh();
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setStatus("error");
+    }
+  }
+
+  async function switchSession(sessionPath: string) {
+    try {
+      await client.switchSession(sessionPath);
+      activeAssistantIdRef.current = null;
+      setFilePreview(null);
+      setError(null);
+      await refresh();
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setStatus("error");
+    }
+  }
+
+  async function setSessionName(name: string) {
+    try {
+      await client.setSessionName(name);
+      setError(null);
+      await refresh();
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setStatus("error");
+    }
+  }
+
+  async function deleteSession(sessionPath: string) {
+    try {
+      await client.deleteSession(sessionPath);
+      setError(null);
+      await refresh();
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setStatus("error");
+    }
+  }
+
+  async function exportHtml() {
+    try {
+      const outputPath = await client.exportHtml();
+      setError(null);
+      await refresh();
+      return outputPath;
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setStatus("error");
+      return null;
+    }
+  }
+
   async function updateSettings(update: PiSettingsUpdate) {
     try {
       const nextSettings = await client.updateSettings(update);
@@ -301,6 +367,7 @@ export function usePiSession() {
     messages,
     state,
     stats,
+    sessions,
     models,
     settings,
     commands,
@@ -319,6 +386,11 @@ export function usePiSession() {
     prompt,
     abort,
     newSession,
+    continueRecent,
+    switchSession,
+    setSessionName,
+    deleteSession,
+    exportHtml,
     updateSettings,
     executeCommand,
     recordSafetyEvent,

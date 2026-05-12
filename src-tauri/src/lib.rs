@@ -90,6 +90,32 @@ fn pi_rpc_stop(state: State<'_, RpcState>) -> RpcResult<()> {
 }
 
 #[tauri::command]
+fn pi_list_sessions(cwd: String) -> RpcResult<Vec<serde_json::Value>> {
+    let target_cwd = safe_root(&cwd)?.to_string_lossy().replace('\\', "/");
+    let sessions_root = default_sessions_root()?;
+    let mut sessions = Vec::new();
+    collect_session_files(&sessions_root, &target_cwd, &mut sessions)?;
+    sessions.sort_by(|a, b| {
+        let left = a.get("updatedAt").and_then(|value| value.as_str()).unwrap_or("");
+        let right = b.get("updatedAt").and_then(|value| value.as_str()).unwrap_or("");
+        right.cmp(left)
+    });
+    Ok(sessions)
+}
+
+#[tauri::command]
+fn pi_delete_session(session_path: String) -> RpcResult<()> {
+    let sessions_root = default_sessions_root()?;
+    let path = PathBuf::from(&session_path)
+        .canonicalize()
+        .map_err(|error| format!("failed to resolve session path: {error}"))?;
+    if !path.starts_with(&sessions_root) || path.extension().and_then(|value| value.to_str()) != Some("jsonl") {
+        return Err("session delete path must be a jsonl file inside pi sessions dir".to_string());
+    }
+    fs::remove_file(path).map_err(|error| format!("failed to delete session: {error}"))
+}
+
+#[tauri::command]
 fn pi_list_files(cwd: String) -> RpcResult<Vec<serde_json::Value>> {
     let root = safe_root(&cwd)?;
     let mut entries = Vec::new();
@@ -200,6 +226,114 @@ fn spawn_stderr_reader(app: AppHandle, stderr: std::process::ChildStderr) {
             }
         }
     });
+}
+
+fn default_sessions_root() -> RpcResult<PathBuf> {
+    let home = std::env::var("PI_HOME")
+        .map(PathBuf::from)
+        .or_else(|_| std::env::var("USERPROFILE").map(PathBuf::from))
+        .or_else(|_| std::env::var("HOME").map(PathBuf::from))
+        .map_err(|_| "failed to resolve home directory for pi sessions".to_string())?;
+    Ok(home.join(".pi").join("agent").join("sessions"))
+}
+
+fn collect_session_files(root: &Path, target_cwd: &str, sessions: &mut Vec<serde_json::Value>) -> RpcResult<()> {
+    if !root.exists() {
+        return Ok(());
+    }
+
+    for entry in fs::read_dir(root).map_err(|error| format!("failed to read sessions dir {}: {error}", root.display()))? {
+        let entry = match entry {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        if path.is_dir() {
+            collect_session_files(&path, target_cwd, sessions)?;
+        } else if path.extension().and_then(|value| value.to_str()) == Some("jsonl") {
+            if let Some(summary) = parse_session_summary(&path, target_cwd) {
+                sessions.push(summary);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn parse_session_summary(path: &Path, target_cwd: &str) -> Option<serde_json::Value> {
+    let file = fs::File::open(path).ok()?;
+    let reader = BufReader::new(file);
+    let mut id = String::new();
+    let mut cwd = String::new();
+    let mut first_user = None::<String>;
+    let mut name = None::<String>;
+    let mut model = None::<String>;
+    let mut updated_at = None::<String>;
+    let mut message_count = 0usize;
+
+    for line in reader.lines().map_while(Result::ok) {
+        let value = serde_json::from_str::<serde_json::Value>(&line).ok()?;
+        if let Some(timestamp) = value.get("timestamp").and_then(|item| item.as_str()) {
+            updated_at = Some(timestamp.to_string());
+        }
+
+        match value.get("type").and_then(|item| item.as_str()) {
+            Some("session") => {
+                id = value.get("id").and_then(|item| item.as_str()).unwrap_or("").to_string();
+                cwd = value.get("cwd").and_then(|item| item.as_str()).unwrap_or("").replace('\\', "/");
+            }
+            Some("session_info") => {
+                name = value.get("name").and_then(|item| item.as_str()).map(str::to_string);
+            }
+            Some("model_change") => {
+                let provider = value.get("provider").and_then(|item| item.as_str()).unwrap_or("unknown");
+                let model_id = value.get("modelId").and_then(|item| item.as_str()).unwrap_or("unknown");
+                model = Some(format!("{provider}/{model_id}"));
+            }
+            Some("message") => {
+                message_count += 1;
+                let message = value.get("message")?;
+                if message.get("role").and_then(|item| item.as_str()) == Some("user") && first_user.is_none() {
+                    first_user = extract_session_text(message.get("content")).map(|text| text.chars().take(72).collect());
+                }
+                if message.get("role").and_then(|item| item.as_str()) == Some("assistant") {
+                    if let Some(model_id) = message.get("model").and_then(|item| item.as_str()) {
+                        model = Some(model_id.to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if id.is_empty() || cwd != target_cwd {
+        return None;
+    }
+
+    let fallback_name = first_user.unwrap_or_else(|| path.file_stem().and_then(|item| item.to_str()).unwrap_or("Untitled session").to_string());
+    Some(serde_json::json!({
+        "id": id,
+        "name": name.unwrap_or(fallback_name),
+        "cwd": cwd,
+        "updatedAt": updated_at.unwrap_or_else(|| "unknown".to_string()),
+        "model": model.unwrap_or_else(|| "unknown".to_string()),
+        "status": "idle",
+        "filePath": path.to_string_lossy(),
+        "messageCount": message_count
+    }))
+}
+
+fn extract_session_text(content: Option<&serde_json::Value>) -> Option<String> {
+    match content? {
+        serde_json::Value::String(value) => Some(value.clone()),
+        serde_json::Value::Array(items) => Some(
+            items
+                .iter()
+                .filter_map(|item| item.get("text").and_then(|text| text.as_str()))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+        _ => None,
+    }
 }
 
 fn safe_root(cwd: &str) -> RpcResult<PathBuf> {
@@ -330,6 +464,8 @@ pub fn run() {
             pi_rpc_start,
             pi_rpc_send,
             pi_rpc_stop,
+            pi_list_sessions,
+            pi_delete_session,
             pi_list_files,
             pi_read_file
         ])

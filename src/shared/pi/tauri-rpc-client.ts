@@ -13,6 +13,7 @@ import type {
   PiModel,
   PiSafetyEvent,
   PiSessionStats,
+  PiSessionSummary,
   PiSettings,
   PiSettingsUpdate,
   PiState,
@@ -89,6 +90,54 @@ export class TauriPiRpcClient implements PiClient {
 
   async newSession(): Promise<void> {
     await this.request({ type: "new_session" });
+  }
+
+  async continueRecent(): Promise<void> {
+    const sessions = await this.listSessions();
+    const recent = sessions[0];
+    if (recent?.filePath) await this.switchSession(recent.filePath);
+    else await this.newSession();
+  }
+
+  async switchSession(sessionPath: string): Promise<void> {
+    await this.request({ type: "switch_session", sessionPath });
+  }
+
+  async setSessionName(name: string): Promise<void> {
+    await this.request({ type: "set_session_name", name });
+  }
+
+  async deleteSession(sessionPath: string): Promise<void> {
+    await invoke("pi_delete_session", { sessionPath });
+  }
+
+  async exportHtml(outputPath?: string): Promise<string | null> {
+    const response = await this.request(outputPath ? { type: "export_html", outputPath } : { type: "export_html" });
+    const data = response.data as Record<string, unknown> | undefined;
+    return (data?.outputPath as string | undefined) ?? (data?.path as string | undefined) ?? null;
+  }
+
+  async listSessions(): Promise<PiSessionSummary[]> {
+    const state = await this.getState();
+    try {
+      const sessions = await invoke<unknown[]>("pi_list_sessions", { cwd: state.cwd });
+      return sessions.map(mapSessionSummary).filter((session): session is PiSessionSummary => Boolean(session));
+    } catch (error) {
+      console.warn("pi session list unavailable", error);
+      return state.sessionFile
+        ? [
+            {
+              id: state.sessionId ?? state.sessionFile,
+              name: state.sessionName ?? "Current session",
+              cwd: state.cwd,
+              updatedAt: "current",
+              model: state.model,
+              status: state.runState === "running" ? "running" : "idle",
+              filePath: state.sessionFile,
+            },
+          ]
+        : [];
+    }
   }
 
   async getState(): Promise<PiState> {
@@ -401,6 +450,25 @@ export class TauriPiRpcClient implements PiClient {
   private emit(event: PiClientEvent) {
     for (const listener of this.listeners) listener(event);
   }
+}
+
+function mapSessionSummary(raw: unknown): PiSessionSummary | null {
+  if (!raw || typeof raw !== "object") return null;
+  const session = raw as Record<string, unknown>;
+  const id = session.id;
+  const name = session.name;
+  const cwd = session.cwd;
+  if (typeof id !== "string" || typeof name !== "string" || typeof cwd !== "string") return null;
+  return {
+    id,
+    name,
+    cwd,
+    updatedAt: typeof session.updatedAt === "string" ? session.updatedAt : "unknown",
+    model: typeof session.model === "string" ? session.model : "unknown",
+    status: session.status === "running" ? "running" : "idle",
+    filePath: typeof session.filePath === "string" ? session.filePath : undefined,
+    messageCount: typeof session.messageCount === "number" ? session.messageCount : undefined,
+  };
 }
 
 function mapCommand(raw: unknown): PiCommand | null {
