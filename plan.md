@@ -237,14 +237,14 @@ SDK 重点：
 - [x] 模型选择器 UI 骨架（demo 数据版）
 - [x] 模型列表（mock + RPC `get_available_models`，失败 graceful fallback）
 - [x] 模型切换（Dropdown 列表 + RPC `set_model`）
-- [ ] 模型搜索/provider 分组
+- [x] 模型搜索/provider 分组（ModelSelector 与 SettingsDialog 均支持搜索和 provider 分组）
 - [x] thinking level 切换（Settings dialog + RPC `set_thinking_level`）
 - [x] 默认 provider/model 配置（PiClient settings 抽象，mock 可交互，RPC 同步当前 state）
-- [ ] API key / auth 状态展示
-- [ ] sessionDir 配置
-- [ ] compaction 配置
-- [ ] retry 配置
-- [ ] steering/followUp mode 配置
+- [x] API key / auth 状态展示（RPC 当前无 auth probe，展示 provider unknown/configured 状态与说明）
+- [x] sessionDir 配置（展示当前 session dir；写入配置待后续 SettingsManager/SDK）
+- [x] compaction 配置（运行时 `set_auto_compaction`）
+- [x] retry 配置（运行时 `set_auto_retry`）
+- [x] steering/followUp mode 配置（运行时 `set_steering_mode` / `set_follow_up_mode`）
 - [x] extensions/skills/prompts 配置入口（右侧 Inspector 命令/扩展面板；themes 待后续）
 
 RPC 重点：
@@ -265,8 +265,9 @@ SDK 重点：
 
 验收标准：
 
-- [x] 用户能切换模型（mock 完整；RPC 使用 `set_model`）
+- [x] 用户能切换模型（mock 完整；RPC 使用 `set_model`；模型选择支持搜索/provider 分组）
 - [x] 用户能切换 thinking level（mock 完整；RPC 使用 `set_thinking_level`）
+- [x] 用户能配置运行时 compaction/retry/steering/follow-up 行为
 - [x] 设置持久化或同步到 pi settings（当前为运行时同步；长期持久化待 SDK/SettingsManager）
 
 ---
@@ -525,6 +526,10 @@ RPC/SDK 下 extension UI 与桌面 UI 需要桥接。
 - 阶段 5：Tauri 新增 `pi_set_session_label` 追加 label entry，支持 bookmark/label
 - 阶段 5：Tauri RPC client 接入 `get_fork_messages` / `fork` / `clone`，fork/clone 后统一 refresh session UI
 - 阶段 5：Inspector 新增 `SessionTreePanel`，显示 active branch、tree nodes、branch summary，并提供 fork/clone/label 操作
+- 阶段 6：ModelSelector 增加模型搜索、provider 分组、空结果提示
+- 阶段 6：SettingsDialog 模型选择增加搜索框与 provider optgroup，使用 provider/model key 避免跨 provider model id 冲突
+- 阶段 6：SettingsDialog 增加 auto compaction、auto retry、steering mode、follow-up mode 运行时配置
+- 阶段 6：SettingsDialog 增加 auth status 与 sessionDir 展示；RPC auth probe/持久化写入待后续 SDK/SettingsManager
 - 阶段 4 验证：`pnpm build` / `pnpm lint` / `pnpm pi:rpc:smoke` / `cargo check` 通过
 - `pnpm build` / `pnpm lint` / `pnpm pi:rpc:smoke` / `cargo check` 再次通过
 

@@ -153,6 +153,15 @@ export const demoSettings: PiSettings = {
   cwd: demoPiState.cwd,
   clientMode: "mock",
   sessionFile: demoPiState.sessionFile,
+  sessionDir: "~/.pi/agent/sessions",
+  autoCompaction: true,
+  autoRetry: true,
+  steeringMode: "one-at-a-time",
+  followUpMode: "one-at-a-time",
+  auth: [
+    { provider: "anthropic", status: "configured", detail: "mock key present" },
+    { provider: "openai", status: "unknown", detail: "not checked in mock" },
+  ],
 };
 
 export const demoSessionStats: PiSessionStats = {

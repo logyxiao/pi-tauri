@@ -242,6 +242,12 @@ export class TauriPiRpcClient implements PiClient {
       cwd: state.cwd,
       clientMode: "tauri-rpc",
       sessionFile: state.sessionFile,
+      sessionDir: state.sessionFile ? dirname(state.sessionFile) : undefined,
+      autoCompaction: true,
+      autoRetry: true,
+      steeringMode: "one-at-a-time",
+      followUpMode: "one-at-a-time",
+      auth: inferAuthStatus(state.model),
     };
   }
 
@@ -255,6 +261,22 @@ export class TauriPiRpcClient implements PiClient {
 
     if (update.thinkingLevel) {
       await this.request({ type: "set_thinking_level", level: update.thinkingLevel });
+    }
+
+    if (typeof update.autoCompaction === "boolean") {
+      await this.request({ type: "set_auto_compaction", enabled: update.autoCompaction });
+    }
+
+    if (typeof update.autoRetry === "boolean") {
+      await this.request({ type: "set_auto_retry", enabled: update.autoRetry });
+    }
+
+    if (update.steeringMode) {
+      await this.request({ type: "set_steering_mode", mode: update.steeringMode });
+    }
+
+    if (update.followUpMode) {
+      await this.request({ type: "set_follow_up_mode", mode: update.followUpMode });
     }
 
     return this.getSettings();
@@ -591,6 +613,23 @@ function modelFromState(state: PiState): PiModel {
     name: state.model,
     reasoning: state.thinkingLevel !== "off",
   };
+}
+
+function dirname(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  const index = normalized.lastIndexOf("/");
+  return index > 0 ? normalized.slice(0, index) : normalized;
+}
+
+function inferAuthStatus(model: string) {
+  const provider = splitModelKey(model)[0] ?? "unknown";
+  return [
+    {
+      provider,
+      status: "unknown" as const,
+      detail: "RPC auth status not exposed; prompt run will surface auth errors.",
+    },
+  ];
 }
 
 function splitModelKey(value: string | undefined): [string | undefined, string | undefined] {

@@ -313,7 +313,9 @@ export class MockPiClient implements PiClient {
   }
 
   async updateSettings(update: PiSettingsUpdate): Promise<PiSettings> {
-    const nextModel = update.model ? demoModels.find((model) => model.id === update.model) : undefined;
+    const nextModel = update.model
+      ? demoModels.find((model) => model.id === update.model && (!update.provider || model.provider === update.provider))
+      : undefined;
     this.settings = {
       ...this.settings,
       ...update,

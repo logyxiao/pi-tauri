@@ -1,7 +1,7 @@
-import type { ReactNode } from "react";
-import { Brain, Folder, HardDrive, Settings } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { Brain, Folder, HardDrive, KeyRound, Repeat, Search, Settings, Workflow } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import type { PiModel, PiSettings, PiSettingsUpdate, PiState, PiThinkingLevel } from "@/shared/pi/types";
+import type { PiDeliveryMode, PiModel, PiSettings, PiSettingsUpdate, PiState, PiThinkingLevel } from "@/shared/pi/types";
 
 const thinkingLevels: PiThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
 
@@ -22,8 +22,10 @@ export function SettingsDialog({
   models,
   onUpdateSettings,
 }: SettingsDialogProps) {
-  const currentModel = settings?.model ?? modelIdFromState(state?.model);
+  const [modelQuery, setModelQuery] = useState("");
+  const currentModelKey = modelKey(settings?.provider, settings?.model) ?? modelKeyFromState(state?.model);
   const currentThinking = settings?.thinkingLevel ?? state?.thinkingLevel ?? "off";
+  const groupedModels = useMemo(() => groupModels(filterModels(models, modelQuery)), [models, modelQuery]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -38,20 +40,37 @@ export function SettingsDialog({
               <Brain size={14} /> Model
             </div>
             <label className="space-y-1 text-xs text-muted-foreground">
+              <span>Search models</span>
+              <div className="flex h-10 items-center gap-2 rounded-xl border border-border bg-surface px-3 text-muted-foreground">
+                <Search size={14} />
+                <input
+                  value={modelQuery}
+                  placeholder="provider, name, model id..."
+                  className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+                  onChange={(event) => setModelQuery(event.target.value)}
+                />
+              </div>
+            </label>
+
+            <label className="mt-3 block space-y-1 text-xs text-muted-foreground">
               <span>Active model</span>
               <select
-                value={currentModel ?? ""}
+                value={currentModelKey ?? ""}
                 className="h-10 w-full rounded-xl border border-border bg-surface px-3 text-sm text-foreground outline-none transition focus:border-primary"
                 onChange={(event) => {
-                  const next = models.find((model) => model.id === event.target.value);
+                  const next = models.find((model) => modelKey(model.provider, model.id) === event.target.value);
                   if (!next) return;
                   void onUpdateSettings({ model: next.id, provider: next.provider });
                 }}
               >
-                {models.map((model) => (
-                  <option key={`${model.provider}/${model.id}`} value={model.id}>
-                    {model.provider}/{model.id} — {model.name}
-                  </option>
+                {groupedModels.map((group) => (
+                  <optgroup key={group.provider} label={`${group.provider} (${group.models.length})`}>
+                    {group.models.map((model) => (
+                      <option key={modelKey(model.provider, model.id)} value={modelKey(model.provider, model.id)}>
+                        {model.id} — {model.name}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </label>
@@ -72,10 +91,62 @@ export function SettingsDialog({
             </label>
           </section>
 
+          <section className="rounded-2xl border border-border bg-background/60 p-4">
+            <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              <Workflow size={14} /> Runtime behavior
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <ToggleCard
+                icon={<Workflow size={14} />}
+                label="auto compaction"
+                description="Compact context when window nears limit."
+                enabled={settings?.autoCompaction ?? true}
+                onToggle={(enabled) => void onUpdateSettings({ autoCompaction: enabled })}
+              />
+              <ToggleCard
+                icon={<Repeat size={14} />}
+                label="auto retry"
+                description="Retry transient provider errors."
+                enabled={settings?.autoRetry ?? true}
+                onToggle={(enabled) => void onUpdateSettings({ autoRetry: enabled })}
+              />
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <SelectCard
+                label="steering mode"
+                value={settings?.steeringMode ?? "one-at-a-time"}
+                onChange={(value) => void onUpdateSettings({ steeringMode: value })}
+              />
+              <SelectCard
+                label="follow-up mode"
+                value={settings?.followUpMode ?? "one-at-a-time"}
+                onChange={(value) => void onUpdateSettings({ followUpMode: value })}
+              />
+            </div>
+          </section>
+
           <section className="grid gap-3 sm:grid-cols-2">
             <InfoCard icon={<Folder size={14} />} label="cwd" value={settings?.cwd ?? state?.cwd ?? "loading..."} />
             <InfoCard icon={<Settings size={14} />} label="client mode" value={settings?.clientMode ?? "loading"} />
+            <InfoCard icon={<HardDrive size={14} />} label="session dir" value={settings?.sessionDir ?? "default ~/.pi/agent/sessions"} wide />
             <InfoCard icon={<HardDrive size={14} />} label="session file" value={settings?.sessionFile ?? state?.sessionFile ?? "no session file"} wide />
+          </section>
+
+          <section className="rounded-2xl border border-border bg-background/60 p-4">
+            <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              <KeyRound size={14} /> Auth status
+            </div>
+            <div className="space-y-2">
+              {(settings?.auth?.length ? settings.auth : [{ provider: settings?.provider ?? "unknown", status: "unknown" as const, detail: "No auth probe available." }]).map((item) => (
+                <div key={item.provider} className="flex items-center justify-between gap-3 rounded-xl bg-surface p-3 text-xs">
+                  <div className="min-w-0">
+                    <div className="font-mono text-foreground">{item.provider}</div>
+                    <div className="truncate text-muted-foreground">{item.detail ?? "status unavailable"}</div>
+                  </div>
+                  <span className="rounded-full border border-border px-2 py-0.5 font-mono text-[10px] text-muted-foreground">{item.status}</span>
+                </div>
+              ))}
+            </div>
           </section>
 
           <div className="rounded-2xl border border-border bg-muted/45 p-3 text-xs leading-5 text-muted-foreground">
@@ -85,6 +156,55 @@ export function SettingsDialog({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+interface ToggleCardProps {
+  icon: ReactNode;
+  label: string;
+  description: string;
+  enabled: boolean;
+  onToggle: (enabled: boolean) => void;
+}
+
+function ToggleCard({ icon, label, description, enabled, onToggle }: ToggleCardProps) {
+  return (
+    <button
+      className="rounded-2xl border border-border bg-surface p-3 text-left transition hover:border-primary/35"
+      onClick={() => onToggle(!enabled)}
+    >
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          {icon} {label}
+        </div>
+        <span className={enabled ? "rounded-full border border-primary/30 px-2 py-0.5 text-[10px] text-primary" : "rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground"}>
+          {enabled ? "on" : "off"}
+        </span>
+      </div>
+      <div className="text-xs leading-5 text-muted-foreground">{description}</div>
+    </button>
+  );
+}
+
+interface SelectCardProps {
+  label: string;
+  value: PiDeliveryMode;
+  onChange: (value: PiDeliveryMode) => void;
+}
+
+function SelectCard({ label, value, onChange }: SelectCardProps) {
+  return (
+    <label className="block rounded-2xl border border-border bg-surface p-3 text-xs text-muted-foreground">
+      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.14em]">{label}</span>
+      <select
+        value={value}
+        className="h-9 w-full rounded-xl border border-border bg-background px-3 text-xs text-foreground outline-none transition focus:border-primary"
+        onChange={(event) => onChange(event.target.value as PiDeliveryMode)}
+      >
+        <option value="one-at-a-time">one-at-a-time</option>
+        <option value="all">all</option>
+      </select>
+    </label>
   );
 }
 
@@ -108,8 +228,29 @@ function InfoCard({ icon, label, value, wide }: InfoCardProps) {
   );
 }
 
-function modelIdFromState(value: string | undefined): string | undefined {
+function modelKey(provider: string | undefined, model: string | undefined): string | undefined {
+  if (!provider || !model) return undefined;
+  return `${provider}/${model}`;
+}
+
+function modelKeyFromState(value: string | undefined): string | undefined {
   if (!value) return undefined;
-  const parts = value.split("/");
-  return parts[parts.length - 1];
+  return value.includes("/") ? value : undefined;
+}
+
+function filterModels(models: PiModel[], query: string): PiModel[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return models;
+  return models.filter((model) => [model.provider, model.id, model.name, model.api].filter(Boolean).join(" ").toLowerCase().includes(q));
+}
+
+function groupModels(models: PiModel[]): Array<{ provider: string; models: PiModel[] }> {
+  const groups = new Map<string, PiModel[]>();
+  for (const model of models) groups.set(model.provider, [...(groups.get(model.provider) ?? []), model]);
+  return Array.from(groups.entries())
+    .map(([provider, providerModels]) => ({
+      provider,
+      models: [...providerModels].sort((left, right) => left.name.localeCompare(right.name)),
+    }))
+    .sort((left, right) => left.provider.localeCompare(right.provider));
 }

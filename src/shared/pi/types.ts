@@ -33,6 +33,14 @@ export interface PiModel {
   maxTokens?: number;
 }
 
+export type PiDeliveryMode = "all" | "one-at-a-time";
+
+export interface PiAuthStatus {
+  provider: string;
+  status: "unknown" | "configured" | "missing";
+  detail?: string;
+}
+
 export interface PiSettings {
   model?: string;
   provider?: string;
@@ -40,12 +48,22 @@ export interface PiSettings {
   cwd: string;
   clientMode: "mock" | "tauri-rpc";
   sessionFile?: string;
+  sessionDir?: string;
+  autoCompaction?: boolean;
+  autoRetry?: boolean;
+  steeringMode?: PiDeliveryMode;
+  followUpMode?: PiDeliveryMode;
+  auth?: PiAuthStatus[];
 }
 
 export interface PiSettingsUpdate {
   model?: string;
   provider?: string;
   thinkingLevel?: PiThinkingLevel;
+  autoCompaction?: boolean;
+  autoRetry?: boolean;
+  steeringMode?: PiDeliveryMode;
+  followUpMode?: PiDeliveryMode;
 }
 
 export interface PiSessionSummary {
