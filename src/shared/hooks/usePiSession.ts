@@ -10,9 +10,11 @@ import type {
   PiFilePreview,
   PiMessage,
   PiModel,
+  PiForkMessage,
   PiSafetyEvent,
   PiSessionStats,
   PiSessionSummary,
+  PiSessionTree,
   PiSettings,
   PiSettingsUpdate,
   PiState,
@@ -57,6 +59,8 @@ export function usePiSession() {
   const [messages, setMessages] = useState<PiMessage[]>([]);
   const [state, setState] = useState<PiState | null>(null);
   const [stats, setStats] = useState<PiSessionStats | null>(null);
+  const [sessionTree, setSessionTree] = useState<PiSessionTree | null>(null);
+  const [forkMessages, setForkMessages] = useState<PiForkMessage[]>([]);
   const [sessions, setSessions] = useState<PiSessionSummary[]>([]);
   const [workspacePaths, setWorkspacePaths] = useState<string[]>([]);
   const [models, setModels] = useState<PiModel[]>([]);
@@ -80,6 +84,8 @@ export function usePiSession() {
         nextMessages,
         nextState,
         nextStats,
+        nextTree,
+        nextForkMessages,
         nextSessions,
         nextModels,
         nextSettings,
@@ -93,6 +99,8 @@ export function usePiSession() {
         client.getMessages(),
         client.getState(),
         client.getSessionStats(),
+        client.getSessionTree().catch(() => ({ nodes: [] })),
+        client.getForkMessages().catch(() => []),
         client.listSessions(),
         client.listModels(),
         client.getSettings(),
@@ -109,6 +117,8 @@ export function usePiSession() {
         ? (await Promise.all(workspacePaths.map((cwd) => client.listSessions({ cwd })))).flat()
         : [];
       setStats(nextStats);
+      setSessionTree(nextTree);
+      setForkMessages(nextForkMessages);
       setSessions(mergeSessions(nextSessions, workspaceSessions));
       setModels(nextModels);
       setSettings(nextSettings);
@@ -347,6 +357,43 @@ export function usePiSession() {
     }
   }
 
+  async function forkSession(entryId: string) {
+    try {
+      const result = await client.forkSession(entryId);
+      activeAssistantIdRef.current = null;
+      setFilePreview(null);
+      setError(result.cancelled ? "Fork cancelled by extension." : null);
+      await refresh();
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setStatus("error");
+    }
+  }
+
+  async function cloneSession() {
+    try {
+      const result = await client.cloneSession();
+      activeAssistantIdRef.current = null;
+      setFilePreview(null);
+      setError(result.cancelled ? "Clone cancelled by extension." : null);
+      await refresh();
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setStatus("error");
+    }
+  }
+
+  async function setSessionEntryLabel(entryId: string, label?: string) {
+    try {
+      await client.setSessionEntryLabel(entryId, label);
+      setError(null);
+      setSessionTree(await client.getSessionTree().catch(() => ({ nodes: [] })));
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setStatus("error");
+    }
+  }
+
   async function updateSettings(update: PiSettingsUpdate) {
     try {
       const nextSettings = await client.updateSettings(update);
@@ -408,6 +455,8 @@ export function usePiSession() {
     messages,
     state,
     stats,
+    sessionTree,
+    forkMessages,
     sessions,
     workspacePaths,
     models,
@@ -434,6 +483,9 @@ export function usePiSession() {
     deleteSession,
     exportHtml,
     openWorkspaceFolder,
+    forkSession,
+    cloneSession,
+    setSessionEntryLabel,
     updateSettings,
     executeCommand,
     recordSafetyEvent,

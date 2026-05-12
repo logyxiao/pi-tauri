@@ -59,6 +59,41 @@ export interface PiSessionSummary {
   messageCount?: number;
 }
 
+export type PiSessionTreeNodeType =
+  | "session"
+  | "message"
+  | "model_change"
+  | "thinking_level_change"
+  | "compaction"
+  | "branch_summary"
+  | "custom"
+  | "unknown";
+
+export interface PiSessionTreeNode {
+  id: string;
+  parentId?: string;
+  type: PiSessionTreeNodeType;
+  role?: "user" | "assistant" | "system" | "toolResult" | "custom";
+  title: string;
+  timestamp?: string;
+  label?: string;
+  summary?: string;
+  depth: number;
+  childrenCount: number;
+  isLeaf: boolean;
+}
+
+export interface PiSessionTree {
+  sessionFile?: string;
+  nodes: PiSessionTreeNode[];
+  activeLeafId?: string;
+}
+
+export interface PiForkMessage {
+  entryId: string;
+  text: string;
+}
+
 export interface PiFileEntry {
   path: string;
   name: string;

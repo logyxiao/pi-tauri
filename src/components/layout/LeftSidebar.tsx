@@ -3,16 +3,11 @@ import {
   ChevronDown,
   ChevronRight,
   CircleDot,
-  Download,
   Folder,
-  GitFork,
+  FolderPlus,
   PanelLeftClose,
   PanelLeftOpen,
-  Pencil,
-  Plus,
-  Search,
   Settings,
-  Sparkles,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,16 +18,12 @@ import type { PiSessionSummary } from "@/shared/pi/types";
 interface LeftSidebarProps {
   collapsed: boolean;
   sessions: PiSessionSummary[];
-  openedWorkspaceCount: number;
+  openedWorkspacePaths: string[];
   currentSessionId?: string;
   onToggle: () => void;
-  onNewSession: () => void;
-  onContinueRecent: () => Promise<void> | void;
   onOpenWorkspaceFolder: () => Promise<void> | void;
   onSwitchSession: (sessionPath: string) => Promise<void> | void;
-  onSetSessionName: (name: string) => Promise<void> | void;
   onDeleteSession: (sessionPath: string) => Promise<void> | void;
-  onExportHtml: () => Promise<string | null> | string | null;
   onOpenSettings: () => void;
 }
 
@@ -46,28 +37,17 @@ interface ProjectSessionGroup {
 export function LeftSidebar({
   collapsed,
   sessions,
-  openedWorkspaceCount,
+  openedWorkspacePaths,
   currentSessionId,
   onToggle,
-  onNewSession,
-  onContinueRecent,
   onOpenWorkspaceFolder,
   onSwitchSession,
-  onSetSessionName,
   onDeleteSession,
-  onExportHtml,
   onOpenSettings,
 }: LeftSidebarProps) {
-  const groups = useMemo(() => groupSessionsByProject(sessions), [sessions]);
+  const groups = useMemo(() => groupSessionsByProject(sessions, openedWorkspacePaths), [sessions, openedWorkspacePaths]);
   const selectedGroup = groups.find((group) => group.sessions.some((session) => isSelectedSession(session, currentSessionId)));
   const [closedProjects, setClosedProjects] = useState<Set<string>>(() => new Set());
-
-  async function renameCurrentSession() {
-    const current = sessions.find((session) => session.id === currentSessionId) ?? sessions[0];
-    const name = window.prompt("Session name", current?.name ?? "");
-    if (name == null) return;
-    await onSetSessionName(name);
-  }
 
   async function deleteSession(session: PiSessionSummary) {
     if (!session.filePath) return;
@@ -92,44 +72,43 @@ export function LeftSidebar({
         collapsed ? "w-[4.5rem]" : "w-72",
       )}
     >
-      <div className={cn("flex items-center p-4", collapsed ? "justify-center" : "justify-between")}>
-        <div className="flex items-center gap-3">
-          <div className="flex size-9 items-center justify-center rounded-md border border-primary/45 bg-transparent text-primary shadow-[inset_2px_0_0_var(--primary)]">
-            <Sparkles size={18} />
-          </div>
-          {!collapsed ? (
-            <div>
-              <div className="text-sm font-semibold">Pi Desktop</div>
-              <div className="text-xs text-muted-foreground">projects, sessions, tools</div>
-            </div>
-          ) : null}
-        </div>
+      <div className={cn("flex items-center border-b border-border/70 p-3", collapsed ? "justify-center" : "justify-between")}>
         {!collapsed ? (
-          <div className="flex items-center gap-1">
-            <Button size="icon" variant="ghost" aria-label="Toggle sidebar" onClick={onToggle}>
-              <PanelLeftClose size={17} />
-            </Button>
-            <Button size="icon" variant="ghost" aria-label="Settings" onClick={onOpenSettings}>
-              <Settings size={17} />
-            </Button>
+          <div className="min-w-0">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Workspaces</div>
+            <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+              {openedWorkspacePaths.length ? `${openedWorkspacePaths.length} opened` : "current workspace"}
+            </div>
           </div>
         ) : null}
+        <div className={cn("flex items-center", collapsed ? "flex-col gap-2" : "gap-1")}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button size="icon" variant="ghost" aria-label="Open workspace folder" onClick={() => void onOpenWorkspaceFolder()}>
+                <FolderPlus size={16} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Open folder</TooltipContent>
+          </Tooltip>
+          {!collapsed ? (
+            <>
+              <Button size="icon" variant="ghost" aria-label="Settings" onClick={onOpenSettings}>
+                <Settings size={16} />
+              </Button>
+              <Button size="icon" variant="ghost" aria-label="Collapse sidebar" onClick={onToggle}>
+                <PanelLeftClose size={16} />
+              </Button>
+            </>
+          ) : null}
+        </div>
       </div>
 
       {collapsed ? (
-        <div className="flex flex-col items-center gap-2 px-3">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button size="icon" variant="primary" aria-label="New session" onClick={onNewSession}>
-                <Plus size={16} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>New session</TooltipContent>
-          </Tooltip>
+        <div className="mt-2 flex flex-col items-center gap-2 px-3">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button size="icon" variant="ghost" aria-label="Settings" onClick={onOpenSettings}>
-                <Settings size={17} />
+                <Settings size={16} />
               </Button>
             </TooltipTrigger>
             <TooltipContent>Settings</TooltipContent>
@@ -137,60 +116,22 @@ export function LeftSidebar({
           <Tooltip>
             <TooltipTrigger asChild>
               <Button size="icon" variant="ghost" aria-label="Expand sidebar" onClick={onToggle}>
-                <PanelLeftOpen size={17} />
+                <PanelLeftOpen size={16} />
               </Button>
             </TooltipTrigger>
             <TooltipContent>Expand sidebar</TooltipContent>
           </Tooltip>
         </div>
-      ) : (
-        <>
-          <div className="space-y-2 px-4 pb-3">
-            <Button className="w-full justify-start" variant="primary" onClick={onNewSession}>
-              <Plus size={16} /> New session
-            </Button>
-            <div className="grid grid-cols-3 gap-1">
-              <Button size="sm" variant="ghost" onClick={() => void onContinueRecent()}>
-                Recent
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => void renameCurrentSession()}>
-                <Pencil size={13} /> Name
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={async () => {
-                  const path = await onExportHtml();
-                  if (path) console.info("pi session exported", path);
-                }}
-              >
-                <Download size={13} /> HTML
-              </Button>
-            </div>
-          </div>
+      ) : null}
 
-          <div className="px-4 pb-3">
-            <div className="flex h-9 items-center gap-2 rounded-md border border-border bg-surface/70 px-3 font-mono text-muted-foreground">
-              <Search size={15} />
-              <span className="text-xs">Search projects, sessions...</span>
-            </div>
-          </div>
-        </>
-      )}
-
-      <div className="flex-1 overflow-auto px-3 pb-3">
+      <div className="flex-1 overflow-auto px-2 py-2">
         {!collapsed ? (
-          <div className="mb-2 flex items-center justify-between gap-2 px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            <span>Workspaces</span>
-            <div className="flex items-center gap-2">
-              <button className="font-mono text-[10px] normal-case tracking-normal text-primary hover:underline" onClick={() => void onOpenWorkspaceFolder()}>
-                Open folder
-              </button>
-              <span title={`${openedWorkspaceCount} opened folders`}>{groups.length}</span>
-            </div>
+          <div className="mb-2 flex items-center justify-between px-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            <span>Folders</span>
+            <span title={`${openedWorkspacePaths.length} opened folders`}>{groups.length}</span>
           </div>
         ) : null}
-        <div className="space-y-1.5">
+        <div className="space-y-1">
           {groups.length ? (
             groups.map((group) => {
               const selectedProject = group.cwd === selectedGroup?.cwd;
@@ -201,54 +142,50 @@ export function LeftSidebar({
                 <div
                   key={group.cwd}
                   className={cn(
-                    "rounded-md border transition",
-                    selectedProject ? "border-primary/35 bg-surface/70" : "border-transparent hover:border-border hover:bg-surface/50",
+                    "rounded-lg border transition",
+                    selectedProject ? "border-primary/30 bg-surface/70" : "border-transparent hover:border-border hover:bg-surface/45",
                   )}
                 >
-                  <button className="flex w-full items-center gap-2 px-2.5 py-2 text-left" onClick={() => toggleProject(group.cwd)}>
-                    {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                    <Folder size={15} className={selectedProject ? "text-primary" : "text-muted-foreground"} />
+                  <button className="flex w-full items-center gap-2 px-2 py-1.5 text-left" onClick={() => toggleProject(group.cwd)}>
+                    {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                    <Folder size={14} className={selectedProject ? "text-primary" : "text-muted-foreground"} />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium">{group.label}</div>
-                      <div className="truncate font-mono text-[10px] text-muted-foreground" title={group.cwd}>
+                      <div className="truncate text-xs font-medium">{group.label}</div>
+                      <div className="truncate font-mono text-[9px] text-muted-foreground" title={group.cwd}>
                         {group.cwd}
                       </div>
                     </div>
-                    <div className="rounded-full border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    <div className="rounded-full border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground">
                       {group.sessions.length}
                     </div>
                   </button>
                   {open ? (
-                    <div className="space-y-0.5 border-t border-border/70 p-1 pl-5">
-                      {group.sessions.map((session) => (
-                        <SessionRow
-                          key={session.id}
-                          session={session}
-                          selected={isSelectedSession(session, currentSessionId)}
-                          onSwitchSession={onSwitchSession}
-                          onDeleteSession={deleteSession}
-                        />
-                      ))}
+                    <div className="space-y-0.5 border-t border-border/60 p-1 pl-5">
+                      {group.sessions.length ? (
+                        group.sessions.map((session) => (
+                          <SessionRow
+                            key={session.id}
+                            session={session}
+                            selected={isSelectedSession(session, currentSessionId)}
+                            onSwitchSession={onSwitchSession}
+                            onDeleteSession={deleteSession}
+                          />
+                        ))
+                      ) : (
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">No sessions in this folder.</div>
+                      )}
                     </div>
                   ) : null}
                 </div>
               );
             })
           ) : (
-            <div className={collapsed ? "px-0" : "rounded-md border border-border bg-surface/70 p-3 text-xs text-muted-foreground"}>
-              {!collapsed ? "No saved sessions for opened workspace." : null}
+            <div className={collapsed ? "px-0" : "rounded-lg border border-border bg-surface/60 p-3 text-xs text-muted-foreground"}>
+              {!collapsed ? "Open folder to load workspace sessions." : null}
             </div>
           )}
         </div>
       </div>
-
-      {!collapsed ? (
-        <div className="border-t border-border p-3">
-          <Button className="w-full justify-start" variant="ghost">
-            <GitFork size={16} /> Session tree
-          </Button>
-        </div>
-      ) : null}
     </aside>
   );
 }
@@ -269,29 +206,29 @@ function SessionRow({
     <div
       className={cn(
         "group rounded-md border transition",
-        selected ? "border-primary/45 bg-card shadow-[inset_2px_0_0_var(--primary)]" : "border-transparent hover:border-border hover:bg-card/80",
+        selected ? "border-primary/35 bg-card shadow-[inset_2px_0_0_var(--primary)]" : "border-transparent hover:border-border hover:bg-card/80",
       )}
     >
-      <div className="flex items-center gap-1.5 pr-1">
+      <div className="flex items-center gap-1 pr-1">
         <button className="min-w-0 flex-1 px-2 py-1.5 text-left" onClick={() => void onSwitchSession(switchTarget)}>
           <div className="flex items-center gap-1.5">
-            <CircleDot size={10} className={session.status === "running" ? "text-primary" : "text-muted-foreground"} />
+            <CircleDot size={9} className={session.status === "running" ? "text-primary" : "text-muted-foreground"} />
             <span className="truncate text-xs font-medium leading-snug">{session.name}</span>
           </div>
-          <div className="mt-0.5 flex items-center gap-2 pl-[18px] font-mono text-[10px] text-muted-foreground">
+          <div className="mt-0.5 flex items-center gap-2 pl-[17px] font-mono text-[9px] text-muted-foreground">
             <span className="truncate">{session.updatedAt}</span>
             <span>{session.messageCount ?? 0} msgs</span>
           </div>
         </button>
         {session.filePath ? (
           <Button
-            className="opacity-0 transition group-hover:opacity-100"
+            className="size-7 opacity-0 transition group-hover:opacity-100"
             size="icon"
             variant="ghost"
             aria-label={`Delete ${session.name}`}
             onClick={() => void onDeleteSession(session)}
           >
-            <Trash2 size={12} />
+            <Trash2 size={11} />
           </Button>
         ) : null}
       </div>
@@ -317,13 +254,13 @@ function CollapsedProjectGroup({
       <TooltipTrigger asChild>
         <button
           className={cn(
-            "flex size-11 items-center justify-center rounded-md border transition",
+            "flex size-10 items-center justify-center rounded-md border transition",
             selected ? "border-primary/45 bg-surface/70 shadow-[inset_2px_0_0_var(--primary)]" : "border-transparent hover:bg-surface/70",
           )}
           disabled={!switchTarget}
           onClick={() => switchTarget && void onSwitchSession(switchTarget)}
         >
-          <Folder size={16} className={selected ? "text-primary" : "text-muted-foreground"} />
+          <Folder size={15} className={selected ? "text-primary" : "text-muted-foreground"} />
         </button>
       </TooltipTrigger>
       <TooltipContent>
@@ -333,8 +270,11 @@ function CollapsedProjectGroup({
   );
 }
 
-function groupSessionsByProject(sessions: PiSessionSummary[]): ProjectSessionGroup[] {
+function groupSessionsByProject(sessions: PiSessionSummary[], openedWorkspacePaths: string[]): ProjectSessionGroup[] {
   const map = new Map<string, PiSessionSummary[]>();
+  for (const cwd of openedWorkspacePaths) {
+    map.set(normalizeProjectPath(cwd), []);
+  }
   for (const session of sessions) {
     const cwd = normalizeProjectPath(session.cwd || "Unknown project");
     map.set(cwd, [...(map.get(cwd) ?? []), session]);

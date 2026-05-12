@@ -1,7 +1,8 @@
-import { Activity, AlertTriangle, GitFork, HardDrive, Loader2, Terminal } from "lucide-react";
+import { Activity, AlertTriangle, HardDrive, Loader2, Terminal } from "lucide-react";
 import { ExtensionsPanel } from "@/components/extensions/ExtensionsPanel";
 import { FilesPreviewPanel } from "@/components/files/FilesPreviewPanel";
 import { SafetyPanel } from "@/components/safety/SafetyPanel";
+import { SessionTreePanel } from "@/components/session/SessionTreePanel";
 import { ToolResultPanel } from "@/components/tools/ToolResultPanel";
 import type {
   PiCommand,
@@ -10,9 +11,11 @@ import type {
   PiExtensionPanel,
   PiFileEntry,
   PiFilePreview,
+  PiForkMessage,
   PiMessage,
   PiSafetyEvent,
   PiSessionStats,
+  PiSessionTree,
   PiSettings,
   PiState,
   PiToolCall,
@@ -23,6 +26,8 @@ interface RightInspectorProps {
   messages: PiMessage[];
   state: PiState | null;
   stats: PiSessionStats | null;
+  sessionTree: PiSessionTree | null;
+  forkMessages: PiForkMessage[];
   settings: PiSettings | null;
   commands: PiCommand[];
   extensionPanels: PiExtensionPanel[];
@@ -35,6 +40,9 @@ interface RightInspectorProps {
   error: string | null;
   status: string;
   onSelectFile: (path: string) => Promise<void> | void;
+  onForkSession: (entryId: string) => Promise<void> | void;
+  onCloneSession: () => Promise<void> | void;
+  onSetSessionEntryLabel: (entryId: string, label?: string) => Promise<void> | void;
   onRetry: () => Promise<void> | void;
 }
 
@@ -43,6 +51,8 @@ export function RightInspector({
   messages,
   state,
   stats,
+  sessionTree,
+  forkMessages,
   settings,
   commands,
   extensionPanels,
@@ -55,6 +65,9 @@ export function RightInspector({
   error,
   status,
   onSelectFile,
+  onForkSession,
+  onCloneSession,
+  onSetSessionEntryLabel,
   onRetry,
 }: RightInspectorProps) {
   const activeTools = messages.flatMap((message) => message.tools ?? []).slice(-6).reverse();
@@ -189,15 +202,13 @@ export function RightInspector({
           </div>
         </section>
 
-        <section className="rounded-2xl border border-border bg-background/60 p-3">
-          <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            <GitFork size={14} /> Session tree
-          </div>
-          <div className="space-y-2 text-xs text-muted-foreground">
-            <div className="rounded-xl bg-surface p-3">root → design summary → project init</div>
-            <div className="rounded-xl bg-primary/10 p-3 text-primary">current leaf: app shell</div>
-          </div>
-        </section>
+        <SessionTreePanel
+          tree={sessionTree}
+          forkMessages={forkMessages}
+          onForkSession={onForkSession}
+          onCloneSession={onCloneSession}
+          onSetLabel={onSetSessionEntryLabel}
+        />
       </div>
     </aside>
   );

@@ -1,10 +1,12 @@
 use std::{
     fs,
+    fs::OpenOptions,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use tauri::{AppHandle, Emitter, State};
@@ -94,7 +96,7 @@ fn pi_list_sessions(cwd: String) -> RpcResult<Vec<serde_json::Value>> {
     let target_cwd = if cwd.trim().is_empty() {
         None
     } else {
-        Some(safe_root(&cwd)?.to_string_lossy().replace('\\', "/"))
+        Some(normalize_session_path(&safe_root(&cwd)?.to_string_lossy()))
     };
     let sessions_root = default_sessions_root()?;
     let mut sessions = Vec::new();
@@ -117,6 +119,133 @@ fn pi_delete_session(session_path: String) -> RpcResult<()> {
         return Err("session delete path must be a jsonl file inside pi sessions dir".to_string());
     }
     fs::remove_file(path).map_err(|error| format!("failed to delete session: {error}"))
+}
+
+#[tauri::command]
+fn pi_session_tree(session_path: String) -> RpcResult<serde_json::Value> {
+    let path = safe_session_path(&session_path)?;
+    let file = fs::File::open(&path).map_err(|error| format!("failed to open session file: {error}"))?;
+    let reader = BufReader::new(file);
+    let mut nodes = Vec::<serde_json::Value>::new();
+    let mut parent_ids = Vec::<(String, Option<String>)>::new();
+    let mut labels = std::collections::HashMap::<String, Option<String>>::new();
+
+    for line in reader.lines().map_while(Result::ok) {
+        let value = match serde_json::from_str::<serde_json::Value>(&line) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        let entry_type = value.get("type").and_then(|item| item.as_str()).unwrap_or("unknown");
+        if entry_type == "label" {
+            if let Some(target_id) = value.get("targetId").and_then(|item| item.as_str()) {
+                labels.insert(target_id.to_string(), value.get("label").and_then(|item| item.as_str()).map(str::to_string));
+            }
+            continue;
+        }
+
+        let id = value
+            .get("id")
+            .and_then(|item| item.as_str())
+            .or_else(|| if entry_type == "session" { value.get("id").and_then(|item| item.as_str()) } else { None })
+            .unwrap_or("")
+            .to_string();
+        if id.is_empty() {
+            continue;
+        }
+        let parent_id = value.get("parentId").and_then(|item| item.as_str()).map(str::to_string);
+        let role = value
+            .get("message")
+            .and_then(|message| message.get("role"))
+            .and_then(|item| item.as_str())
+            .map(str::to_string);
+        let summary = value.get("summary").and_then(|item| item.as_str()).map(str::to_string);
+        let title = session_tree_title(entry_type, role.as_deref(), &value);
+        nodes.push(serde_json::json!({
+            "id": id,
+            "parentId": parent_id,
+            "type": session_tree_type(entry_type),
+            "role": role,
+            "title": title,
+            "timestamp": value.get("timestamp").and_then(|item| item.as_str()),
+            "summary": summary,
+            "depth": 0,
+            "childrenCount": 0,
+            "isLeaf": false
+        }));
+        parent_ids.push((id, parent_id));
+    }
+
+    let mut children_count = std::collections::HashMap::<String, usize>::new();
+    for (_, parent_id) in &parent_ids {
+        if let Some(parent_id) = parent_id {
+            *children_count.entry(parent_id.clone()).or_insert(0) += 1;
+        }
+    }
+    let parent_map = parent_ids.iter().cloned().collect::<std::collections::HashMap<_, _>>();
+
+    for node in &mut nodes {
+        let id = node.get("id").and_then(|item| item.as_str()).unwrap_or("").to_string();
+        let mut depth = 0usize;
+        let mut cursor = parent_map.get(&id).and_then(|item| item.clone());
+        while let Some(parent_id) = cursor {
+            depth += 1;
+            cursor = parent_map.get(&parent_id).and_then(|item| item.clone());
+        }
+        let count = children_count.get(&id).copied().unwrap_or(0);
+        if let Some(object) = node.as_object_mut() {
+            object.insert("depth".to_string(), serde_json::json!(depth));
+            object.insert("childrenCount".to_string(), serde_json::json!(count));
+            object.insert("isLeaf".to_string(), serde_json::json!(count == 0));
+            if let Some(Some(label)) = labels.get(&id) {
+                object.insert("label".to_string(), serde_json::json!(label));
+            }
+        }
+    }
+
+    let active_leaf_id = nodes
+        .iter()
+        .rev()
+        .find(|node| node.get("isLeaf").and_then(|item| item.as_bool()).unwrap_or(false))
+        .and_then(|node| node.get("id").and_then(|item| item.as_str()))
+        .map(str::to_string);
+
+    Ok(serde_json::json!({
+        "sessionFile": path.to_string_lossy(),
+        "activeLeafId": active_leaf_id,
+        "nodes": nodes
+    }))
+}
+
+#[tauri::command]
+fn pi_set_session_label(session_path: String, target_id: String, label: Option<String>) -> RpcResult<()> {
+    let path = safe_session_path(&session_path)?;
+    let file = fs::File::open(&path).map_err(|error| format!("failed to read session file: {error}"))?;
+    let reader = BufReader::new(file);
+    let mut last_entry_id = None::<String>;
+    for line in reader.lines().map_while(Result::ok) {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
+            if let Some(id) = value.get("id").and_then(|item| item.as_str()) {
+                last_entry_id = Some(id.to_string());
+            }
+        }
+    }
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("clock error: {error}"))?
+        .as_millis();
+    let entry = serde_json::json!({
+        "type": "label",
+        "id": format!("label-{now_ms}"),
+        "parentId": last_entry_id,
+        "timestamp": unix_ms_to_iso(now_ms),
+        "targetId": target_id,
+        "label": label
+    });
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .map_err(|error| format!("failed to append label: {error}"))?;
+    writeln!(file, "{}", entry).map_err(|error| format!("failed to write label: {error}"))
 }
 
 #[tauri::command]
@@ -232,6 +361,19 @@ fn spawn_stderr_reader(app: AppHandle, stderr: std::process::ChildStderr) {
     });
 }
 
+fn safe_session_path(session_path: &str) -> RpcResult<PathBuf> {
+    let sessions_root = default_sessions_root()?
+        .canonicalize()
+        .map_err(|error| format!("failed to resolve sessions dir: {error}"))?;
+    let path = PathBuf::from(session_path)
+        .canonicalize()
+        .map_err(|error| format!("failed to resolve session path: {error}"))?;
+    if !path.starts_with(&sessions_root) || path.extension().and_then(|value| value.to_str()) != Some("jsonl") {
+        return Err("session path must be a jsonl file inside pi sessions dir".to_string());
+    }
+    Ok(path)
+}
+
 fn default_sessions_root() -> RpcResult<PathBuf> {
     let home = std::env::var("PI_HOME")
         .map(PathBuf::from)
@@ -283,7 +425,13 @@ fn parse_session_summary(path: &Path, target_cwd: Option<&str>) -> Option<serde_
         match value.get("type").and_then(|item| item.as_str()) {
             Some("session") => {
                 id = value.get("id").and_then(|item| item.as_str()).unwrap_or("").to_string();
-                cwd = value.get("cwd").and_then(|item| item.as_str()).unwrap_or("").replace('\\', "/");
+                cwd = value
+                    .get("cwd")
+                    .and_then(|item| item.as_str())
+                    .unwrap_or("")
+                    .replace('\\', "/")
+                    .trim_end_matches('/')
+                    .to_string();
             }
             Some("session_info") => {
                 name = value.get("name").and_then(|item| item.as_str()).map(str::to_string);
@@ -309,7 +457,7 @@ fn parse_session_summary(path: &Path, target_cwd: Option<&str>) -> Option<serde_
         }
     }
 
-    if id.is_empty() || target_cwd.is_some_and(|target| cwd != target) {
+    if id.is_empty() || target_cwd.is_some_and(|target| normalize_session_path(&cwd) != target) {
         return None;
     }
 
@@ -324,6 +472,47 @@ fn parse_session_summary(path: &Path, target_cwd: Option<&str>) -> Option<serde_
         "filePath": path.to_string_lossy(),
         "messageCount": message_count
     }))
+}
+
+fn session_tree_type(entry_type: &str) -> &str {
+    match entry_type {
+        "session" | "message" | "model_change" | "thinking_level_change" | "compaction" | "branch_summary" | "custom" => entry_type,
+        _ => "unknown",
+    }
+}
+
+fn session_tree_title(entry_type: &str, role: Option<&str>, value: &serde_json::Value) -> String {
+    match entry_type {
+        "session" => "Session start".to_string(),
+        "message" => extract_session_text(value.get("message").and_then(|message| message.get("content")))
+            .map(|text| text.chars().take(96).collect())
+            .unwrap_or_else(|| role.unwrap_or("message").to_string()),
+        "model_change" => format!(
+            "Model: {}/{}",
+            value.get("provider").and_then(|item| item.as_str()).unwrap_or("unknown"),
+            value.get("modelId").and_then(|item| item.as_str()).unwrap_or("unknown")
+        ),
+        "thinking_level_change" => format!(
+            "Thinking: {}",
+            value.get("thinkingLevel").and_then(|item| item.as_str()).unwrap_or("unknown")
+        ),
+        "compaction" => "Compaction".to_string(),
+        "branch_summary" => "Branch summary".to_string(),
+        _ => entry_type.to_string(),
+    }
+}
+
+fn unix_ms_to_iso(ms: u128) -> String {
+    format!("unix-ms:{ms}")
+}
+
+fn normalize_session_path(path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    let without_unc_prefix = normalized
+        .strip_prefix("//?/")
+        .or_else(|| normalized.strip_prefix("/?/"))
+        .unwrap_or(&normalized);
+    without_unc_prefix.trim_end_matches('/').to_ascii_lowercase()
 }
 
 fn extract_session_text(content: Option<&serde_json::Value>) -> Option<String> {
@@ -471,6 +660,8 @@ pub fn run() {
             pi_rpc_stop,
             pi_list_sessions,
             pi_delete_session,
+            pi_session_tree,
+            pi_set_session_label,
             pi_list_files,
             pi_read_file
         ])

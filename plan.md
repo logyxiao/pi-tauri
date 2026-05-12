@@ -198,13 +198,13 @@ RPC 重点：
 
 任务：
 
-- [ ] 解析 session JSONL tree
-- [ ] 实现 `SessionTree`
-- [ ] 支持 branch path 展示
-- [ ] 支持 fork 指定 user message
-- [ ] 支持 clone 当前分支
-- [ ] 支持 label/bookmark
-- [ ] 支持 branch summary 展示
+- [x] 解析 session JSONL tree（Tauri `pi_session_tree` 解析 message / branch_summary / compaction / label 等 entry）
+- [x] 实现 `SessionTree`（Inspector `SessionTreePanel`）
+- [x] 支持 branch path 展示（active leaf 回溯 path）
+- [x] 支持 fork 指定 user message（RPC `fork`）
+- [x] 支持 clone 当前分支（RPC `clone`）
+- [x] 支持 label/bookmark（Tauri `pi_set_session_label` 追加 label entry）
+- [x] 支持 branch summary 展示
 
 RPC 重点：
 
@@ -221,10 +221,10 @@ SDK 重点：
 
 验收标准：
 
-- 用户可以看到会话树
-- 可以从历史节点 fork
-- 可以 clone 当前分支
-- fork/clone 后 UI 正常进入新 session
+- [x] 用户可以看到会话树
+- [x] 可以从历史节点 fork
+- [x] 可以 clone 当前分支
+- [x] fork/clone 后 UI 正常进入新 session
 
 ---
 
@@ -515,8 +515,16 @@ RPC/SDK 下 extension UI 与桌面 UI 需要桥接。
 - 阶段 4：Sessions UI 改为 project folder tree，按 `cwd` 分组，项目节点可折叠，项目下展示 session 列表
 - 阶段 4：`pi_list_sessions` 支持空 cwd 返回全部项目 session，前端据此构建项目树
 - 阶段 4：默认只加载当前 workspace sessions，不主动扫描全部项目；用户点击 `Open folder` 选择文件夹后只加载该 workspace sessions
+- 阶段 4：`Open folder` 改为真正选择目录并展示所选 workspace 节点；即使该目录暂无 session 也显示空状态
+- 阶段 4：修复 Windows canonical path `\\?\` 前缀/大小写导致所选 workspace session 匹配失败的问题
 - 阶段 4：接入 Tauri dialog plugin，使用系统目录选择器打开 workspace folder
 - 阶段 4：压缩 session item 卡片高度，改为单行标题 + 精简 metadata + hover 删除按钮
+- 阶段 4：LeftSidebar 清理无用入口，移除品牌文案、新建/最近/命名/HTML/Session tree 按钮，保留打开文件夹、设置、折叠与 session 切换/删除
+- 阶段 5：新增 `PiSessionTree` / `PiSessionTreeNode` / `PiForkMessage` 类型，PiClient 增加 tree/fork/clone/label 方法
+- 阶段 5：Tauri 新增 `pi_session_tree` 解析当前 session JSONL，生成 depth/leaf/children/label 信息
+- 阶段 5：Tauri 新增 `pi_set_session_label` 追加 label entry，支持 bookmark/label
+- 阶段 5：Tauri RPC client 接入 `get_fork_messages` / `fork` / `clone`，fork/clone 后统一 refresh session UI
+- 阶段 5：Inspector 新增 `SessionTreePanel`，显示 active branch、tree nodes、branch summary，并提供 fork/clone/label 操作
 - 阶段 4 验证：`pnpm build` / `pnpm lint` / `pnpm pi:rpc:smoke` / `cargo check` 通过
 - `pnpm build` / `pnpm lint` / `pnpm pi:rpc:smoke` / `cargo check` 再次通过
 

@@ -18,6 +18,8 @@ export function AppShell() {
     messages,
     state,
     stats,
+    sessionTree,
+    forkMessages,
     sessions,
     workspacePaths,
     models,
@@ -37,13 +39,12 @@ export function AppShell() {
     isRunning,
     prompt,
     abort,
-    newSession,
-    continueRecent,
     switchSession,
-    setSessionName,
     deleteSession,
-    exportHtml,
     openWorkspaceFolder,
+    forkSession,
+    cloneSession,
+    setSessionEntryLabel,
     updateSettings,
     executeCommand,
     recordSafetyEvent,
@@ -52,12 +53,6 @@ export function AppShell() {
     clearError,
     refresh,
   } = usePiSession();
-
-  async function startNewSession() {
-    setSelectedTool(null);
-    setSelectedFilePath(null);
-    await newSession();
-  }
 
   function selectTool(tool: PiToolCall) {
     setSelectedTool(tool);
@@ -81,15 +76,11 @@ export function AppShell() {
               collapsed={sidebarCollapsed}
               onToggle={() => setSidebarCollapsed((value) => !value)}
               sessions={sessions}
-              openedWorkspaceCount={workspacePaths.length}
+              openedWorkspacePaths={workspacePaths}
               currentSessionId={state?.sessionId}
-              onNewSession={() => void startNewSession()}
-              onContinueRecent={continueRecent}
               onOpenWorkspaceFolder={openWorkspaceFolder}
               onSwitchSession={switchSession}
-              onSetSessionName={setSessionName}
               onDeleteSession={deleteSession}
-              onExportHtml={exportHtml}
               onOpenSettings={() => setSettingsOpen(true)}
             />
           <MainArea
@@ -121,6 +112,8 @@ export function AppShell() {
                 messages={messages}
                 state={state}
                 stats={stats}
+                sessionTree={sessionTree}
+                forkMessages={forkMessages}
                 settings={settings}
                 commands={commands}
                 extensionPanels={extensionPanels}
@@ -133,6 +126,9 @@ export function AppShell() {
                 error={error}
                 status={status}
                 onSelectFile={selectFile}
+                onForkSession={forkSession}
+                onCloneSession={cloneSession}
+                onSetSessionEntryLabel={setSessionEntryLabel}
                 onRetry={refresh}
               />
             ) : null}

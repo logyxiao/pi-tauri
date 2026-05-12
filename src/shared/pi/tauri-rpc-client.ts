@@ -9,11 +9,13 @@ import type {
   PiExtensionStatus,
   PiFileEntry,
   PiFilePreview,
+  PiForkMessage,
   PiMessage,
   PiModel,
   PiSafetyEvent,
   PiSessionStats,
   PiSessionSummary,
+  PiSessionTree,
   PiSettings,
   PiSettingsUpdate,
   PiState,
@@ -138,6 +140,36 @@ export class TauriPiRpcClient implements PiClient {
           ]
         : [];
     }
+  }
+
+  async getSessionTree(sessionPath?: string): Promise<PiSessionTree> {
+    const state = await this.getState();
+    const target = sessionPath ?? state.sessionFile;
+    if (!target) return { nodes: [] };
+    return invoke<PiSessionTree>("pi_session_tree", { sessionPath: target });
+  }
+
+  async getForkMessages(): Promise<PiForkMessage[]> {
+    const response = await this.request({ type: "get_fork_messages" });
+    const data = response.data as Record<string, unknown> | undefined;
+    const messages = Array.isArray(data?.messages) ? data.messages : [];
+    return messages.map(mapForkMessage).filter((message): message is PiForkMessage => Boolean(message));
+  }
+
+  async forkSession(entryId: string): Promise<{ text?: string; cancelled?: boolean }> {
+    const response = await this.request({ type: "fork", entryId });
+    return (response.data as { text?: string; cancelled?: boolean } | undefined) ?? {};
+  }
+
+  async cloneSession(): Promise<{ cancelled?: boolean }> {
+    const response = await this.request({ type: "clone" });
+    return (response.data as { cancelled?: boolean } | undefined) ?? {};
+  }
+
+  async setSessionEntryLabel(entryId: string, label?: string): Promise<void> {
+    const state = await this.getState();
+    if (!state.sessionFile) throw new Error("No active session file for label update");
+    await invoke("pi_set_session_label", { sessionPath: state.sessionFile, targetId: entryId, label: label?.trim() || null });
   }
 
   async getState(): Promise<PiState> {
@@ -450,6 +482,14 @@ export class TauriPiRpcClient implements PiClient {
   private emit(event: PiClientEvent) {
     for (const listener of this.listeners) listener(event);
   }
+}
+
+function mapForkMessage(raw: unknown): PiForkMessage | null {
+  if (!raw || typeof raw !== "object") return null;
+  const message = raw as Record<string, unknown>;
+  return typeof message.entryId === "string" && typeof message.text === "string"
+    ? { entryId: message.entryId, text: message.text }
+    : null;
 }
 
 function mapSessionSummary(raw: unknown): PiSessionSummary | null {

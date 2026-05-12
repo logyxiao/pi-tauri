@@ -21,11 +21,13 @@ import type {
   PiExtensionPanel,
   PiFileEntry,
   PiFilePreview,
+  PiForkMessage,
   PiMessage,
   PiModel,
   PiSafetyEvent,
   PiSessionStats,
   PiSessionSummary,
+  PiSessionTree,
   PiSettings,
   PiSettingsUpdate,
   PiState,
@@ -196,6 +198,91 @@ export class MockPiClient implements PiClient {
   async listSessions(options: PiSessionListOptions = {}): Promise<PiSessionSummary[]> {
     const cwd = options.cwd ?? this.state.cwd;
     return this.sessions.filter((session) => normalizePath(session.cwd) === normalizePath(cwd));
+  }
+
+  async getSessionTree(): Promise<PiSessionTree> {
+    return {
+      sessionFile: this.state.sessionFile,
+      activeLeafId: "mock-a2",
+      nodes: [
+        {
+          id: "mock-session",
+          type: "session",
+          title: "Session start",
+          timestamp: "now",
+          depth: 0,
+          childrenCount: 1,
+          isLeaf: false,
+        },
+        {
+          id: "mock-u1",
+          parentId: "mock-session",
+          type: "message",
+          role: "user",
+          title: "Build pi desktop shell",
+          timestamp: "now",
+          label: "checkpoint",
+          depth: 1,
+          childrenCount: 1,
+          isLeaf: false,
+        },
+        {
+          id: "mock-a1",
+          parentId: "mock-u1",
+          type: "message",
+          role: "assistant",
+          title: "Implemented shell layout",
+          timestamp: "now",
+          depth: 2,
+          childrenCount: 1,
+          isLeaf: false,
+        },
+        {
+          id: "mock-u2",
+          parentId: "mock-a1",
+          type: "message",
+          role: "user",
+          title: "Optimize session tree",
+          timestamp: "now",
+          depth: 3,
+          childrenCount: 1,
+          isLeaf: false,
+        },
+        {
+          id: "mock-a2",
+          parentId: "mock-u2",
+          type: "branch_summary",
+          title: "Branch summary",
+          summary: "Mock branch explored session management and sidebar workspace loading.",
+          timestamp: "now",
+          depth: 4,
+          childrenCount: 0,
+          isLeaf: true,
+        },
+      ],
+    };
+  }
+
+  async getForkMessages(): Promise<PiForkMessage[]> {
+    return [
+      { entryId: "mock-u1", text: "Build pi desktop shell" },
+      { entryId: "mock-u2", text: "Optimize session tree" },
+    ];
+  }
+
+  async forkSession(entryId: string): Promise<{ text?: string; cancelled?: boolean }> {
+    const message = (await this.getForkMessages()).find((item) => item.entryId === entryId);
+    await this.newSession();
+    return { text: message?.text, cancelled: false };
+  }
+
+  async cloneSession(): Promise<{ cancelled?: boolean }> {
+    await this.newSession();
+    return { cancelled: false };
+  }
+
+  async setSessionEntryLabel(entryId: string, label?: string): Promise<void> {
+    console.info("mock set label", entryId, label);
   }
 
   async getState(): Promise<PiState> {
