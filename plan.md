@@ -355,25 +355,29 @@ RPC 重点：
 
 ---
 
-## 阶段 10：打包与发布
+## 阶段 10：体验打磨与验证
 
-目标：跨平台桌面可用。
+目标：让当前桌面工作台在 pi RPC 连接失败、空 session、小屏窗口等常见状态下保持可用。
 
 任务：
 
-- [ ] Tauri 打包配置
-- [ ] sidecar 打包
-- [ ] macOS build
-- [ ] Windows build
-- [ ] Linux build
-- [ ] 自动更新策略调研
-- [ ] 版本号和 changelog
-- [ ] 图标与应用元信息
+- [x] 增加空状态（中央 pi workbench 空状态 cards）
+- [x] 增加 loading 状态（connecting / refreshing 状态）
+- [x] 增加错误状态（PiClient connect/refresh/action 失败非阻塞 banner）
+- [x] usePiSession 错误捕获，暴露 `status` / `error`
+- [x] MainArea 显示非阻塞错误 banner，并支持 retry/dismiss
+- [x] Inspector 显示 PiClient 错误与当前 status
+- [x] 改善小屏布局：header 换行、输入区按钮换行、Inspector 从 `xl` 改为 `lg` 响应隐藏
+- [x] command palette 改为输入框上方绝对定位，限制高度和 overflow
+- [x] 文案清理：强调 pi sessions/tools/models/extensions，不是普通聊天
+- [x] 验证 `pnpm build` / `pnpm lint` / `pnpm pi:rpc:smoke`
 
 验收标准：
 
-- 三平台至少一个可安装包可运行
-- pi sidecar/SDK/RPC 能在打包环境中正常工作
+- [x] PiClient refresh/connect 失败时 UI 不崩，用户可继续查看已有状态并 retry
+- [x] 空 session 有明确 pi 能力导向
+- [x] 小屏下主区域和 command palette 不明显溢出
+- [x] 阶段 2-9 现有功能接口保持兼容
 
 ---
 
@@ -420,6 +424,18 @@ RPC/SDK 下 extension UI 与桌面 UI 需要桥接。
 - 完整输出按需读取
 
 ## 当前进度记录
+
+### 2026-05-13
+
+阶段 10 体验打磨完成：
+
+- `usePiSession` 增加 `status` / `error` / `clearError`，connect、refresh、prompt、abort、newSession、settings、command 执行均捕获错误
+- 新增 `ErrorBanner` 和 `LoadingPanel`，PiClient 连接/刷新失败时显示非阻塞错误，不导致 UI 崩溃
+- `MainArea` header 支持小屏换行，显示 runtime status 和 refreshing 指示
+- `MessageList` 增加空状态 cards，强调 pi sessions/tools/models/extensions 工作台定位
+- `RightInspector` 显示 PiClient error/status，Inspector 在 `lg` 以上显示以改善中小屏
+- `ChatInput` command palette 改为输入框上方绝对定位并限制高度，输入底部按钮支持换行
+- 已验证 `pnpm build`、`pnpm lint`、`pnpm pi:rpc:smoke`
 
 ### 2026-05-12
 

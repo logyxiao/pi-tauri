@@ -18,7 +18,15 @@ import type {
   PiToolCall,
 } from "@/shared/pi/types";
 
+export type PiSessionStatus = "connecting" | "ready" | "refreshing" | "running" | "error";
+
 const nowLabel = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return "Unknown pi client error";
+}
 
 export function usePiSession() {
   const client = useMemo(() => createPiClient(), []);
@@ -31,49 +39,59 @@ export function usePiSession() {
   const [extensionPanels, setExtensionPanels] = useState<PiExtensionPanel[]>([]);
   const [extensionMessages, setExtensionMessages] = useState<PiExtensionMessage[]>([]);
   const [extensionErrors, setExtensionErrors] = useState<PiExtensionError[]>([]);
+  const [safetyEvents, setSafetyEvents] = useState<PiSafetyEvent[]>([]);
   const [files, setFiles] = useState<PiFileEntry[]>([]);
   const [filePreview, setFilePreview] = useState<PiFilePreview | null>(null);
   const [prefillInput, setPrefillInput] = useState("");
-  const [safetyEvents, setSafetyEvents] = useState<PiSafetyEvent[]>([]);
+  const [status, setStatus] = useState<PiSessionStatus>("connecting");
+  const [error, setError] = useState<string | null>(null);
   const activeAssistantIdRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const [
-      nextMessages,
-      nextState,
-      nextStats,
-      nextModels,
-      nextSettings,
-      nextCommands,
-      nextExtensionPanels,
-      nextExtensionMessages,
-      nextExtensionErrors,
-      nextSafetyEvents,
-      nextFiles,
-    ] = await Promise.all([
-      client.getMessages(),
-      client.getState(),
-      client.getSessionStats(),
-      client.listModels(),
-      client.getSettings(),
-      client.listCommands(),
-      client.listExtensionPanels(),
-      client.listExtensionMessages(),
-      client.listExtensionErrors(),
-      client.listSafetyEvents(),
-      client.listFiles(),
-    ]);
-    setMessages(nextMessages);
-    setState(nextState);
-    setStats(nextStats);
-    setModels(nextModels);
-    setSettings(nextSettings);
-    setCommands(nextCommands);
-    setExtensionPanels(nextExtensionPanels);
-    setExtensionMessages(nextExtensionMessages);
-    setExtensionErrors(nextExtensionErrors);
-    setSafetyEvents(nextSafetyEvents);
-    setFiles(nextFiles);
+    setStatus((current) => (current === "connecting" || current === "running" ? current : "refreshing"));
+    try {
+      const [
+        nextMessages,
+        nextState,
+        nextStats,
+        nextModels,
+        nextSettings,
+        nextCommands,
+        nextExtensionPanels,
+        nextExtensionMessages,
+        nextExtensionErrors,
+        nextSafetyEvents,
+        nextFiles,
+      ] = await Promise.all([
+        client.getMessages(),
+        client.getState(),
+        client.getSessionStats(),
+        client.listModels(),
+        client.getSettings(),
+        client.listCommands(),
+        client.listExtensionPanels(),
+        client.listExtensionMessages(),
+        client.listExtensionErrors(),
+        client.listSafetyEvents(),
+        client.listFiles(),
+      ]);
+      setMessages(nextMessages);
+      setState(nextState);
+      setStats(nextStats);
+      setModels(nextModels);
+      setSettings(nextSettings);
+      setCommands(nextCommands);
+      setExtensionPanels(nextExtensionPanels);
+      setExtensionMessages(nextExtensionMessages);
+      setExtensionErrors(nextExtensionErrors);
+      setSafetyEvents(nextSafetyEvents);
+      setFiles(nextFiles);
+      setError(null);
+      setStatus(nextState.runState === "running" ? "running" : "ready");
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setStatus("error");
+    }
   }, [client]);
 
   const upsertTool = useCallback((tool: PiToolCall) => {
@@ -96,6 +114,8 @@ export function usePiSession() {
       if (event.type === "agent_start") {
         const assistantId = crypto.randomUUID();
         activeAssistantIdRef.current = assistantId;
+        setStatus("running");
+        setError(null);
         setState((current) => (current ? { ...current, runState: "running" } : current));
         setMessages((current) => [
           ...current,
@@ -142,6 +162,7 @@ export function usePiSession() {
       }
 
       if (event.type === "agent_end" || event.type === "aborted") {
+        setStatus("ready");
         setState((current) => (current ? { ...current, runState: "idle" } : current));
         activeAssistantIdRef.current = null;
         void refresh();
@@ -151,8 +172,28 @@ export function usePiSession() {
   );
 
   useEffect(() => {
-    void client.connect().then(refresh);
-    return client.subscribe(handleEvent);
+    let disposed = false;
+    const unsubscribe = client.subscribe(handleEvent);
+
+    async function connect() {
+      setStatus("connecting");
+      try {
+        await client.connect();
+        if (disposed) return;
+        await refresh();
+      } catch (caught) {
+        if (disposed) return;
+        setError(errorMessage(caught));
+        setStatus("error");
+      }
+    }
+
+    void connect();
+
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
   }, [client, handleEvent, refresh]);
 
   async function prompt(content: string) {
@@ -166,47 +207,94 @@ export function usePiSession() {
       createdAt: nowLabel(),
     };
     setMessages((current) => [...current, userMessage]);
-    await client.prompt(trimmed);
+    setError(null);
+
+    try {
+      await client.prompt(trimmed);
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setStatus("error");
+    }
   }
 
   async function abort() {
-    await client.abort();
+    try {
+      await client.abort();
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setStatus("error");
+    }
   }
 
   async function newSession() {
-    await client.newSession();
-    activeAssistantIdRef.current = null;
-    setMessages([]);
-    await refresh();
+    try {
+      await client.newSession();
+      activeAssistantIdRef.current = null;
+      setMessages([]);
+      setFilePreview(null);
+      setError(null);
+      await refresh();
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setStatus("error");
+    }
   }
 
   async function updateSettings(update: PiSettingsUpdate) {
-    const nextSettings = await client.updateSettings(update);
-    setSettings(nextSettings);
-    await refresh();
+    try {
+      const nextSettings = await client.updateSettings(update);
+      setSettings(nextSettings);
+      setError(null);
+      await refresh();
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setStatus("error");
+    }
   }
 
   async function executeCommand(commandName: string, safetyEvent?: PiSafetyEvent) {
-    if (safetyEvent) {
-      await client.recordSafetyEvent(safetyEvent);
-      setSafetyEvents((current) => [safetyEvent, ...current.filter((item) => item.id !== safetyEvent.id)].slice(0, 20));
+    try {
+      setError(null);
+      if (safetyEvent) {
+        await client.recordSafetyEvent(safetyEvent);
+        setSafetyEvents((current) => [safetyEvent, ...current.filter((item) => item.id !== safetyEvent.id)].slice(0, 20));
+      }
+      await client.executeCommand(commandName);
+      await refresh();
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setStatus("error");
     }
-    await client.executeCommand(commandName);
-    await refresh();
   }
 
   async function recordSafetyEvent(event: PiSafetyEvent) {
-    await client.recordSafetyEvent(event);
-    setSafetyEvents((current) => [event, ...current.filter((item) => item.id !== event.id)].slice(0, 20));
+    try {
+      await client.recordSafetyEvent(event);
+      setSafetyEvents((current) => [event, ...current.filter((item) => item.id !== event.id)].slice(0, 20));
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setStatus("error");
+    }
   }
 
   async function previewFile(path: string) {
-    const preview = await client.readFile(path);
-    setFilePreview(preview);
+    try {
+      setError(null);
+      const preview = await client.readFile(path);
+      setFilePreview(preview);
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setStatus("error");
+    }
   }
 
   function clearPrefillInput() {
     setPrefillInput("");
+  }
+
+  function clearError() {
+    setError(null);
+    setStatus((current) => (current === "error" ? "ready" : current));
   }
 
   return {
@@ -223,7 +311,11 @@ export function usePiSession() {
     files,
     filePreview,
     prefillInput,
-    isRunning: state?.runState === "running",
+    status,
+    error,
+    isConnecting: status === "connecting",
+    isRefreshing: status === "refreshing",
+    isRunning: status === "running" || state?.runState === "running",
     prompt,
     abort,
     newSession,
@@ -232,6 +324,7 @@ export function usePiSession() {
     recordSafetyEvent,
     previewFile,
     clearPrefillInput,
+    clearError,
     refresh,
   };
 }

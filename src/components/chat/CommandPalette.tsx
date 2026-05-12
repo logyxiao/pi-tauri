@@ -19,16 +19,16 @@ export function CommandPalette({ commands, query, selectedIndex, onSelect }: Com
   if (!filtered.length) return null;
 
   return (
-    <div className="mb-3 overflow-hidden rounded-md border border-border bg-surface/90 shadow-xl backdrop-blur-[1px]">
+    <div className="overflow-hidden rounded-md border border-border bg-surface/95 shadow-xl backdrop-blur-[2px]">
       <div className="border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
         pi commands
       </div>
-      <div className="max-h-64 overflow-auto p-1.5">
+      <div className="max-h-[min(18rem,42vh)] overflow-auto overscroll-contain p-1.5">
         {filtered.map((command, index) => (
           <button
             key={command.name}
             className={cn(
-              "flex w-full items-start gap-3 rounded-sm px-3 py-2 text-left font-mono text-xs transition hover:bg-muted",
+              "flex w-full min-w-0 items-start gap-3 rounded-sm px-3 py-2 text-left font-mono text-xs transition hover:bg-muted",
               index === selectedIndex && "bg-muted",
             )}
             onMouseDown={(event) => {
@@ -36,7 +36,7 @@ export function CommandPalette({ commands, query, selectedIndex, onSelect }: Com
               onSelect(command);
             }}
           >
-            <div className="w-24 shrink-0 font-mono font-semibold text-foreground">/{command.name}</div>
+            <div className="w-20 shrink-0 truncate font-mono font-semibold text-foreground sm:w-24">/{command.name}</div>
             <div className="min-w-0 flex-1">
               <div className="truncate text-muted-foreground">{command.description ?? "No description"}</div>
               <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">

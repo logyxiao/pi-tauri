@@ -27,6 +27,10 @@ export function AppShell() {
     files,
     filePreview,
     prefillInput,
+    status,
+    error,
+    isConnecting,
+    isRefreshing,
     isRunning,
     prompt,
     abort,
@@ -36,6 +40,8 @@ export function AppShell() {
     recordSafetyEvent,
     previewFile,
     clearPrefillInput,
+    clearError,
+    refresh,
   } = usePiSession();
 
   async function startNewSession() {
@@ -58,8 +64,8 @@ export function AppShell() {
 
   return (
     <TooltipProvider delayDuration={250}>
-      <div className="pi-grid-bg flex h-screen w-screen overflow-hidden p-3 text-foreground">
-        <div className="flex min-h-0 flex-1 overflow-hidden rounded-[1.5rem] border border-border bg-surface/80 shadow-[0_1px_8px_rgb(0_0_0/0.06)] backdrop-blur-[1px]">
+      <div className="pi-grid-bg flex h-screen w-screen overflow-hidden p-0 text-foreground sm:p-3">
+        <div className="flex min-h-0 flex-1 overflow-hidden border border-border bg-surface/80 shadow-[0_18px_60px_rgb(44_54_70/0.13)] backdrop-blur-[1px] sm:rounded-[1.5rem]">
           <LeftSidebar
             collapsed={sidebarCollapsed}
             onToggle={() => setSidebarCollapsed((value) => !value)}
@@ -73,9 +79,15 @@ export function AppShell() {
             models={models}
             commands={commands}
             prefillInput={prefillInput}
+            status={status}
+            error={error}
+            isConnecting={isConnecting}
+            isRefreshing={isRefreshing}
             isRunning={isRunning}
             onPrompt={prompt}
             onAbort={abort}
+            onRefresh={refresh}
+            onClearError={clearError}
             onUpdateSettings={updateSettings}
             onExecuteCommand={executeCommand}
             onRecordSafetyEvent={recordSafetyEvent}
@@ -98,7 +110,10 @@ export function AppShell() {
               files={files}
               filePreview={filePreview}
               selectedFilePath={selectedFilePath}
+              error={error}
+              status={status}
               onSelectFile={selectFile}
+              onRetry={refresh}
             />
           ) : null}
         </div>

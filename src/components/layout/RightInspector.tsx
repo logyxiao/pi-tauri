@@ -1,4 +1,4 @@
-import { Activity, GitFork, HardDrive, Terminal } from "lucide-react";
+import { Activity, AlertTriangle, GitFork, HardDrive, Loader2, Terminal } from "lucide-react";
 import { ExtensionsPanel } from "@/components/extensions/ExtensionsPanel";
 import { FilesPreviewPanel } from "@/components/files/FilesPreviewPanel";
 import { SafetyPanel } from "@/components/safety/SafetyPanel";
@@ -32,7 +32,10 @@ interface RightInspectorProps {
   files: PiFileEntry[];
   filePreview: PiFilePreview | null;
   selectedFilePath: string | null;
+  error: string | null;
+  status: string;
   onSelectFile: (path: string) => Promise<void> | void;
+  onRetry: () => Promise<void> | void;
 }
 
 export function RightInspector({
@@ -49,7 +52,10 @@ export function RightInspector({
   files,
   filePreview,
   selectedFilePath,
+  error,
+  status,
   onSelectFile,
+  onRetry,
 }: RightInspectorProps) {
   const activeTools = messages.flatMap((message) => message.tools ?? []).slice(-6).reverse();
   const stateCards = [
@@ -58,10 +64,11 @@ export function RightInspector({
     ["Run", state?.runState ?? "loading"],
     ["Thinking", state?.thinkingLevel ?? "off"],
     ["Client", settings?.clientMode ?? "loading"],
+    ["Status", status],
   ];
 
   return (
-    <aside className="hidden w-80 shrink-0 flex-col border-l border-border bg-surface xl:flex">
+    <aside className="hidden w-80 shrink-0 flex-col border-l border-border bg-surface lg:flex xl:w-80">
       <div className="border-b border-border p-4">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <Activity size={16} className="text-primary" /> Inspector
@@ -70,6 +77,18 @@ export function RightInspector({
       </div>
 
       <div className="space-y-4 overflow-auto p-4">
+        {error ? (
+          <div className="rounded-2xl border border-danger/20 bg-danger/5 p-3 text-xs leading-5 text-danger">
+            <div className="mb-2 flex items-center gap-2 font-semibold">
+              <AlertTriangle size={14} /> Pi client error
+            </div>
+            <div className="break-words text-muted-foreground">{error}</div>
+            <button className="mt-2 inline-flex items-center gap-1 font-mono text-[11px] uppercase tracking-[0.14em] text-danger" onClick={() => void onRetry()}>
+              <Loader2 size={11} /> retry refresh
+            </button>
+          </div>
+        ) : null}
+
         {extensionErrors.length ? (
           <div className="rounded-2xl border border-danger/20 bg-danger/5 p-3 text-xs leading-5 text-danger">
             Extension error visible: {extensionErrors[0].message}

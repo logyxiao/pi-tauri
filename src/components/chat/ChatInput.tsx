@@ -10,6 +10,7 @@ interface ChatInputProps {
   isRunning: boolean;
   commands: PiCommand[];
   prefillValue?: string;
+  disabled?: boolean;
   onSubmit: (message: string) => Promise<void> | void;
   onAbort: () => Promise<void> | void;
   onExecuteCommand: (commandName: string, safetyEvent?: PiSafetyEvent) => Promise<void> | void;
@@ -21,6 +22,7 @@ export function ChatInput({
   isRunning,
   commands,
   prefillValue,
+  disabled = false,
   onSubmit,
   onAbort,
   onExecuteCommand,
@@ -49,13 +51,14 @@ export function ChatInput({
 
   async function submit() {
     const message = inputValue.trim();
-    if (!message || isRunning) return;
+    if (!message || isRunning || disabled) return;
     setValue("");
     onConsumePrefill();
     await onSubmit(message);
   }
 
   async function runCommand(command: PiCommand) {
+    if (disabled) return;
     if (command.dangerous || command.safety) {
       setPendingDangerousCommand(command);
       return;
@@ -71,16 +74,19 @@ export function ChatInput({
   }
 
   return (
-    <>
+    <div className="relative">
       {commandQuery != null ? (
-        <CommandPalette commands={commands} query={commandQuery} selectedIndex={selectedIndex} onSelect={applyCommand} />
+        <div className="absolute bottom-full left-0 right-0 z-20 mb-3 max-h-[min(20rem,45vh)] overflow-hidden">
+          <CommandPalette commands={commands} query={commandQuery} selectedIndex={selectedIndex} onSelect={applyCommand} />
+        </div>
       ) : null}
 
       <div className="rounded-md border border-border bg-surface/80 p-3 shadow-[inset_2px_0_0_var(--primary),0_8px_28px_rgb(44_54_70/0.08)] backdrop-blur-[1px]">
         <textarea
-          className="max-h-36 min-h-20 w-full resize-none bg-transparent px-2 py-1 font-mono text-sm leading-6 outline-none placeholder:text-muted-foreground"
-          placeholder="Ask pi to inspect, edit, test, or explain this project... use /commands for extensions, skills, prompts."
+          className="max-h-36 min-h-20 w-full resize-none bg-transparent px-2 py-1 font-mono text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          placeholder={disabled ? "Connecting to pi runtime..." : "Ask pi to inspect, edit, test, or explain this project... use /commands for extensions, skills, prompts."}
           value={inputValue}
+          disabled={disabled}
           onChange={(event) => {
             onConsumePrefill();
             setSelectedIndex(0);
@@ -121,18 +127,18 @@ export function ChatInput({
             }
           }}
         />
-        <div className="flex items-center justify-between pt-2">
-          <div className="flex items-center gap-1.5">
-            <Button size="sm" variant="ghost">
+        <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Button size="sm" variant="ghost" disabled={disabled}>
               <AtSign size={15} /> File
             </Button>
-            <Button size="sm" variant="ghost">
+            <Button size="sm" variant="ghost" disabled={disabled}>
               <Image size={15} /> Image
             </Button>
-            <div className="ml-2 border border-border bg-muted/70 px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">/ opens pi commands</div>
+            <div className="border border-border bg-muted/70 px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground sm:ml-2">/ opens pi commands</div>
             <div className="border border-border bg-muted/70 px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Shift+Enter newline</div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-end gap-2">
             <Button size="sm" variant="secondary" disabled={!isRunning} onClick={() => void onAbort()}>
               <Square size={13} /> Abort
             </Button>
@@ -140,7 +146,7 @@ export function ChatInput({
               size="icon"
               variant="primary"
               aria-label="Send prompt"
-              disabled={!inputValue.trim() || isRunning}
+              disabled={!inputValue.trim() || isRunning || disabled}
               onClick={() => void submit()}
             >
               <ArrowUp size={17} />
@@ -176,6 +182,6 @@ export function ChatInput({
           setValue("");
         }}
       />
-    </>
+    </div>
   );
 }
