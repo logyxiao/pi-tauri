@@ -310,20 +310,20 @@ RPC 重点：
 
 任务：
 
-- [ ] 显示 cwd
-- [ ] 文件树
-- [ ] 打开文件预览
-- [ ] Markdown 预览
+- [x] 显示 cwd
+- [x] 文件树（最小只读列表）
+- [x] 打开文件预览（文本/Markdown/HTML 内容预览，图片/二进制占位）
+- [x] Markdown 预览（源码级 markdown 预览）
 - [ ] 代码高亮
-- [ ] 图片预览
-- [ ] HTML 预览
+- [x] 图片预览（安全占位，不读取二进制内容）
+- [x] HTML 预览（源码级预览，不执行）
 - [ ] diff 展示
-- [ ] 从 tool call 跳转文件
+- [x] 从 tool call 跳转文件（点击工具选中 previewable target）
 
 验收标准：
 
-- 右侧检查器能作为工作目录/产物浏览器
-- 工具调用产生/读取的文件能快速查看
+- [x] 右侧检查器能作为工作目录/产物浏览器
+- [x] 工具调用产生/读取的文件能快速查看（只读预览）
 
 ---
 
@@ -479,6 +479,12 @@ RPC/SDK 下 extension UI 与桌面 UI 需要桥接。
 - ChatInput 对 dangerous command 弹确认 Dialog，避免静默执行 delete/reset/shell/batch 类命令
 - 新增 `ExtensionsPanel`，RightInspector 显示 commands、extension panels、UI messages、extension errors
 - `set_editor_text` 可预填 ChatInput；`extension_error` 在 Inspector 顶部可见
+- 阶段 8：新增 `PiFileEntry` / `PiFilePreview` 类型和 `PiClient.listFiles()` / `readFile()` 只读抽象
+- Mock client 提供 demo 文件树和 README/design/tsx/svg/html 预览数据
+- Tauri/Rust 新增只读 `pi_list_files` / `pi_read_file` commands，限制路径必须在 cwd 内，文本截断到 64KB，图片/二进制只返回占位元数据
+- 新增 `FilesPreviewPanel`，RightInspector 显示 cwd、文件列表、文本/Markdown/HTML 源码预览和图片占位
+- 点击 tool call 时若 target 像文件路径，自动联动右侧文件预览
+- 阶段 8 验证：`pnpm build` / `pnpm lint` / `pnpm pi:rpc:smoke` / `cargo check` 通过
 - Diff cleanup：检查阶段 6/7 worker 改动，未发现编译级冲突；移除 RightInspector 对 demoTools 的固定依赖，Active tools 改为从真实 messages 派生
 - Diff cleanup：修复 mock prompt 持久化，agent_end refresh 后保留 assistant 内容和工具结果
 - Diff cleanup：更新 MessageList 过期 mock-only 文案为 Tauri RPC + mock fallback

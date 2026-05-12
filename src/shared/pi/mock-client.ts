@@ -3,6 +3,8 @@ import {
   demoExtensionErrors,
   demoExtensionMessages,
   demoExtensionPanels,
+  demoFilePreviews,
+  demoFiles,
   demoMessages,
   demoModels,
   demoPiState,
@@ -16,6 +18,8 @@ import type {
   PiExtensionError,
   PiExtensionMessage,
   PiExtensionPanel,
+  PiFileEntry,
+  PiFilePreview,
   PiMessage,
   PiModel,
   PiSafetyEvent,
@@ -219,6 +223,22 @@ export class MockPiClient implements PiClient {
 
   async recordSafetyEvent(event: PiSafetyEvent): Promise<void> {
     this.safetyEvents = [event, ...this.safetyEvents.filter((item) => item.id !== event.id)].slice(0, 20);
+  }
+
+  async listFiles(): Promise<PiFileEntry[]> {
+    return demoFiles;
+  }
+
+  async readFile(path: string): Promise<PiFilePreview> {
+    const preview = demoFilePreviews[path];
+    if (preview) return preview;
+
+    return {
+      path,
+      name: path.split(/[\\/]/).pop() ?? path,
+      kind: "missing",
+      content: "Preview unavailable in mock client.",
+    };
   }
 
   subscribe(listener: Listener): () => void {

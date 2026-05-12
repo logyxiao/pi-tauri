@@ -4,6 +4,8 @@ import type {
   PiExtensionMessage,
   PiExtensionPanel,
   PiExtensionStatus,
+  PiFileEntry,
+  PiFilePreview,
   PiMessage,
   PiModel,
   PiSafetyEvent,
@@ -67,5 +69,7 @@ export interface PiClient {
   listExtensionErrors(): Promise<PiExtensionError[]>;
   listSafetyEvents(): Promise<PiSafetyEvent[]>;
   recordSafetyEvent(event: PiSafetyEvent): Promise<void>;
+  listFiles(): Promise<PiFileEntry[]>;
+  readFile(path: string): Promise<PiFilePreview>;
   subscribe(listener: (event: PiClientEvent) => void): () => void;
 }

@@ -3,6 +3,8 @@ import type {
   PiExtensionError,
   PiExtensionMessage,
   PiExtensionPanel,
+  PiFileEntry,
+  PiFilePreview,
   PiModel,
   PiMessage,
   PiSafetyEvent,
@@ -292,3 +294,57 @@ export const demoExtensionErrors: PiExtensionError[] = [
     createdAt: "22:36",
   },
 ];
+
+export const demoFiles: PiFileEntry[] = [
+  { path: "README.md", name: "README.md", kind: "file", depth: 0, size: 4180 },
+  { path: "design.md", name: "design.md", kind: "file", depth: 0, size: 12860 },
+  { path: "plan.md", name: "plan.md", kind: "file", depth: 0, size: 15640 },
+  { path: "src", name: "src", kind: "directory", depth: 0 },
+  { path: "src/app", name: "app", kind: "directory", depth: 1 },
+  { path: "src/app/App.tsx", name: "App.tsx", kind: "file", depth: 2, size: 198 },
+  { path: "src/components", name: "components", kind: "directory", depth: 1 },
+  { path: "src/components/layout/RightInspector.tsx", name: "RightInspector.tsx", kind: "file", depth: 2, size: 6120 },
+  { path: "src/shared/pi/client.ts", name: "client.ts", kind: "file", depth: 2, size: 1680 },
+  { path: "src/shared/pi/types.ts", name: "types.ts", kind: "file", depth: 2, size: 2410 },
+  { path: "public", name: "public", kind: "directory", depth: 0 },
+  { path: "public/vite.svg", name: "vite.svg", kind: "file", depth: 1, size: 1497 },
+  { path: "dist/index.html", name: "index.html", kind: "file", depth: 1, size: 490 },
+];
+
+export const demoFilePreviews: Record<string, PiFilePreview> = {
+  "README.md": {
+    path: "README.md",
+    name: "README.md",
+    kind: "markdown",
+    content: "# pi-tauri\n\n基于 **pi** 的桌面 AI 编程 Agent 应用。\n\n- Tauri 2 + React + TypeScript\n- pi RPC / SDK integration\n- Tools, sessions, extensions, file preview\n",
+    size: 4180,
+  },
+  "design.md": {
+    path: "design.md",
+    name: "design.md",
+    kind: "markdown",
+    content: "# 设计总结与后续开发要点\n\n右侧 Inspector 承载工具调用详情、文件树、工作目录和产物预览。\n",
+    size: 12860,
+  },
+  "src/components/layout/RightInspector.tsx": {
+    path: "src/components/layout/RightInspector.tsx",
+    name: "RightInspector.tsx",
+    kind: "text",
+    content: "export function RightInspector() {\n  return <aside>Tools, files, sessions, extensions</aside>;\n}\n",
+    size: 6120,
+  },
+  "public/vite.svg": {
+    path: "public/vite.svg",
+    name: "vite.svg",
+    kind: "image",
+    mime: "image/svg+xml",
+    size: 1497,
+  },
+  "dist/index.html": {
+    path: "dist/index.html",
+    name: "index.html",
+    kind: "html",
+    content: "<div id=\"root\"></div>\n<script type=\"module\" src=\"/src/main.tsx\"></script>\n",
+    size: 490,
+  },
+};

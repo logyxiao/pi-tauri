@@ -57,6 +57,25 @@ export interface PiSessionSummary {
   status: "idle" | "running";
 }
 
+export interface PiFileEntry {
+  path: string;
+  name: string;
+  kind: "file" | "directory";
+  depth: number;
+  size?: number;
+  modifiedAt?: string;
+}
+
+export interface PiFilePreview {
+  path: string;
+  name: string;
+  kind: "text" | "markdown" | "image" | "html" | "binary" | "missing";
+  content?: string;
+  size?: number;
+  truncated?: boolean;
+  mime?: string;
+}
+
 export interface PiToolCall {
   id: string;
   name: "read" | "write" | "edit" | "bash" | "grep" | "find" | "ls" | string;

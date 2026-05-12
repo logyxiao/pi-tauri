@@ -7,6 +7,8 @@ import type {
   PiExtensionMessage,
   PiExtensionPanel,
   PiExtensionStatus,
+  PiFileEntry,
+  PiFilePreview,
   PiMessage,
   PiModel,
   PiSafetyEvent,
@@ -218,6 +220,33 @@ export class TauriPiRpcClient implements PiClient {
     this.safetyEvents = [event, ...this.safetyEvents.filter((item) => item.id !== event.id)].slice(0, 20);
   }
 
+  async listFiles(): Promise<PiFileEntry[]> {
+    const state = await this.getState();
+    try {
+      const entries = await invoke<unknown[]>("pi_list_files", { cwd: state.cwd });
+      return entries.map(mapFileEntry).filter((entry): entry is PiFileEntry => Boolean(entry));
+    } catch (error) {
+      console.warn("pi file list unavailable", error);
+      return [];
+    }
+  }
+
+  async readFile(path: string): Promise<PiFilePreview> {
+    const state = await this.getState();
+    try {
+      const preview = await invoke<unknown>("pi_read_file", { cwd: state.cwd, path });
+      return mapFilePreview(preview, path);
+    } catch (error) {
+      console.warn("pi file preview unavailable", error);
+      return {
+        path,
+        name: path.split(/[\\/]/).pop() ?? path,
+        kind: "missing",
+        content: error instanceof Error ? error.message : "Preview unavailable.",
+      };
+    }
+  }
+
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -388,6 +417,44 @@ function mapCommand(raw: unknown): PiCommand | null {
   };
   const safety = detectDangerousCommand(mapped);
   return safety ? { ...mapped, dangerous: true, safety } : mapped;
+}
+
+function mapFileEntry(raw: unknown): PiFileEntry | null {
+  if (!raw || typeof raw !== "object") return null;
+  const entry = raw as Record<string, unknown>;
+  if (typeof entry.path !== "string" || typeof entry.name !== "string") return null;
+  const kind = entry.kind === "directory" ? "directory" : "file";
+  return {
+    path: entry.path,
+    name: entry.name,
+    kind,
+    depth: typeof entry.depth === "number" ? entry.depth : 0,
+    size: nullableNumber(entry.size) ?? undefined,
+    modifiedAt: typeof entry.modifiedAt === "string" ? entry.modifiedAt : undefined,
+  };
+}
+
+function mapFilePreview(raw: unknown, fallbackPath: string): PiFilePreview {
+  if (!raw || typeof raw !== "object") {
+    return { path: fallbackPath, name: fallbackPath.split(/[\\/]/).pop() ?? fallbackPath, kind: "missing" };
+  }
+  const preview = raw as Record<string, unknown>;
+  const path = typeof preview.path === "string" ? preview.path : fallbackPath;
+  const kind = normalizeFilePreviewKind(preview.kind);
+  return {
+    path,
+    name: typeof preview.name === "string" ? preview.name : path.split(/[\\/]/).pop() ?? path,
+    kind,
+    content: typeof preview.content === "string" ? preview.content : undefined,
+    size: nullableNumber(preview.size) ?? undefined,
+    truncated: typeof preview.truncated === "boolean" ? preview.truncated : undefined,
+    mime: typeof preview.mime === "string" ? preview.mime : undefined,
+  };
+}
+
+function normalizeFilePreviewKind(value: unknown): PiFilePreview["kind"] {
+  if (value === "text" || value === "markdown" || value === "image" || value === "html" || value === "binary") return value;
+  return "missing";
 }
 
 function mapModel(raw: unknown): PiModel | null {

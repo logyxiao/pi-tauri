@@ -1,5 +1,6 @@
-import { Activity, FileCode2, GitFork, HardDrive, Terminal } from "lucide-react";
+import { Activity, GitFork, HardDrive, Terminal } from "lucide-react";
 import { ExtensionsPanel } from "@/components/extensions/ExtensionsPanel";
+import { FilesPreviewPanel } from "@/components/files/FilesPreviewPanel";
 import { SafetyPanel } from "@/components/safety/SafetyPanel";
 import { ToolResultPanel } from "@/components/tools/ToolResultPanel";
 import type {
@@ -7,6 +8,8 @@ import type {
   PiExtensionError,
   PiExtensionMessage,
   PiExtensionPanel,
+  PiFileEntry,
+  PiFilePreview,
   PiMessage,
   PiSafetyEvent,
   PiSessionStats,
@@ -26,6 +29,10 @@ interface RightInspectorProps {
   extensionMessages: PiExtensionMessage[];
   extensionErrors: PiExtensionError[];
   safetyEvents: PiSafetyEvent[];
+  files: PiFileEntry[];
+  filePreview: PiFilePreview | null;
+  selectedFilePath: string | null;
+  onSelectFile: (path: string) => Promise<void> | void;
 }
 
 export function RightInspector({
@@ -39,9 +46,12 @@ export function RightInspector({
   extensionMessages,
   extensionErrors,
   safetyEvents,
+  files,
+  filePreview,
+  selectedFilePath,
+  onSelectFile,
 }: RightInspectorProps) {
   const activeTools = messages.flatMap((message) => message.tools ?? []).slice(-6).reverse();
-
   const stateCards = [
     ["Tokens", (stats?.totalTokens ?? state?.tokenCount ?? 0).toLocaleString()],
     ["Cost", `$${(stats?.costUsd ?? state?.costUsd ?? 0).toFixed(4)}`],
@@ -123,6 +133,14 @@ export function RightInspector({
 
         <SafetyPanel events={safetyEvents} />
 
+        <FilesPreviewPanel
+          cwd={state?.cwd ?? settings?.cwd ?? "loading..."}
+          files={files}
+          preview={filePreview}
+          selectedPath={selectedFilePath}
+          onSelectFile={onSelectFile}
+        />
+
         <ExtensionsPanel
           commands={commands}
           extensionPanels={extensionPanels}
@@ -159,15 +177,6 @@ export function RightInspector({
           <div className="space-y-2 text-xs text-muted-foreground">
             <div className="rounded-xl bg-surface p-3">root → design summary → project init</div>
             <div className="rounded-xl bg-primary/10 p-3 text-primary">current leaf: app shell</div>
-          </div>
-        </section>
-
-        <section className="rounded-2xl border border-border bg-background/60 p-3">
-          <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            <FileCode2 size={14} /> Preview
-          </div>
-          <div className="rounded-xl bg-surface p-3 font-mono text-xs leading-5 text-muted-foreground">
-            src/components/layout/AppShell.tsx
           </div>
         </section>
       </div>

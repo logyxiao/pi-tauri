@@ -6,6 +6,8 @@ import type {
   PiExtensionError,
   PiExtensionMessage,
   PiExtensionPanel,
+  PiFileEntry,
+  PiFilePreview,
   PiMessage,
   PiModel,
   PiSafetyEvent,
@@ -29,6 +31,8 @@ export function usePiSession() {
   const [extensionPanels, setExtensionPanels] = useState<PiExtensionPanel[]>([]);
   const [extensionMessages, setExtensionMessages] = useState<PiExtensionMessage[]>([]);
   const [extensionErrors, setExtensionErrors] = useState<PiExtensionError[]>([]);
+  const [files, setFiles] = useState<PiFileEntry[]>([]);
+  const [filePreview, setFilePreview] = useState<PiFilePreview | null>(null);
   const [prefillInput, setPrefillInput] = useState("");
   const [safetyEvents, setSafetyEvents] = useState<PiSafetyEvent[]>([]);
   const activeAssistantIdRef = useRef<string | null>(null);
@@ -45,6 +49,7 @@ export function usePiSession() {
       nextExtensionMessages,
       nextExtensionErrors,
       nextSafetyEvents,
+      nextFiles,
     ] = await Promise.all([
       client.getMessages(),
       client.getState(),
@@ -56,6 +61,7 @@ export function usePiSession() {
       client.listExtensionMessages(),
       client.listExtensionErrors(),
       client.listSafetyEvents(),
+      client.listFiles(),
     ]);
     setMessages(nextMessages);
     setState(nextState);
@@ -67,6 +73,7 @@ export function usePiSession() {
     setExtensionMessages(nextExtensionMessages);
     setExtensionErrors(nextExtensionErrors);
     setSafetyEvents(nextSafetyEvents);
+    setFiles(nextFiles);
   }, [client]);
 
   const upsertTool = useCallback((tool: PiToolCall) => {
@@ -193,6 +200,11 @@ export function usePiSession() {
     setSafetyEvents((current) => [event, ...current.filter((item) => item.id !== event.id)].slice(0, 20));
   }
 
+  async function previewFile(path: string) {
+    const preview = await client.readFile(path);
+    setFilePreview(preview);
+  }
+
   function clearPrefillInput() {
     setPrefillInput("");
   }
@@ -208,6 +220,8 @@ export function usePiSession() {
     extensionMessages,
     extensionErrors,
     safetyEvents,
+    files,
+    filePreview,
     prefillInput,
     isRunning: state?.runState === "running",
     prompt,
@@ -216,6 +230,7 @@ export function usePiSession() {
     updateSettings,
     executeCommand,
     recordSafetyEvent,
+    previewFile,
     clearPrefillInput,
     refresh,
   };
