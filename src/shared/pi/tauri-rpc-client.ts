@@ -120,7 +120,7 @@ export class TauriPiRpcClient implements PiClient {
   async listSessions(): Promise<PiSessionSummary[]> {
     const state = await this.getState();
     try {
-      const sessions = await invoke<unknown[]>("pi_list_sessions", { cwd: state.cwd });
+      const sessions = await invoke<unknown[]>("pi_list_sessions", { cwd: "" });
       return sessions.map(mapSessionSummary).filter((session): session is PiSessionSummary => Boolean(session));
     } catch (error) {
       console.warn("pi session list unavailable", error);

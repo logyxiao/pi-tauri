@@ -1,4 +1,20 @@
-import { CircleDot, Download, GitFork, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Search, Settings, Sparkles, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+  ChevronDown,
+  ChevronRight,
+  CircleDot,
+  Download,
+  Folder,
+  GitFork,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Pencil,
+  Plus,
+  Search,
+  Settings,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/shared/lib/cn";
@@ -18,6 +34,13 @@ interface LeftSidebarProps {
   onOpenSettings: () => void;
 }
 
+interface ProjectSessionGroup {
+  cwd: string;
+  label: string;
+  sessions: PiSessionSummary[];
+  latestUpdatedAt: string;
+}
+
 export function LeftSidebar({
   collapsed,
   sessions,
@@ -31,6 +54,10 @@ export function LeftSidebar({
   onExportHtml,
   onOpenSettings,
 }: LeftSidebarProps) {
+  const groups = useMemo(() => groupSessionsByProject(sessions), [sessions]);
+  const selectedGroup = groups.find((group) => group.sessions.some((session) => isSelectedSession(session, currentSessionId)));
+  const [closedProjects, setClosedProjects] = useState<Set<string>>(() => new Set());
+
   async function renameCurrentSession() {
     const current = sessions.find((session) => session.id === currentSessionId) ?? sessions[0];
     const name = window.prompt("Session name", current?.name ?? "");
@@ -43,6 +70,15 @@ export function LeftSidebar({
     const confirmed = window.confirm(`Delete session file?\n\n${session.name}\n${session.filePath}`);
     if (!confirmed) return;
     await onDeleteSession(session.filePath);
+  }
+
+  function toggleProject(cwd: string) {
+    setClosedProjects((previous) => {
+      const next = new Set(previous);
+      if (next.has(cwd)) next.delete(cwd);
+      else next.add(cwd);
+      return next;
+    });
   }
 
   return (
@@ -60,7 +96,7 @@ export function LeftSidebar({
           {!collapsed ? (
             <div>
               <div className="text-sm font-semibold">Pi Desktop</div>
-              <div className="text-xs text-muted-foreground">sessions, tools, extensions</div>
+              <div className="text-xs text-muted-foreground">projects, sessions, tools</div>
             </div>
           ) : null}
         </div>
@@ -132,7 +168,7 @@ export function LeftSidebar({
           <div className="px-4 pb-3">
             <div className="flex h-9 items-center gap-2 rounded-md border border-border bg-surface/70 px-3 font-mono text-muted-foreground">
               <Search size={15} />
-              <span className="text-xs">Search sessions, projects...</span>
+              <span className="text-xs">Search projects, sessions...</span>
             </div>
           </div>
         </>
@@ -140,64 +176,50 @@ export function LeftSidebar({
 
       <div className="flex-1 overflow-auto px-3 pb-3">
         {!collapsed ? (
-          <div className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            Sessions
+          <div className="mb-2 flex items-center justify-between px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            <span>Projects</span>
+            <span>{groups.length}</span>
           </div>
         ) : null}
         <div className="space-y-1.5">
-          {sessions.length ? (
-            sessions.map((session) => {
-              const selected = session.id === currentSessionId || session.filePath === currentSessionId;
-              const switchTarget = session.filePath ?? session.id;
+          {groups.length ? (
+            groups.map((group) => {
+              const selectedProject = group.cwd === selectedGroup?.cwd;
+              const open = selectedProject || !closedProjects.has(group.cwd);
               return collapsed ? (
-                <Tooltip key={session.id}>
-                  <TooltipTrigger asChild>
-                    <button
-                      className={cn(
-                        "flex size-11 items-center justify-center rounded-md border transition",
-                        selected
-                          ? "border-primary/45 bg-surface/70 shadow-[inset_2px_0_0_var(--primary)]"
-                          : "border-transparent hover:bg-surface/70",
-                      )}
-                      onClick={() => void onSwitchSession(switchTarget)}
-                    >
-                      <CircleDot size={16} className={session.status === "running" ? "text-primary" : "text-muted-foreground"} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>{session.name}</TooltipContent>
-                </Tooltip>
+                <CollapsedProjectGroup key={group.cwd} group={group} currentSessionId={currentSessionId} onSwitchSession={onSwitchSession} />
               ) : (
                 <div
-                  key={session.id}
+                  key={group.cwd}
                   className={cn(
-                    "group rounded-md border transition",
-                    selected
-                      ? "border-primary/45 bg-surface/70 shadow-[inset_2px_0_0_var(--primary)]"
-                      : "border-transparent hover:border-border hover:bg-surface/70",
+                    "rounded-md border transition",
+                    selectedProject ? "border-primary/35 bg-surface/70" : "border-transparent hover:border-border hover:bg-surface/50",
                   )}
                 >
-                  <button className="w-full p-3 text-left" onClick={() => void onSwitchSession(switchTarget)}>
-                    <div className="mb-2 flex items-start justify-between gap-2">
-                      <div className="line-clamp-2 text-sm font-medium leading-snug">{session.name}</div>
-                      <CircleDot
-                        size={13}
-                        className={session.status === "running" ? "mt-0.5 text-primary" : "mt-0.5 text-muted-foreground"}
-                      />
+                  <button className="flex w-full items-center gap-2 px-2.5 py-2 text-left" onClick={() => toggleProject(group.cwd)}>
+                    {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    <Folder size={15} className={selectedProject ? "text-primary" : "text-muted-foreground"} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">{group.label}</div>
+                      <div className="truncate font-mono text-[10px] text-muted-foreground" title={group.cwd}>
+                        {group.cwd}
+                      </div>
                     </div>
-                    <div className="truncate text-xs text-muted-foreground">{session.cwd}</div>
-                    <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                      <span className="truncate">{session.model}</span>
-                      <span>{session.messageCount ?? 0} msgs</span>
-                    </div>
-                    <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground" title={session.filePath}>
-                      {session.updatedAt}
+                    <div className="rounded-full border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      {group.sessions.length}
                     </div>
                   </button>
-                  {session.filePath ? (
-                    <div className="flex justify-end border-t border-border/70 px-2 py-1 opacity-0 transition group-hover:opacity-100">
-                      <Button size="sm" variant="ghost" onClick={() => void deleteSession(session)}>
-                        <Trash2 size={12} /> Delete
-                      </Button>
+                  {open ? (
+                    <div className="space-y-1 border-t border-border/70 p-1.5 pl-5">
+                      {group.sessions.map((session) => (
+                        <SessionRow
+                          key={session.id}
+                          session={session}
+                          selected={isSelectedSession(session, currentSessionId)}
+                          onSwitchSession={onSwitchSession}
+                          onDeleteSession={deleteSession}
+                        />
+                      ))}
                     </div>
                   ) : null}
                 </div>
@@ -205,7 +227,7 @@ export function LeftSidebar({
             })
           ) : (
             <div className={collapsed ? "px-0" : "rounded-md border border-border bg-surface/70 p-3 text-xs text-muted-foreground"}>
-              {!collapsed ? "No saved sessions for this cwd yet." : null}
+              {!collapsed ? "No saved sessions yet." : null}
             </div>
           )}
         </div>
@@ -220,4 +242,122 @@ export function LeftSidebar({
       ) : null}
     </aside>
   );
+}
+
+function SessionRow({
+  session,
+  selected,
+  onSwitchSession,
+  onDeleteSession,
+}: {
+  session: PiSessionSummary;
+  selected: boolean;
+  onSwitchSession: (sessionPath: string) => Promise<void> | void;
+  onDeleteSession: (session: PiSessionSummary) => Promise<void> | void;
+}) {
+  const switchTarget = session.filePath ?? session.id;
+  return (
+    <div
+      className={cn(
+        "group rounded-md border transition",
+        selected ? "border-primary/45 bg-card shadow-[inset_2px_0_0_var(--primary)]" : "border-transparent hover:border-border hover:bg-card/80",
+      )}
+    >
+      <button className="w-full p-2.5 text-left" onClick={() => void onSwitchSession(switchTarget)}>
+        <div className="mb-1.5 flex items-start justify-between gap-2">
+          <div className="line-clamp-2 text-sm font-medium leading-snug">{session.name}</div>
+          <CircleDot size={12} className={session.status === "running" ? "mt-0.5 text-primary" : "mt-0.5 text-muted-foreground"} />
+        </div>
+        <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+          <span className="truncate">{session.model}</span>
+          <span>{session.messageCount ?? 0} msgs</span>
+        </div>
+        <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground" title={session.filePath}>
+          {session.updatedAt}
+        </div>
+      </button>
+      {session.filePath ? (
+        <div className="flex justify-end border-t border-border/70 px-2 py-1 opacity-0 transition group-hover:opacity-100">
+          <Button size="sm" variant="ghost" onClick={() => void onDeleteSession(session)}>
+            <Trash2 size={12} /> Delete
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function CollapsedProjectGroup({
+  group,
+  currentSessionId,
+  onSwitchSession,
+}: {
+  group: ProjectSessionGroup;
+  currentSessionId?: string;
+  onSwitchSession: (sessionPath: string) => Promise<void> | void;
+}) {
+  const selected = group.sessions.some((session) => isSelectedSession(session, currentSessionId));
+  const latestSession = group.sessions[0];
+  const switchTarget = latestSession?.filePath ?? latestSession?.id;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          className={cn(
+            "flex size-11 items-center justify-center rounded-md border transition",
+            selected ? "border-primary/45 bg-surface/70 shadow-[inset_2px_0_0_var(--primary)]" : "border-transparent hover:bg-surface/70",
+          )}
+          disabled={!switchTarget}
+          onClick={() => switchTarget && void onSwitchSession(switchTarget)}
+        >
+          <Folder size={16} className={selected ? "text-primary" : "text-muted-foreground"} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {group.label} · {group.sessions.length} sessions
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function groupSessionsByProject(sessions: PiSessionSummary[]): ProjectSessionGroup[] {
+  const map = new Map<string, PiSessionSummary[]>();
+  for (const session of sessions) {
+    const cwd = normalizeProjectPath(session.cwd || "Unknown project");
+    map.set(cwd, [...(map.get(cwd) ?? []), session]);
+  }
+
+  return Array.from(map.entries())
+    .map(([cwd, projectSessions]) => {
+      const sorted = [...projectSessions].sort((left, right) => compareUpdatedAt(right.updatedAt, left.updatedAt));
+      return {
+        cwd,
+        label: projectLabel(cwd),
+        sessions: sorted,
+        latestUpdatedAt: sorted[0]?.updatedAt ?? "unknown",
+      };
+    })
+    .sort((left, right) => compareUpdatedAt(right.latestUpdatedAt, left.latestUpdatedAt));
+}
+
+function isSelectedSession(session: PiSessionSummary, currentSessionId?: string): boolean {
+  return Boolean(currentSessionId && (session.id === currentSessionId || session.filePath === currentSessionId));
+}
+
+function normalizeProjectPath(cwd: string): string {
+  return cwd.replace(/\\/g, "/").replace(/\/$/, "");
+}
+
+function projectLabel(cwd: string): string {
+  const normalized = normalizeProjectPath(cwd);
+  const parts = normalized.split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? normalized;
+}
+
+function compareUpdatedAt(left: string, right: string): number {
+  const leftTime = Date.parse(left);
+  const rightTime = Date.parse(right);
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) return leftTime - rightTime;
+  return left.localeCompare(right);
 }

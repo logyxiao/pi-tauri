@@ -512,6 +512,8 @@ RPC/SDK 下 extension UI 与桌面 UI 需要桥接。
 - 阶段 4：Tauri Rust 增加 `pi_list_sessions`，扫描 `~/.pi/agent/sessions` 并解析 session JSONL metadata/session_info/message/model_change
 - 阶段 4：Tauri Rust 增加 `pi_delete_session`，确认后仅允许删除 sessions dir 内 `.jsonl`
 - 阶段 4：LeftSidebar 改用真实 session list，支持点击切换、继续最近、命名、导出 HTML、删除确认
+- 阶段 4：Sessions UI 改为 project folder tree，按 `cwd` 分组，项目节点可折叠，项目下展示 session 列表
+- 阶段 4：`pi_list_sessions` 支持空 cwd 返回全部项目 session，前端据此构建项目树
 - 阶段 4 验证：`pnpm build` / `pnpm lint` / `pnpm pi:rpc:smoke` / `cargo check` 通过
 - `pnpm build` / `pnpm lint` / `pnpm pi:rpc:smoke` / `cargo check` 再次通过
 

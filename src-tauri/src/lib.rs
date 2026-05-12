@@ -91,10 +91,14 @@ fn pi_rpc_stop(state: State<'_, RpcState>) -> RpcResult<()> {
 
 #[tauri::command]
 fn pi_list_sessions(cwd: String) -> RpcResult<Vec<serde_json::Value>> {
-    let target_cwd = safe_root(&cwd)?.to_string_lossy().replace('\\', "/");
+    let target_cwd = if cwd.trim().is_empty() {
+        None
+    } else {
+        Some(safe_root(&cwd)?.to_string_lossy().replace('\\', "/"))
+    };
     let sessions_root = default_sessions_root()?;
     let mut sessions = Vec::new();
-    collect_session_files(&sessions_root, &target_cwd, &mut sessions)?;
+    collect_session_files(&sessions_root, target_cwd.as_deref(), &mut sessions)?;
     sessions.sort_by(|a, b| {
         let left = a.get("updatedAt").and_then(|value| value.as_str()).unwrap_or("");
         let right = b.get("updatedAt").and_then(|value| value.as_str()).unwrap_or("");
@@ -237,7 +241,7 @@ fn default_sessions_root() -> RpcResult<PathBuf> {
     Ok(home.join(".pi").join("agent").join("sessions"))
 }
 
-fn collect_session_files(root: &Path, target_cwd: &str, sessions: &mut Vec<serde_json::Value>) -> RpcResult<()> {
+fn collect_session_files(root: &Path, target_cwd: Option<&str>, sessions: &mut Vec<serde_json::Value>) -> RpcResult<()> {
     if !root.exists() {
         return Ok(());
     }
@@ -259,7 +263,7 @@ fn collect_session_files(root: &Path, target_cwd: &str, sessions: &mut Vec<serde
     Ok(())
 }
 
-fn parse_session_summary(path: &Path, target_cwd: &str) -> Option<serde_json::Value> {
+fn parse_session_summary(path: &Path, target_cwd: Option<&str>) -> Option<serde_json::Value> {
     let file = fs::File::open(path).ok()?;
     let reader = BufReader::new(file);
     let mut id = String::new();
@@ -305,7 +309,7 @@ fn parse_session_summary(path: &Path, target_cwd: &str) -> Option<serde_json::Va
         }
     }
 
-    if id.is_empty() || cwd != target_cwd {
+    if id.is_empty() || target_cwd.is_some_and(|target| cwd != target) {
         return None;
     }
 
