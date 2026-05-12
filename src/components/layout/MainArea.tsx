@@ -4,7 +4,7 @@ import { MessageList } from "@/components/chat/MessageList";
 import { ModelSelector } from "@/components/model/ModelSelector";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { PiCommand, PiMessage, PiModel, PiSettingsUpdate, PiState, PiToolCall } from "@/shared/pi/types";
+import type { PiCommand, PiMessage, PiModel, PiSafetyEvent, PiSettingsUpdate, PiState, PiToolCall } from "@/shared/pi/types";
 
 interface MainAreaProps {
   inspectorOpen: boolean;
@@ -17,7 +17,8 @@ interface MainAreaProps {
   onPrompt: (message: string) => Promise<void> | void;
   onAbort: () => Promise<void> | void;
   onUpdateSettings: (update: PiSettingsUpdate) => Promise<void> | void;
-  onExecuteCommand: (commandName: string) => Promise<void> | void;
+  onExecuteCommand: (commandName: string, safetyEvent?: PiSafetyEvent) => Promise<void> | void;
+  onRecordSafetyEvent: (event: PiSafetyEvent) => Promise<void> | void;
   onConsumePrefill: () => void;
   onToggleInspector: () => void;
   onSelectTool: (tool: PiToolCall) => void;
@@ -35,6 +36,7 @@ export function MainArea({
   onAbort,
   onUpdateSettings,
   onExecuteCommand,
+  onRecordSafetyEvent,
   onConsumePrefill,
   onToggleInspector,
   onSelectTool,
@@ -84,6 +86,7 @@ export function MainArea({
           onSubmit={onPrompt}
           onAbort={onAbort}
           onExecuteCommand={onExecuteCommand}
+          onRecordSafetyEvent={onRecordSafetyEvent}
           onConsumePrefill={onConsumePrefill}
         />
       </div>

@@ -1,5 +1,6 @@
 import { Activity, FileCode2, GitFork, HardDrive, Terminal } from "lucide-react";
 import { ExtensionsPanel } from "@/components/extensions/ExtensionsPanel";
+import { SafetyPanel } from "@/components/safety/SafetyPanel";
 import { ToolResultPanel } from "@/components/tools/ToolResultPanel";
 import type {
   PiCommand,
@@ -7,6 +8,7 @@ import type {
   PiExtensionMessage,
   PiExtensionPanel,
   PiMessage,
+  PiSafetyEvent,
   PiSessionStats,
   PiSettings,
   PiState,
@@ -23,6 +25,7 @@ interface RightInspectorProps {
   extensionPanels: PiExtensionPanel[];
   extensionMessages: PiExtensionMessage[];
   extensionErrors: PiExtensionError[];
+  safetyEvents: PiSafetyEvent[];
 }
 
 export function RightInspector({
@@ -35,6 +38,7 @@ export function RightInspector({
   extensionPanels,
   extensionMessages,
   extensionErrors,
+  safetyEvents,
 }: RightInspectorProps) {
   const activeTools = messages.flatMap((message) => message.tools ?? []).slice(-6).reverse();
 
@@ -68,6 +72,11 @@ export function RightInspector({
               <Terminal size={14} /> Selected tool
             </div>
             <ToolResultPanel tool={selectedTool} />
+            {selectedTool.safety ? (
+              <div className="mt-3 rounded-xl border border-danger/20 bg-danger/5 p-3 text-xs leading-5 text-danger">
+                {selectedTool.safety.severity}: {selectedTool.safety.reason}
+              </div>
+            ) : null}
           </section>
         ) : null}
 
@@ -111,6 +120,8 @@ export function RightInspector({
             </div>
           </div>
         </section>
+
+        <SafetyPanel events={safetyEvents} />
 
         <ExtensionsPanel
           commands={commands}

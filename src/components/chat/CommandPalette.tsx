@@ -41,7 +41,7 @@ export function CommandPalette({ commands, query, selectedIndex, onSelect }: Com
               <div className="truncate text-muted-foreground">{command.description ?? "No description"}</div>
               <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
                 <span className="border border-border bg-surface/70 px-2 py-0.5">{command.source}</span>
-                {command.dangerous ? (
+                {command.dangerous || command.safety ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-danger/10 px-2 py-0.5 text-danger">
                     <ShieldAlert size={11} /> confirm
                   </span>

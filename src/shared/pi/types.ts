@@ -4,6 +4,25 @@ export type PiToolStatus = "running" | "success" | "error";
 
 export type PiThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
+export type DangerousActionKind = "bash" | "write" | "edit" | "delete" | "reset" | "sensitive_path" | "command";
+
+export interface DangerousAction {
+  id: string;
+  kind: DangerousActionKind;
+  target: string;
+  reason: string;
+  severity: "medium" | "high" | "critical";
+  requiresConfirmation: boolean;
+}
+
+export interface PiSafetyEvent {
+  id: string;
+  action: DangerousAction;
+  decision: "allowed" | "blocked" | "flagged";
+  source: "command" | "tool" | "rpc-limitation";
+  createdAt: string;
+}
+
 export interface PiModel {
   id: string;
   name: string;
@@ -46,6 +65,7 @@ export interface PiToolCall {
   durationMs?: number;
   summary: string;
   output?: string;
+  safety?: DangerousAction;
 }
 
 export interface PiMessage {
@@ -90,6 +110,7 @@ export interface PiCommand {
   location?: "user" | "project" | "path";
   path?: string;
   dangerous?: boolean;
+  safety?: DangerousAction;
 }
 
 export interface PiExtensionPanel {

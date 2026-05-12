@@ -9,12 +9,14 @@ import type {
   PiExtensionStatus,
   PiMessage,
   PiModel,
+  PiSafetyEvent,
   PiSessionStats,
   PiSettings,
   PiSettingsUpdate,
   PiState,
   PiToolCall,
 } from "./types";
+import { createSafetyEvent, detectDangerousCommand, detectDangerousTool } from "./safety";
 
 type RpcResponse = {
   id?: string;
@@ -52,6 +54,7 @@ export class TauriPiRpcClient implements PiClient {
   private extensionMessages: PiExtensionMessage[] = [];
   private extensionErrors: PiExtensionError[] = [];
   private extensionStatuses = new Map<string, PiExtensionStatus>();
+  private safetyEvents: PiSafetyEvent[] = [];
 
   async connect(): Promise<void> {
     if (this.connected) return;
@@ -188,6 +191,10 @@ export class TauriPiRpcClient implements PiClient {
   }
 
   async executeCommand(commandName: string): Promise<void> {
+    const commands = await this.listCommands();
+    const command = commands.find((item) => item.name === commandName);
+    const action = command ? detectDangerousCommand(command) : null;
+    if (action) this.safetyEvents = [createSafetyEvent(action, "allowed", "command"), ...this.safetyEvents].slice(0, 20);
     await this.prompt(`/${commandName}`);
   }
 
@@ -201,6 +208,14 @@ export class TauriPiRpcClient implements PiClient {
 
   async listExtensionErrors(): Promise<PiExtensionError[]> {
     return this.extensionErrors;
+  }
+
+  async listSafetyEvents(): Promise<PiSafetyEvent[]> {
+    return this.safetyEvents;
+  }
+
+  async recordSafetyEvent(event: PiSafetyEvent): Promise<void> {
+    this.safetyEvents = [event, ...this.safetyEvents.filter((item) => item.id !== event.id)].slice(0, 20);
   }
 
   subscribe(listener: Listener): () => void {
@@ -300,6 +315,9 @@ export class TauriPiRpcClient implements PiClient {
       event.type === "tool_execution_end"
     ) {
       const tool = mapToolEvent(event);
+      if (tool.safety) {
+        this.safetyEvents = [createSafetyEvent(tool.safety, "flagged", "rpc-limitation"), ...this.safetyEvents].slice(0, 20);
+      }
       const type = event.type as "tool_execution_start" | "tool_execution_update" | "tool_execution_end";
       this.emit({ type, tool });
     }
@@ -360,14 +378,16 @@ function mapCommand(raw: unknown): PiCommand | null {
   if (!raw || typeof raw !== "object") return null;
   const command = raw as Record<string, unknown>;
   if (typeof command.name !== "string") return null;
-  return {
+  const mapped: PiCommand = {
     name: command.name,
     description: typeof command.description === "string" ? command.description : undefined,
     source: normalizeCommandSource(command.source),
     location: normalizeCommandLocation(command.location),
     path: typeof command.path === "string" ? command.path : undefined,
-    dangerous: /delete|reset|shell|batch/i.test(command.name),
+    dangerous: /delete|reset|shell|batch|wipe|remove/i.test(command.name),
   };
+  const safety = detectDangerousCommand(mapped);
+  return safety ? { ...mapped, dangerous: true, safety } : mapped;
 }
 
 function mapModel(raw: unknown): PiModel | null {
@@ -458,7 +478,7 @@ function mapToolEvent(event: Record<string, unknown>): PiToolCall {
   const isEnd = event.type === "tool_execution_end";
   const isError = Boolean(event.isError);
 
-  return {
+  const tool: PiToolCall = {
     id: String(event.toolCallId ?? crypto.randomUUID()),
     name,
     target: extractToolTarget(name, args),
@@ -466,6 +486,8 @@ function mapToolEvent(event: Record<string, unknown>): PiToolCall {
     summary: isEnd ? (isError ? "Tool failed" : "Tool complete") : "Tool running",
     output: extractContentText(result?.content),
   };
+  const safety = detectDangerousTool(tool);
+  return safety ? { ...tool, safety } : tool;
 }
 
 function extractToolTarget(name: string, args: Record<string, unknown> | undefined): string {

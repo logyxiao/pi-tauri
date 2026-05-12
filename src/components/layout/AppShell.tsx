@@ -2,6 +2,7 @@ import { useState } from "react";
 import { LeftSidebar } from "./LeftSidebar";
 import { MainArea } from "./MainArea";
 import { RightInspector } from "./RightInspector";
+import { WindowTitlebar } from "./WindowTitlebar";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { usePiSession } from "@/shared/hooks/usePiSession";
@@ -22,6 +23,7 @@ export function AppShell() {
     extensionPanels,
     extensionMessages,
     extensionErrors,
+    safetyEvents,
     prefillInput,
     isRunning,
     prompt,
@@ -29,6 +31,7 @@ export function AppShell() {
     newSession,
     updateSettings,
     executeCommand,
+    recordSafetyEvent,
     clearPrefillInput,
   } = usePiSession();
 
@@ -44,43 +47,48 @@ export function AppShell() {
 
   return (
     <TooltipProvider delayDuration={250}>
-      <div className="pi-grid-bg flex h-screen w-screen overflow-hidden p-3 text-foreground">
-        <div className="flex min-h-0 flex-1 overflow-hidden border border-border bg-surface/80 shadow-[0_18px_60px_rgb(44_54_70/0.13)] backdrop-blur-[1px]">
-          <LeftSidebar
-            collapsed={sidebarCollapsed}
-            onToggle={() => setSidebarCollapsed((value) => !value)}
-            onNewSession={() => void startNewSession()}
-            onOpenSettings={() => setSettingsOpen(true)}
-          />
-          <MainArea
-            inspectorOpen={inspectorOpen}
-            messages={messages}
-            state={state}
-            models={models}
-            commands={commands}
-            prefillInput={prefillInput}
-            isRunning={isRunning}
-            onPrompt={prompt}
-            onAbort={abort}
-            onUpdateSettings={updateSettings}
-            onExecuteCommand={executeCommand}
-            onConsumePrefill={clearPrefillInput}
-            onToggleInspector={() => setInspectorOpen((value) => !value)}
-            onSelectTool={selectTool}
-          />
-          {inspectorOpen ? (
-            <RightInspector
-              selectedTool={selectedTool}
+      <div className="pi-grid-bg flex h-screen w-screen overflow-hidden text-foreground">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface/80 backdrop-blur-[1px]">
+          <WindowTitlebar />
+          <div className="flex min-h-0 flex-1 overflow-hidden">
+            <LeftSidebar
+              collapsed={sidebarCollapsed}
+              onToggle={() => setSidebarCollapsed((value) => !value)}
+              onNewSession={() => void startNewSession()}
+              onOpenSettings={() => setSettingsOpen(true)}
+            />
+            <MainArea
+              inspectorOpen={inspectorOpen}
               messages={messages}
               state={state}
-              stats={stats}
-              settings={settings}
+              models={models}
               commands={commands}
-              extensionPanels={extensionPanels}
-              extensionMessages={extensionMessages}
-              extensionErrors={extensionErrors}
+              prefillInput={prefillInput}
+              isRunning={isRunning}
+              onPrompt={prompt}
+              onAbort={abort}
+              onUpdateSettings={updateSettings}
+              onExecuteCommand={executeCommand}
+              onRecordSafetyEvent={recordSafetyEvent}
+              onConsumePrefill={clearPrefillInput}
+              onToggleInspector={() => setInspectorOpen((value) => !value)}
+              onSelectTool={selectTool}
             />
-          ) : null}
+            {inspectorOpen ? (
+              <RightInspector
+                selectedTool={selectedTool}
+                messages={messages}
+                state={state}
+                stats={stats}
+                settings={settings}
+                commands={commands}
+                extensionPanels={extensionPanels}
+                extensionMessages={extensionMessages}
+                extensionErrors={extensionErrors}
+                safetyEvents={safetyEvents}
+              />
+            ) : null}
+          </div>
         </div>
       </div>
       <SettingsDialog

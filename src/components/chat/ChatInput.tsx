@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { ArrowUp, AtSign, Image, ShieldAlert, Square } from "lucide-react";
+import { ArrowUp, AtSign, Image, Square } from "lucide-react";
 import { CommandPalette } from "@/components/chat/CommandPalette";
+import { SafetyConfirmDialog } from "@/components/safety/SafetyConfirmDialog";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
-import type { PiCommand } from "@/shared/pi/types";
+import { createSafetyEvent, detectDangerousCommand } from "@/shared/pi/safety";
+import type { PiCommand, PiSafetyEvent } from "@/shared/pi/types";
 
 interface ChatInputProps {
   isRunning: boolean;
@@ -11,7 +12,8 @@ interface ChatInputProps {
   prefillValue?: string;
   onSubmit: (message: string) => Promise<void> | void;
   onAbort: () => Promise<void> | void;
-  onExecuteCommand: (commandName: string) => Promise<void> | void;
+  onExecuteCommand: (commandName: string, safetyEvent?: PiSafetyEvent) => Promise<void> | void;
+  onRecordSafetyEvent: (event: PiSafetyEvent) => Promise<void> | void;
   onConsumePrefill: () => void;
 }
 
@@ -22,6 +24,7 @@ export function ChatInput({
   onSubmit,
   onAbort,
   onExecuteCommand,
+  onRecordSafetyEvent,
   onConsumePrefill,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
@@ -53,7 +56,7 @@ export function ChatInput({
   }
 
   async function runCommand(command: PiCommand) {
-    if (command.dangerous) {
+    if (command.dangerous || command.safety) {
       setPendingDangerousCommand(command);
       return;
     }
@@ -146,38 +149,33 @@ export function ChatInput({
         </div>
       </div>
 
-      <Dialog open={Boolean(pendingDangerousCommand)} onOpenChange={(open) => !open && setPendingDangerousCommand(null)}>
-        <DialogContent
-          title="Confirm dangerous command"
-          description="Dangerous extension/prompt command must be confirmed first. Command stays visible before execution."
-        >
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-danger/20 bg-danger/5 p-3 text-sm text-muted-foreground">
-              <div className="mb-2 flex items-center gap-2 font-semibold text-danger">
-                <ShieldAlert size={16} /> /{pendingDangerousCommand?.name}
-              </div>
-              <div>{pendingDangerousCommand?.description ?? "This command may trigger shell reset, delete, or batch behavior."}</div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setPendingDangerousCommand(null)}>
-                Cancel
-              </Button>
-              <Button
-                variant="danger"
-                onClick={() => {
-                  const command = pendingDangerousCommand;
-                  setPendingDangerousCommand(null);
-                  if (!command) return;
-                  void onExecuteCommand(command.name);
-                  setValue("");
-                }}
-              >
-                <ShieldAlert size={14} /> Confirm execute
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <SafetyConfirmDialog
+        open={Boolean(pendingDangerousCommand)}
+        action={pendingDangerousCommand?.safety ?? (pendingDangerousCommand ? detectDangerousCommand(pendingDangerousCommand) : null)}
+        onOpenChange={(open) => {
+          if (!open && pendingDangerousCommand) {
+            const action = pendingDangerousCommand.safety ?? detectDangerousCommand(pendingDangerousCommand);
+            if (action) void onRecordSafetyEvent(createSafetyEvent(action, "blocked", "command"));
+            setPendingDangerousCommand(null);
+          }
+        }}
+        onCancel={() => {
+          if (pendingDangerousCommand) {
+            const action = pendingDangerousCommand.safety ?? detectDangerousCommand(pendingDangerousCommand);
+            if (action) void onRecordSafetyEvent(createSafetyEvent(action, "blocked", "command"));
+          }
+          setPendingDangerousCommand(null);
+        }}
+        onConfirm={() => {
+          const command = pendingDangerousCommand;
+          setPendingDangerousCommand(null);
+          if (!command) return;
+          const action = command.safety ?? detectDangerousCommand(command);
+          const event = action ? createSafetyEvent(action, "allowed", "command") : undefined;
+          void onExecuteCommand(command.name, event);
+          setValue("");
+        }}
+      />
     </>
   );
 }

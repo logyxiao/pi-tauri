@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, ChevronRight, Loader2, X } from "lucide-react";
+import { Check, ChevronRight, Loader2, ShieldAlert, X } from "lucide-react";
 import type { PiToolCall } from "@/shared/pi/types";
 import { cn } from "@/shared/lib/cn";
 import { ToolResultPanel } from "./ToolResultPanel";
@@ -31,6 +31,7 @@ export function ToolCallItem({ tool, onSelect }: ToolCallItemProps) {
       >
         <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-surface">{icon}</span>
         <span className="w-14 shrink-0 font-mono font-semibold text-foreground">{tool.name}</span>
+        {tool.safety ? <ShieldAlert size={13} className="shrink-0 text-danger" /> : null}
         <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">{tool.target}</span>
         <span
           className={cn(
@@ -47,7 +48,16 @@ export function ToolCallItem({ tool, onSelect }: ToolCallItemProps) {
           size={14}
         />
       </button>
-      {expanded ? <ToolResultPanel tool={tool} /> : null}
+      {expanded ? (
+        <>
+          <ToolResultPanel tool={tool} />
+          {tool.safety ? (
+            <div className="mt-2 rounded-xl border border-danger/20 bg-danger/5 p-3 text-xs leading-5 text-danger">
+              {tool.safety.severity}: {tool.safety.reason}
+            </div>
+          ) : null}
+        </>
+      ) : null}
     </div>
   );
 }

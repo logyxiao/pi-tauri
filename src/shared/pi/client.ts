@@ -6,6 +6,7 @@ import type {
   PiExtensionStatus,
   PiMessage,
   PiModel,
+  PiSafetyEvent,
   PiSessionStats,
   PiSettings,
   PiSettingsUpdate,
@@ -64,5 +65,7 @@ export interface PiClient {
   listExtensionPanels(): Promise<PiExtensionPanel[]>;
   listExtensionMessages(): Promise<PiExtensionMessage[]>;
   listExtensionErrors(): Promise<PiExtensionError[]>;
+  listSafetyEvents(): Promise<PiSafetyEvent[]>;
+  recordSafetyEvent(event: PiSafetyEvent): Promise<void>;
   subscribe(listener: (event: PiClientEvent) => void): () => void;
 }

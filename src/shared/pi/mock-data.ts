@@ -5,6 +5,7 @@ import type {
   PiExtensionPanel,
   PiModel,
   PiMessage,
+  PiSafetyEvent,
   PiSessionStats,
   PiSessionSummary,
   PiSettings,
@@ -65,6 +66,23 @@ export const demoTools: PiToolCall[] = [
     durationMs: 143,
     summary: "Replaced Tauri starter page with AppShell",
     output: "+ AppShell\n+ LeftSidebar\n+ RightInspector",
+  },
+  {
+    id: "t4",
+    name: "bash",
+    target: "rm -rf dist",
+    status: "error",
+    durationMs: 0,
+    summary: "Blocked by safety policy before execution",
+    output: "Dangerous bash requires explicit confirmation.",
+    safety: {
+      id: "danger-demo-bash",
+      kind: "bash",
+      target: "rm -rf dist",
+      reason: "Recursive delete command detected.",
+      severity: "critical",
+      requiresConfirmation: true,
+    },
   },
 ];
 
@@ -186,6 +204,14 @@ export const demoCommands: PiCommand[] = [
     source: "extension",
     dangerous: true,
     path: "~/.pi/agent/extensions/shell-guard.ts",
+    safety: {
+      id: "danger-demo-command",
+      kind: "reset",
+      target: "shell-reset",
+      reason: "Command may reset shell helper state and clear working files.",
+      severity: "high",
+      requiresConfirmation: true,
+    },
   },
 ];
 
@@ -223,6 +249,37 @@ export const demoExtensionMessages: PiExtensionMessage[] = [
     level: "warning",
     source: "shell-guard.ts",
     createdAt: "22:35",
+  },
+];
+
+export const demoSafetyEvents: PiSafetyEvent[] = [
+  {
+    id: "safe-event-1",
+    decision: "blocked",
+    source: "command",
+    createdAt: "22:37",
+    action: {
+      id: "danger-demo-command",
+      kind: "reset",
+      target: "/shell-reset",
+      reason: "Dangerous command requires confirmation before execution.",
+      severity: "high",
+      requiresConfirmation: true,
+    },
+  },
+  {
+    id: "safe-event-2",
+    decision: "flagged",
+    source: "tool",
+    createdAt: "22:38",
+    action: {
+      id: "danger-demo-bash",
+      kind: "bash",
+      target: "rm -rf dist",
+      reason: "RPC tool event visible after pi emits it; SDK/extension interception required for pre-run blocking.",
+      severity: "critical",
+      requiresConfirmation: true,
+    },
   },
 ];
 

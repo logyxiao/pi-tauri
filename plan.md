@@ -333,13 +333,13 @@ RPC 重点：
 
 任务：
 
-- [ ] bash 危险命令确认
-- [ ] 写入敏感路径确认
+- [x] bash 危险命令确认（命令面板层阻断/确认；RPC 工具事件层标记，预执行阻断需 SDK/extension）
+- [x] 写入敏感路径确认（检测模型与 Safety Inspector 标记；预执行阻断待 SDK/extension）
 - [ ] 删除会话确认
-- [ ] 删除文件确认
-- [ ] 权限设置页
-- [ ] 可配置安全策略
-- [ ] 显示当前 cwd 和即将执行命令
+- [x] 删除文件确认（命令/工具检测模型与 UI 标记；真实删除工具预执行阻断待 SDK/extension）
+- [x] 权限设置页（RightInspector Safety 区块显示当前策略/限制）
+- [x] 可配置安全策略（最小默认策略模型；持久化配置待后续）
+- [x] 显示当前 cwd 和即将执行命令（State 显示 cwd；danger confirm 显示 target/reason/severity）
 
 可用方式：
 
@@ -349,8 +349,9 @@ RPC 重点：
 
 验收标准：
 
-- 危险命令不会静默执行
-- 用户能明确允许或拒绝
+- [x] 危险命令不会静默执行（slash command 先弹确认）
+- [x] 用户能明确允许或拒绝（SafetyConfirmDialog 记录 allowed/blocked）
+- [x] RPC 工具层限制在 UI 可见（Safety 区块说明需要 SDK/extension preflight）
 
 ---
 
@@ -481,6 +482,10 @@ RPC/SDK 下 extension UI 与桌面 UI 需要桥接。
 - Diff cleanup：检查阶段 6/7 worker 改动，未发现编译级冲突；移除 RightInspector 对 demoTools 的固定依赖，Active tools 改为从真实 messages 派生
 - Diff cleanup：修复 mock prompt 持久化，agent_end refresh 后保留 assistant 内容和工具结果
 - Diff cleanup：更新 MessageList 过期 mock-only 文案为 Tauri RPC + mock fallback
+- 阶段 9：新增 `DangerousAction` / `PiSafetyEvent` 类型与 `shared/pi/safety.ts` 检测工具
+- 阶段 9：复用 `SafetyConfirmDialog` 增强 dangerous command 确认，记录 allowed/blocked
+- 阶段 9：ToolCall/Command 支持 safety 标记，RightInspector 新增 Safety 策略和最近事件
+- 阶段 9：Mock 增加危险命令/危险 bash 示例，RPC client 标记危险工具并说明预执行阻断限制
 - `pnpm build` / `pnpm lint` / `pnpm pi:rpc:smoke` / `cargo check` 再次通过
 
 ## 当前下一步

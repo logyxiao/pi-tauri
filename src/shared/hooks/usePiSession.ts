@@ -8,6 +8,7 @@ import type {
   PiExtensionPanel,
   PiMessage,
   PiModel,
+  PiSafetyEvent,
   PiSessionStats,
   PiSettings,
   PiSettingsUpdate,
@@ -29,6 +30,7 @@ export function usePiSession() {
   const [extensionMessages, setExtensionMessages] = useState<PiExtensionMessage[]>([]);
   const [extensionErrors, setExtensionErrors] = useState<PiExtensionError[]>([]);
   const [prefillInput, setPrefillInput] = useState("");
+  const [safetyEvents, setSafetyEvents] = useState<PiSafetyEvent[]>([]);
   const activeAssistantIdRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -42,6 +44,7 @@ export function usePiSession() {
       nextExtensionPanels,
       nextExtensionMessages,
       nextExtensionErrors,
+      nextSafetyEvents,
     ] = await Promise.all([
       client.getMessages(),
       client.getState(),
@@ -52,6 +55,7 @@ export function usePiSession() {
       client.listExtensionPanels(),
       client.listExtensionMessages(),
       client.listExtensionErrors(),
+      client.listSafetyEvents(),
     ]);
     setMessages(nextMessages);
     setState(nextState);
@@ -62,6 +66,7 @@ export function usePiSession() {
     setExtensionPanels(nextExtensionPanels);
     setExtensionMessages(nextExtensionMessages);
     setExtensionErrors(nextExtensionErrors);
+    setSafetyEvents(nextSafetyEvents);
   }, [client]);
 
   const upsertTool = useCallback((tool: PiToolCall) => {
@@ -108,6 +113,7 @@ export function usePiSession() {
         event.type === "tool_execution_end"
       ) {
         upsertTool(event.tool);
+        if (event.tool.safety) void refresh();
         return;
       }
 
@@ -173,9 +179,18 @@ export function usePiSession() {
     await refresh();
   }
 
-  async function executeCommand(commandName: string) {
+  async function executeCommand(commandName: string, safetyEvent?: PiSafetyEvent) {
+    if (safetyEvent) {
+      await client.recordSafetyEvent(safetyEvent);
+      setSafetyEvents((current) => [safetyEvent, ...current.filter((item) => item.id !== safetyEvent.id)].slice(0, 20));
+    }
     await client.executeCommand(commandName);
     await refresh();
+  }
+
+  async function recordSafetyEvent(event: PiSafetyEvent) {
+    await client.recordSafetyEvent(event);
+    setSafetyEvents((current) => [event, ...current.filter((item) => item.id !== event.id)].slice(0, 20));
   }
 
   function clearPrefillInput() {
@@ -192,6 +207,7 @@ export function usePiSession() {
     extensionPanels,
     extensionMessages,
     extensionErrors,
+    safetyEvents,
     prefillInput,
     isRunning: state?.runState === "running",
     prompt,
@@ -199,6 +215,7 @@ export function usePiSession() {
     newSession,
     updateSettings,
     executeCommand,
+    recordSafetyEvent,
     clearPrefillInput,
     refresh,
   };

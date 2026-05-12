@@ -6,6 +6,7 @@ import {
   demoMessages,
   demoModels,
   demoPiState,
+  demoSafetyEvents,
   demoSessionStats,
   demoSettings,
 } from "./mock-data";
@@ -17,12 +18,14 @@ import type {
   PiExtensionPanel,
   PiMessage,
   PiModel,
+  PiSafetyEvent,
   PiSessionStats,
   PiSettings,
   PiSettingsUpdate,
   PiState,
   PiToolCall,
 } from "./types";
+import { createSafetyEvent, detectDangerousCommand, detectDangerousTool } from "./safety";
 
 type Listener = (event: PiClientEvent) => void;
 
@@ -39,6 +42,7 @@ export class MockPiClient implements PiClient {
   private extensionPanels: PiExtensionPanel[] = demoExtensionPanels;
   private extensionMessages: PiExtensionMessage[] = demoExtensionMessages;
   private extensionErrors: PiExtensionError[] = demoExtensionErrors;
+  private safetyEvents: PiSafetyEvent[] = demoSafetyEvents;
 
   async connect(): Promise<void> {
     await wait(80);
@@ -74,18 +78,23 @@ export class MockPiClient implements PiClient {
 
     const tool: PiToolCall = {
       id: crypto.randomUUID(),
-      name: "bash",
-      target: "pi --mode rpc --no-session",
+      name: message.toLowerCase().includes("delete") ? "bash" : "bash",
+      target: message.toLowerCase().includes("delete") ? "rm -rf dist" : "pi --mode rpc --no-session",
       status: "running",
-      summary: "RPC smoke test placeholder",
-      output: "starting rpc client...",
+      summary: message.toLowerCase().includes("delete") ? "Dangerous command flagged by safety policy" : "RPC smoke test placeholder",
+      output: message.toLowerCase().includes("delete") ? "Safety policy requires confirmation for recursive delete." : "starting rpc client...",
     };
+    const detectedToolSafety = detectDangerousTool(tool);
+    const visibleTool = detectedToolSafety ? { ...tool, safety: detectedToolSafety } : tool;
+    if (detectedToolSafety) this.safetyEvents = [createSafetyEvent(detectedToolSafety, "flagged", "tool"), ...this.safetyEvents].slice(0, 20);
 
-    this.emit({ type: "tool_execution_start", tool });
+    this.emit({ type: "tool_execution_start", tool: visibleTool });
     await wait(350);
     if (this.aborted) return;
 
-    const updatedTool = { ...tool, output: "get_state response parsed", summary: "JSONL reader ready" };
+    const updatedTool = detectedToolSafety
+      ? { ...visibleTool, output: "Dangerous bash visible; pre-run blocking requires SDK/extension interception.", summary: "Safety policy flagged dangerous tool" }
+      : { ...visibleTool, output: "get_state response parsed", summary: "JSONL reader ready" };
     this.emit({ type: "tool_execution_update", tool: updatedTool });
     await wait(280);
     if (this.aborted) return;
@@ -176,6 +185,8 @@ export class MockPiClient implements PiClient {
 
   async executeCommand(commandName: string): Promise<void> {
     const command = this.commands.find((item) => item.name === commandName);
+    const action = command ? detectDangerousCommand(command) : null;
+    if (action) this.safetyEvents = [createSafetyEvent(action, "allowed", "command"), ...this.safetyEvents].slice(0, 20);
     const summary = command ? `/${command.name} executed via mock client` : `/${commandName} executed via mock client`;
     const message: PiExtensionMessage = {
       id: crypto.randomUUID(),
@@ -200,6 +211,14 @@ export class MockPiClient implements PiClient {
 
   async listExtensionErrors(): Promise<PiExtensionError[]> {
     return this.extensionErrors;
+  }
+
+  async listSafetyEvents(): Promise<PiSafetyEvent[]> {
+    return this.safetyEvents;
+  }
+
+  async recordSafetyEvent(event: PiSafetyEvent): Promise<void> {
+    this.safetyEvents = [event, ...this.safetyEvents.filter((item) => item.id !== event.id)].slice(0, 20);
   }
 
   subscribe(listener: Listener): () => void {
