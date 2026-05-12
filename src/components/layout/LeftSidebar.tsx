@@ -23,10 +23,12 @@ import type { PiSessionSummary } from "@/shared/pi/types";
 interface LeftSidebarProps {
   collapsed: boolean;
   sessions: PiSessionSummary[];
+  allProjectsLoaded: boolean;
   currentSessionId?: string;
   onToggle: () => void;
   onNewSession: () => void;
   onContinueRecent: () => Promise<void> | void;
+  onLoadWorkspaces: () => Promise<void> | void;
   onSwitchSession: (sessionPath: string) => Promise<void> | void;
   onSetSessionName: (name: string) => Promise<void> | void;
   onDeleteSession: (sessionPath: string) => Promise<void> | void;
@@ -44,10 +46,12 @@ interface ProjectSessionGroup {
 export function LeftSidebar({
   collapsed,
   sessions,
+  allProjectsLoaded,
   currentSessionId,
   onToggle,
   onNewSession,
   onContinueRecent,
+  onLoadWorkspaces,
   onSwitchSession,
   onSetSessionName,
   onDeleteSession,
@@ -176,9 +180,16 @@ export function LeftSidebar({
 
       <div className="flex-1 overflow-auto px-3 pb-3">
         {!collapsed ? (
-          <div className="mb-2 flex items-center justify-between px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            <span>Projects</span>
-            <span>{groups.length}</span>
+          <div className="mb-2 flex items-center justify-between gap-2 px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            <span>{allProjectsLoaded ? "Projects" : "Workspace"}</span>
+            <div className="flex items-center gap-2">
+              {!allProjectsLoaded ? (
+                <button className="font-mono text-[10px] normal-case tracking-normal text-primary hover:underline" onClick={() => void onLoadWorkspaces()}>
+                  Load workspaces
+                </button>
+              ) : null}
+              <span>{groups.length}</span>
+            </div>
           </div>
         ) : null}
         <div className="space-y-1.5">
@@ -210,7 +221,7 @@ export function LeftSidebar({
                     </div>
                   </button>
                   {open ? (
-                    <div className="space-y-1 border-t border-border/70 p-1.5 pl-5">
+                    <div className="space-y-0.5 border-t border-border/70 p-1 pl-5">
                       {group.sessions.map((session) => (
                         <SessionRow
                           key={session.id}
@@ -227,7 +238,7 @@ export function LeftSidebar({
             })
           ) : (
             <div className={collapsed ? "px-0" : "rounded-md border border-border bg-surface/70 p-3 text-xs text-muted-foreground"}>
-              {!collapsed ? "No saved sessions yet." : null}
+              {!collapsed ? (allProjectsLoaded ? "No saved sessions yet." : "No saved sessions for current workspace.") : null}
             </div>
           )}
         </div>
@@ -263,26 +274,29 @@ function SessionRow({
         selected ? "border-primary/45 bg-card shadow-[inset_2px_0_0_var(--primary)]" : "border-transparent hover:border-border hover:bg-card/80",
       )}
     >
-      <button className="w-full p-2.5 text-left" onClick={() => void onSwitchSession(switchTarget)}>
-        <div className="mb-1.5 flex items-start justify-between gap-2">
-          <div className="line-clamp-2 text-sm font-medium leading-snug">{session.name}</div>
-          <CircleDot size={12} className={session.status === "running" ? "mt-0.5 text-primary" : "mt-0.5 text-muted-foreground"} />
-        </div>
-        <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-          <span className="truncate">{session.model}</span>
-          <span>{session.messageCount ?? 0} msgs</span>
-        </div>
-        <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground" title={session.filePath}>
-          {session.updatedAt}
-        </div>
-      </button>
-      {session.filePath ? (
-        <div className="flex justify-end border-t border-border/70 px-2 py-1 opacity-0 transition group-hover:opacity-100">
-          <Button size="sm" variant="ghost" onClick={() => void onDeleteSession(session)}>
-            <Trash2 size={12} /> Delete
+      <div className="flex items-center gap-1.5 pr-1">
+        <button className="min-w-0 flex-1 px-2 py-1.5 text-left" onClick={() => void onSwitchSession(switchTarget)}>
+          <div className="flex items-center gap-1.5">
+            <CircleDot size={10} className={session.status === "running" ? "text-primary" : "text-muted-foreground"} />
+            <span className="truncate text-xs font-medium leading-snug">{session.name}</span>
+          </div>
+          <div className="mt-0.5 flex items-center gap-2 pl-[18px] font-mono text-[10px] text-muted-foreground">
+            <span className="truncate">{session.updatedAt}</span>
+            <span>{session.messageCount ?? 0} msgs</span>
+          </div>
+        </button>
+        {session.filePath ? (
+          <Button
+            className="opacity-0 transition group-hover:opacity-100"
+            size="icon"
+            variant="ghost"
+            aria-label={`Delete ${session.name}`}
+            onClick={() => void onDeleteSession(session)}
+          >
+            <Trash2 size={12} />
           </Button>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   );
 }

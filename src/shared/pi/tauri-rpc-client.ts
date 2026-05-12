@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { PiClient, PiClientEvent, PromptOptions } from "./client";
+import type { PiClient, PiClientEvent, PiSessionListOptions, PromptOptions } from "./client";
 import type {
   PiCommand,
   PiExtensionError,
@@ -117,10 +117,10 @@ export class TauriPiRpcClient implements PiClient {
     return (data?.outputPath as string | undefined) ?? (data?.path as string | undefined) ?? null;
   }
 
-  async listSessions(): Promise<PiSessionSummary[]> {
+  async listSessions(options: PiSessionListOptions = {}): Promise<PiSessionSummary[]> {
     const state = await this.getState();
     try {
-      const sessions = await invoke<unknown[]>("pi_list_sessions", { cwd: "" });
+      const sessions = await invoke<unknown[]>("pi_list_sessions", { cwd: options.allProjects ? "" : state.cwd });
       return sessions.map(mapSessionSummary).filter((session): session is PiSessionSummary => Boolean(session));
     } catch (error) {
       console.warn("pi session list unavailable", error);

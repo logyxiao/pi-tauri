@@ -19,6 +19,7 @@ export function AppShell() {
     state,
     stats,
     sessions,
+    allProjectsLoaded,
     models,
     settings,
     commands,
@@ -42,6 +43,7 @@ export function AppShell() {
     setSessionName,
     deleteSession,
     exportHtml,
+    loadWorkspaces,
     updateSettings,
     executeCommand,
     recordSafetyEvent,
@@ -76,18 +78,20 @@ export function AppShell() {
           <WindowTitlebar />
           <div className="flex min-h-0 flex-1 overflow-hidden">
             <LeftSidebar
-            collapsed={sidebarCollapsed}
-            onToggle={() => setSidebarCollapsed((value) => !value)}
-            sessions={sessions}
-            currentSessionId={state?.sessionId}
-            onNewSession={() => void startNewSession()}
-            onContinueRecent={continueRecent}
-            onSwitchSession={switchSession}
-            onSetSessionName={setSessionName}
-            onDeleteSession={deleteSession}
-            onExportHtml={exportHtml}
-            onOpenSettings={() => setSettingsOpen(true)}
-          />
+              collapsed={sidebarCollapsed}
+              onToggle={() => setSidebarCollapsed((value) => !value)}
+              sessions={sessions}
+              allProjectsLoaded={allProjectsLoaded}
+              currentSessionId={state?.sessionId}
+              onNewSession={() => void startNewSession()}
+              onContinueRecent={continueRecent}
+              onLoadWorkspaces={loadWorkspaces}
+              onSwitchSession={switchSession}
+              onSetSessionName={setSessionName}
+              onDeleteSession={deleteSession}
+              onExportHtml={exportHtml}
+              onOpenSettings={() => setSettingsOpen(true)}
+            />
           <MainArea
             inspectorOpen={inspectorOpen}
             messages={messages}

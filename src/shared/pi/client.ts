@@ -50,6 +50,10 @@ export interface PromptOptions {
   streamingBehavior?: "steer" | "followUp";
 }
 
+export interface PiSessionListOptions {
+  allProjects?: boolean;
+}
+
 export interface PiClient {
   connect(): Promise<void>;
   prompt(message: string, options?: PromptOptions): Promise<void>;
@@ -62,7 +66,7 @@ export interface PiClient {
   setSessionName(name: string): Promise<void>;
   deleteSession(sessionPath: string): Promise<void>;
   exportHtml(outputPath?: string): Promise<string | null>;
-  listSessions(): Promise<PiSessionSummary[]>;
+  listSessions(options?: PiSessionListOptions): Promise<PiSessionSummary[]>;
   getState(): Promise<PiState>;
   getMessages(): Promise<PiMessage[]>;
   getSessionStats(): Promise<PiSessionStats>;

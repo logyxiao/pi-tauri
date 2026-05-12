@@ -35,6 +35,7 @@ export function usePiSession() {
   const [state, setState] = useState<PiState | null>(null);
   const [stats, setStats] = useState<PiSessionStats | null>(null);
   const [sessions, setSessions] = useState<PiSessionSummary[]>([]);
+  const [allProjectsLoaded, setAllProjectsLoaded] = useState(false);
   const [models, setModels] = useState<PiModel[]>([]);
   const [settings, setSettings] = useState<PiSettings | null>(null);
   const [commands, setCommands] = useState<PiCommand[]>([]);
@@ -69,7 +70,7 @@ export function usePiSession() {
         client.getMessages(),
         client.getState(),
         client.getSessionStats(),
-        client.listSessions(),
+        client.listSessions({ allProjects: allProjectsLoaded }),
         client.listModels(),
         client.getSettings(),
         client.listCommands(),
@@ -97,7 +98,7 @@ export function usePiSession() {
       setError(errorMessage(caught));
       setStatus("error");
     }
-  }, [client]);
+  }, [client, allProjectsLoaded]);
 
   const upsertTool = useCallback((tool: PiToolCall) => {
     const assistantId = activeAssistantIdRef.current;
@@ -306,6 +307,18 @@ export function usePiSession() {
     }
   }
 
+  async function loadWorkspaces() {
+    try {
+      setAllProjectsLoaded(true);
+      setError(null);
+      const nextSessions = await client.listSessions({ allProjects: true });
+      setSessions(nextSessions);
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setStatus("error");
+    }
+  }
+
   async function updateSettings(update: PiSettingsUpdate) {
     try {
       const nextSettings = await client.updateSettings(update);
@@ -368,6 +381,7 @@ export function usePiSession() {
     state,
     stats,
     sessions,
+    allProjectsLoaded,
     models,
     settings,
     commands,
@@ -391,6 +405,7 @@ export function usePiSession() {
     setSessionName,
     deleteSession,
     exportHtml,
+    loadWorkspaces,
     updateSettings,
     executeCommand,
     recordSafetyEvent,

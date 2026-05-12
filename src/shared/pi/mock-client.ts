@@ -13,7 +13,7 @@ import {
   demoSessionStats,
   demoSettings,
 } from "./mock-data";
-import type { PiClient, PiClientEvent } from "./client";
+import type { PiClient, PiClientEvent, PiSessionListOptions } from "./client";
 import type {
   PiCommand,
   PiExtensionError,
@@ -193,8 +193,9 @@ export class MockPiClient implements PiClient {
     return "~/.pi/agent/exports/mock-session.html";
   }
 
-  async listSessions(): Promise<PiSessionSummary[]> {
-    return this.sessions;
+  async listSessions(options: PiSessionListOptions = {}): Promise<PiSessionSummary[]> {
+    if (options.allProjects) return this.sessions;
+    return this.sessions.filter((session) => normalizePath(session.cwd) === normalizePath(this.state.cwd));
   }
 
   async getState(): Promise<PiState> {
@@ -305,6 +306,10 @@ export class MockPiClient implements PiClient {
   private emit(event: PiClientEvent) {
     for (const listener of this.listeners) listener(event);
   }
+}
+
+function normalizePath(path: string) {
+  return path.replace(/\\/g, "/").replace(/\/$/, "");
 }
 
 export const mockPiClient = new MockPiClient();
