@@ -23,12 +23,12 @@ import type { PiSessionSummary } from "@/shared/pi/types";
 interface LeftSidebarProps {
   collapsed: boolean;
   sessions: PiSessionSummary[];
-  allProjectsLoaded: boolean;
+  openedWorkspaceCount: number;
   currentSessionId?: string;
   onToggle: () => void;
   onNewSession: () => void;
   onContinueRecent: () => Promise<void> | void;
-  onLoadWorkspaces: () => Promise<void> | void;
+  onOpenWorkspaceFolder: () => Promise<void> | void;
   onSwitchSession: (sessionPath: string) => Promise<void> | void;
   onSetSessionName: (name: string) => Promise<void> | void;
   onDeleteSession: (sessionPath: string) => Promise<void> | void;
@@ -46,12 +46,12 @@ interface ProjectSessionGroup {
 export function LeftSidebar({
   collapsed,
   sessions,
-  allProjectsLoaded,
+  openedWorkspaceCount,
   currentSessionId,
   onToggle,
   onNewSession,
   onContinueRecent,
-  onLoadWorkspaces,
+  onOpenWorkspaceFolder,
   onSwitchSession,
   onSetSessionName,
   onDeleteSession,
@@ -181,14 +181,12 @@ export function LeftSidebar({
       <div className="flex-1 overflow-auto px-3 pb-3">
         {!collapsed ? (
           <div className="mb-2 flex items-center justify-between gap-2 px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            <span>{allProjectsLoaded ? "Projects" : "Workspace"}</span>
+            <span>Workspaces</span>
             <div className="flex items-center gap-2">
-              {!allProjectsLoaded ? (
-                <button className="font-mono text-[10px] normal-case tracking-normal text-primary hover:underline" onClick={() => void onLoadWorkspaces()}>
-                  Load workspaces
-                </button>
-              ) : null}
-              <span>{groups.length}</span>
+              <button className="font-mono text-[10px] normal-case tracking-normal text-primary hover:underline" onClick={() => void onOpenWorkspaceFolder()}>
+                Open folder
+              </button>
+              <span title={`${openedWorkspaceCount} opened folders`}>{groups.length}</span>
             </div>
           </div>
         ) : null}
@@ -238,7 +236,7 @@ export function LeftSidebar({
             })
           ) : (
             <div className={collapsed ? "px-0" : "rounded-md border border-border bg-surface/70 p-3 text-xs text-muted-foreground"}>
-              {!collapsed ? (allProjectsLoaded ? "No saved sessions yet." : "No saved sessions for current workspace.") : null}
+              {!collapsed ? "No saved sessions for opened workspace." : null}
             </div>
           )}
         </div>

@@ -29,13 +29,36 @@ function errorMessage(error: unknown): string {
   return "Unknown pi client error";
 }
 
+function normalizePath(path: string) {
+  return path.replace(/\\/g, "/").replace(/\/$/, "");
+}
+
+function mergeSessions(...groups: PiSessionSummary[][]): PiSessionSummary[] {
+  const merged = new Map<string, PiSessionSummary>();
+  for (const group of groups) {
+    for (const session of group) {
+      merged.set(session.filePath ?? session.id, session);
+    }
+  }
+  return Array.from(merged.values());
+}
+
+async function pickWorkspaceFolder(): Promise<string | null> {
+  if ("__TAURI_INTERNALS__" in window) {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const selected = await open({ directory: true, multiple: false, title: "Open workspace folder" });
+    return typeof selected === "string" ? selected : null;
+  }
+  return window.prompt("Workspace folder path")?.trim() || null;
+}
+
 export function usePiSession() {
   const client = useMemo(() => createPiClient(), []);
   const [messages, setMessages] = useState<PiMessage[]>([]);
   const [state, setState] = useState<PiState | null>(null);
   const [stats, setStats] = useState<PiSessionStats | null>(null);
   const [sessions, setSessions] = useState<PiSessionSummary[]>([]);
-  const [allProjectsLoaded, setAllProjectsLoaded] = useState(false);
+  const [workspacePaths, setWorkspacePaths] = useState<string[]>([]);
   const [models, setModels] = useState<PiModel[]>([]);
   const [settings, setSettings] = useState<PiSettings | null>(null);
   const [commands, setCommands] = useState<PiCommand[]>([]);
@@ -70,7 +93,7 @@ export function usePiSession() {
         client.getMessages(),
         client.getState(),
         client.getSessionStats(),
-        client.listSessions({ allProjects: allProjectsLoaded }),
+        client.listSessions(),
         client.listModels(),
         client.getSettings(),
         client.listCommands(),
@@ -82,8 +105,11 @@ export function usePiSession() {
       ]);
       setMessages(nextMessages);
       setState(nextState);
+      const workspaceSessions = workspacePaths.length
+        ? (await Promise.all(workspacePaths.map((cwd) => client.listSessions({ cwd })))).flat()
+        : [];
       setStats(nextStats);
-      setSessions(nextSessions);
+      setSessions(mergeSessions(nextSessions, workspaceSessions));
       setModels(nextModels);
       setSettings(nextSettings);
       setCommands(nextCommands);
@@ -98,7 +124,7 @@ export function usePiSession() {
       setError(errorMessage(caught));
       setStatus("error");
     }
-  }, [client, allProjectsLoaded]);
+  }, [client, workspacePaths]);
 
   const upsertTool = useCallback((tool: PiToolCall) => {
     const assistantId = activeAssistantIdRef.current;
@@ -307,12 +333,14 @@ export function usePiSession() {
     }
   }
 
-  async function loadWorkspaces() {
+  async function openWorkspaceFolder() {
     try {
-      setAllProjectsLoaded(true);
       setError(null);
-      const nextSessions = await client.listSessions({ allProjects: true });
-      setSessions(nextSessions);
+      const folder = await pickWorkspaceFolder();
+      if (!folder) return;
+      const nextSessions = await client.listSessions({ cwd: folder });
+      setWorkspacePaths((current) => (current.some((item) => normalizePath(item) === normalizePath(folder)) ? current : [...current, folder]));
+      setSessions((current) => mergeSessions(current, nextSessions));
     } catch (caught) {
       setError(errorMessage(caught));
       setStatus("error");
@@ -381,7 +409,7 @@ export function usePiSession() {
     state,
     stats,
     sessions,
-    allProjectsLoaded,
+    workspacePaths,
     models,
     settings,
     commands,
@@ -405,7 +433,7 @@ export function usePiSession() {
     setSessionName,
     deleteSession,
     exportHtml,
-    loadWorkspaces,
+    openWorkspaceFolder,
     updateSettings,
     executeCommand,
     recordSafetyEvent,

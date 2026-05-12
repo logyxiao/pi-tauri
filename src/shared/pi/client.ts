@@ -51,7 +51,7 @@ export interface PromptOptions {
 }
 
 export interface PiSessionListOptions {
-  allProjects?: boolean;
+  cwd?: string;
 }
 
 export interface PiClient {

@@ -19,7 +19,7 @@ export function AppShell() {
     state,
     stats,
     sessions,
-    allProjectsLoaded,
+    workspacePaths,
     models,
     settings,
     commands,
@@ -43,7 +43,7 @@ export function AppShell() {
     setSessionName,
     deleteSession,
     exportHtml,
-    loadWorkspaces,
+    openWorkspaceFolder,
     updateSettings,
     executeCommand,
     recordSafetyEvent,
@@ -81,11 +81,11 @@ export function AppShell() {
               collapsed={sidebarCollapsed}
               onToggle={() => setSidebarCollapsed((value) => !value)}
               sessions={sessions}
-              allProjectsLoaded={allProjectsLoaded}
+              openedWorkspaceCount={workspacePaths.length}
               currentSessionId={state?.sessionId}
               onNewSession={() => void startNewSession()}
               onContinueRecent={continueRecent}
-              onLoadWorkspaces={loadWorkspaces}
+              onOpenWorkspaceFolder={openWorkspaceFolder}
               onSwitchSession={switchSession}
               onSetSessionName={setSessionName}
               onDeleteSession={deleteSession}

@@ -194,8 +194,8 @@ export class MockPiClient implements PiClient {
   }
 
   async listSessions(options: PiSessionListOptions = {}): Promise<PiSessionSummary[]> {
-    if (options.allProjects) return this.sessions;
-    return this.sessions.filter((session) => normalizePath(session.cwd) === normalizePath(this.state.cwd));
+    const cwd = options.cwd ?? this.state.cwd;
+    return this.sessions.filter((session) => normalizePath(session.cwd) === normalizePath(cwd));
   }
 
   async getState(): Promise<PiState> {
