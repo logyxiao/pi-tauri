@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/lib/cn";
 import type { PiSessionSummary } from "@/shared/pi/types";
 
@@ -45,13 +46,14 @@ export function LeftSidebar({
   onDeleteSession,
   onOpenSettings,
 }: LeftSidebarProps) {
+  const { t } = useI18n();
   const groups = useMemo(() => groupSessionsByProject(sessions, openedWorkspacePaths), [sessions, openedWorkspacePaths]);
   const selectedGroup = groups.find((group) => group.sessions.some((session) => isSelectedSession(session, currentSessionId)));
   const [closedProjects, setClosedProjects] = useState<Set<string>>(() => new Set());
 
   async function deleteSession(session: PiSessionSummary) {
     if (!session.filePath) return;
-    const confirmed = window.confirm(`Delete session file?\n\n${session.name}\n${session.filePath}`);
+    const confirmed = window.confirm(`${t("sidebar.deleteConfirm")}\n\n${session.name}\n${session.filePath}`);
     if (!confirmed) return;
     await onDeleteSession(session.filePath);
   }
@@ -75,27 +77,27 @@ export function LeftSidebar({
       <div className={cn("flex items-center border-b border-border/70 p-3", collapsed ? "justify-center" : "justify-between")}>
         {!collapsed ? (
           <div className="min-w-0">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Workspaces</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t("sidebar.workspaces")}</div>
             <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
-              {openedWorkspacePaths.length ? `${openedWorkspacePaths.length} opened` : "current workspace"}
+              {openedWorkspacePaths.length ? `${openedWorkspacePaths.length} ${t("sidebar.opened")}` : t("sidebar.currentWorkspace")}
             </div>
           </div>
         ) : null}
         <div className={cn("flex items-center", collapsed ? "flex-col gap-2" : "gap-1")}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button size="icon" variant="ghost" aria-label="Open workspace folder" onClick={() => void onOpenWorkspaceFolder()}>
+              <Button size="icon" variant="ghost" aria-label={t("sidebar.openWorkspace")} onClick={() => void onOpenWorkspaceFolder()}>
                 <FolderPlus size={16} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Open folder</TooltipContent>
+            <TooltipContent>{t("sidebar.openFolder")}</TooltipContent>
           </Tooltip>
           {!collapsed ? (
             <>
-              <Button size="icon" variant="ghost" aria-label="Settings" onClick={onOpenSettings}>
+              <Button size="icon" variant="ghost" aria-label={t("sidebar.settings")} onClick={onOpenSettings}>
                 <Settings size={16} />
               </Button>
-              <Button size="icon" variant="ghost" aria-label="Collapse sidebar" onClick={onToggle}>
+              <Button size="icon" variant="ghost" aria-label={t("sidebar.collapse")} onClick={onToggle}>
                 <PanelLeftClose size={16} />
               </Button>
             </>
@@ -107,19 +109,19 @@ export function LeftSidebar({
         <div className="mt-2 flex flex-col items-center gap-2 px-3">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button size="icon" variant="ghost" aria-label="Settings" onClick={onOpenSettings}>
+              <Button size="icon" variant="ghost" aria-label={t("sidebar.settings")} onClick={onOpenSettings}>
                 <Settings size={16} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Settings</TooltipContent>
+            <TooltipContent>{t("sidebar.settings")}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button size="icon" variant="ghost" aria-label="Expand sidebar" onClick={onToggle}>
+              <Button size="icon" variant="ghost" aria-label={t("sidebar.expand")} onClick={onToggle}>
                 <PanelLeftOpen size={16} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Expand sidebar</TooltipContent>
+            <TooltipContent>{t("sidebar.expand")}</TooltipContent>
           </Tooltip>
         </div>
       ) : null}
@@ -127,8 +129,8 @@ export function LeftSidebar({
       <div className="flex-1 overflow-auto px-2 py-2">
         {!collapsed ? (
           <div className="mb-2 flex items-center justify-between px-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            <span>Folders</span>
-            <span title={`${openedWorkspacePaths.length} opened folders`}>{groups.length}</span>
+            <span>{t("sidebar.folders")}</span>
+            <span title={`${openedWorkspacePaths.length} ${t("sidebar.openedFolders")}`}>{groups.length}</span>
           </div>
         ) : null}
         <div className="space-y-1">
@@ -137,7 +139,7 @@ export function LeftSidebar({
               const selectedProject = group.cwd === selectedGroup?.cwd;
               const open = selectedProject || !closedProjects.has(group.cwd);
               return collapsed ? (
-                <CollapsedProjectGroup key={group.cwd} group={group} currentSessionId={currentSessionId} onSwitchSession={onSwitchSession} />
+                <CollapsedProjectGroup key={group.cwd} group={group} currentSessionId={currentSessionId} onSwitchSession={onSwitchSession} sessionsLabel={t("sidebar.sessions")} />
               ) : (
                 <div
                   key={group.cwd}
@@ -169,10 +171,12 @@ export function LeftSidebar({
                             selected={isSelectedSession(session, currentSessionId)}
                             onSwitchSession={onSwitchSession}
                             onDeleteSession={deleteSession}
+                            messagesLabel={t("sidebar.messagesShort")}
+                            deleteLabel={t("sidebar.deleteAria", { name: session.name })}
                           />
                         ))
                       ) : (
-                        <div className="px-2 py-1.5 text-xs text-muted-foreground">No sessions in this folder.</div>
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("sidebar.noSessions")}</div>
                       )}
                     </div>
                   ) : null}
@@ -181,7 +185,7 @@ export function LeftSidebar({
             })
           ) : (
             <div className={collapsed ? "px-0" : "rounded-lg border border-border bg-surface/60 p-3 text-xs text-muted-foreground"}>
-              {!collapsed ? "Open folder to load workspace sessions." : null}
+              {!collapsed ? t("sidebar.openFolderEmpty") : null}
             </div>
           )}
         </div>
@@ -195,11 +199,15 @@ function SessionRow({
   selected,
   onSwitchSession,
   onDeleteSession,
+  messagesLabel,
+  deleteLabel,
 }: {
   session: PiSessionSummary;
   selected: boolean;
   onSwitchSession: (sessionPath: string) => Promise<void> | void;
   onDeleteSession: (session: PiSessionSummary) => Promise<void> | void;
+  messagesLabel: string;
+  deleteLabel: string;
 }) {
   const switchTarget = session.filePath ?? session.id;
   return (
@@ -217,7 +225,7 @@ function SessionRow({
           </div>
           <div className="mt-0.5 flex items-center gap-2 pl-[17px] font-mono text-[9px] text-muted-foreground">
             <span className="truncate">{session.updatedAt}</span>
-            <span>{session.messageCount ?? 0} msgs</span>
+            <span>{session.messageCount ?? 0} {messagesLabel}</span>
           </div>
         </button>
         {session.filePath ? (
@@ -225,7 +233,7 @@ function SessionRow({
             className="size-7 opacity-0 transition group-hover:opacity-100"
             size="icon"
             variant="ghost"
-            aria-label={`Delete ${session.name}`}
+            aria-label={deleteLabel}
             onClick={() => void onDeleteSession(session)}
           >
             <Trash2 size={11} />
@@ -240,10 +248,12 @@ function CollapsedProjectGroup({
   group,
   currentSessionId,
   onSwitchSession,
+  sessionsLabel,
 }: {
   group: ProjectSessionGroup;
   currentSessionId?: string;
   onSwitchSession: (sessionPath: string) => Promise<void> | void;
+  sessionsLabel: string;
 }) {
   const selected = group.sessions.some((session) => isSelectedSession(session, currentSessionId));
   const latestSession = group.sessions[0];
@@ -264,7 +274,7 @@ function CollapsedProjectGroup({
         </button>
       </TooltipTrigger>
       <TooltipContent>
-        {group.label} · {group.sessions.length} sessions
+        {group.label} · {group.sessions.length} {sessionsLabel}
       </TooltipContent>
     </Tooltip>
   );

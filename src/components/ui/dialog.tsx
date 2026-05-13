@@ -2,6 +2,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/lib/cn";
 
 export const Dialog = DialogPrimitive.Root;
@@ -16,6 +17,8 @@ interface DialogContentProps {
 }
 
 export function DialogContent({ title, description, children, className }: DialogContentProps) {
+  const { t } = useI18n();
+
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm" />
@@ -35,7 +38,7 @@ export function DialogContent({ title, description, children, className }: Dialo
             ) : null}
           </div>
           <DialogPrimitive.Close asChild>
-            <Button size="icon" variant="ghost" aria-label="Close dialog">
+            <Button size="icon" variant="ghost" aria-label={t("common.closeDialog")}>
               <X size={17} />
             </Button>
           </DialogPrimitive.Close>

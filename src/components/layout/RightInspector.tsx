@@ -4,6 +4,7 @@ import { FilesPreviewPanel } from "@/components/files/FilesPreviewPanel";
 import { SafetyPanel } from "@/components/safety/SafetyPanel";
 import { SessionTreePanel } from "@/components/session/SessionTreePanel";
 import { ToolResultPanel } from "@/components/tools/ToolResultPanel";
+import { useI18n } from "@/shared/i18n";
 import type {
   PiCommand,
   PiExtensionError,
@@ -72,48 +73,49 @@ export function RightInspector({
   onSetSessionEntryLabel,
   onRetry,
 }: RightInspectorProps) {
+  const { t } = useI18n();
   const activeTools = messages.flatMap((message) => message.tools ?? []).slice(-6).reverse();
   const stateCards = [
-    ["Tokens", (stats?.totalTokens ?? state?.tokenCount ?? 0).toLocaleString()],
-    ["Cost", `$${(stats?.costUsd ?? state?.costUsd ?? 0).toFixed(4)}`],
-    ["Run", state?.runState ?? "loading"],
-    ["Thinking", state?.thinkingLevel ?? "off"],
-    ["Client", settings?.clientMode ?? "loading"],
-    ["Status", status],
+    [t("inspector.tokens"), (stats?.totalTokens ?? state?.tokenCount ?? 0).toLocaleString()],
+    [t("inspector.cost"), `$${(stats?.costUsd ?? state?.costUsd ?? 0).toFixed(4)}`],
+    [t("inspector.run"), state?.runState ?? t("common.loading")],
+    [t("inspector.thinking"), state?.thinkingLevel ?? "off"],
+    [t("inspector.client"), settings?.clientMode ?? t("common.loading")],
+    [t("inspector.status"), status],
   ];
 
   return (
     <aside className="hidden w-80 shrink-0 flex-col border-l border-border bg-surface lg:flex xl:w-80">
       <div className="border-b border-border p-4">
         <div className="flex items-center gap-2 text-sm font-semibold">
-          <Activity size={16} className="text-primary" /> Inspector
+          <Activity size={16} className="text-primary" /> {t("inspector.title")}
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">Tools, files, sessions, extensions</p>
+        <p className="mt-1 text-xs text-muted-foreground">{t("inspector.subtitle")}</p>
       </div>
 
       <div className="space-y-4 overflow-auto p-4">
         {error ? (
           <div className="rounded-2xl border border-danger/20 bg-danger/5 p-3 text-xs leading-5 text-danger">
             <div className="mb-2 flex items-center gap-2 font-semibold">
-              <AlertTriangle size={14} /> Pi client error
+              <AlertTriangle size={14} /> {t("inspector.clientError")}
             </div>
             <div className="break-words text-muted-foreground">{error}</div>
             <button className="mt-2 inline-flex items-center gap-1 font-mono text-[11px] uppercase tracking-[0.14em] text-danger" onClick={() => void onRetry()}>
-              <Loader2 size={11} /> retry refresh
+              <Loader2 size={11} /> {t("inspector.retryRefresh")}
             </button>
           </div>
         ) : null}
 
         {extensionErrors.length ? (
           <div className="rounded-2xl border border-danger/20 bg-danger/5 p-3 text-xs leading-5 text-danger">
-            Extension error visible: {extensionErrors[0].message}
+            {t("inspector.extensionError", { message: extensionErrors[0].message })}
           </div>
         ) : null}
 
         {selectedTool ? (
           <section className="rounded-2xl border border-primary/25 bg-primary/5 p-3">
             <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-primary">
-              <Terminal size={14} /> Selected tool
+              <Terminal size={14} /> {t("inspector.selectedTool")}
             </div>
             <ToolResultPanel tool={selectedTool} />
             {selectedTool.safety ? (
@@ -126,7 +128,7 @@ export function RightInspector({
 
         <section className="rounded-2xl border border-border bg-background/60 p-3">
           <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            <HardDrive size={14} /> State
+            <HardDrive size={14} /> {t("inspector.state")}
           </div>
           <div className="grid grid-cols-2 gap-2">
             {stateCards.map(([label, value]) => (
@@ -138,29 +140,29 @@ export function RightInspector({
           </div>
           <div className="mt-3 space-y-2 rounded-xl bg-surface p-3 text-xs text-muted-foreground">
             <div className="flex justify-between gap-3">
-              <span>Session</span>
-              <span className="truncate font-mono text-foreground">{state?.sessionName ?? state?.sessionId ?? "unknown"}</span>
+              <span>{t("inspector.session")}</span>
+              <span className="truncate font-mono text-foreground">{state?.sessionName ?? state?.sessionId ?? t("common.unknown")}</span>
             </div>
             <div className="flex justify-between gap-3">
-              <span>Messages</span>
+              <span>{t("inspector.messages")}</span>
               <span className="font-mono text-foreground">{stats?.totalMessages ?? 0}</span>
             </div>
             <div className="flex justify-between gap-3">
-              <span>Tools</span>
+              <span>{t("inspector.tools")}</span>
               <span className="font-mono text-foreground">{stats?.toolCalls ?? 0}</span>
             </div>
             <div className="flex justify-between gap-3">
-              <span>Model</span>
-              <span className="truncate font-mono text-foreground">{settings?.model ?? state?.model ?? "unknown"}</span>
+              <span>{t("inspector.model")}</span>
+              <span className="truncate font-mono text-foreground">{settings?.model ?? state?.model ?? t("common.unknown")}</span>
             </div>
             <div className="flex justify-between gap-3">
-              <span>Context</span>
+              <span>{t("inspector.context")}</span>
               <span className="font-mono text-foreground">
                 {stats?.contextPercent == null ? "n/a" : `${stats.contextPercent.toFixed(1)}%`}
               </span>
             </div>
             <div className="truncate font-mono text-[11px]" title={state?.sessionFile ?? stats?.sessionFile}>
-              {state?.sessionFile ?? stats?.sessionFile ?? "no session file"}
+              {state?.sessionFile ?? stats?.sessionFile ?? t("inspector.noSessionFile")}
             </div>
           </div>
         </section>
@@ -185,7 +187,7 @@ export function RightInspector({
 
         <section className="rounded-2xl border border-border bg-background/60 p-3">
           <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            <Terminal size={14} /> Active tools
+            <Terminal size={14} /> {t("inspector.activeTools")}
           </div>
           <div className="space-y-2">
             {activeTools.length ? (
@@ -200,7 +202,7 @@ export function RightInspector({
                 </div>
               ))
             ) : (
-              <div className="rounded-xl bg-surface p-3 text-xs text-muted-foreground">No active tools yet.</div>
+              <div className="rounded-xl bg-surface p-3 text-xs text-muted-foreground">{t("inspector.noActiveTools")}</div>
             )}
           </div>
         </section>

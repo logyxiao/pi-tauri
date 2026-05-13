@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPiClient } from "@/shared/pi/create-client";
+import { useI18n } from "@/shared/i18n";
 import type { PiClientEvent } from "@/shared/pi/client";
 import type {
   PiCommand,
@@ -26,10 +27,10 @@ export type PiSessionStatus = "connecting" | "ready" | "refreshing" | "running" 
 
 const nowLabel = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-function errorMessage(error: unknown): string {
+function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
-  return "Unknown pi client error";
+  return fallback;
 }
 
 function normalizePath(path: string) {
@@ -46,16 +47,17 @@ function mergeSessions(...groups: PiSessionSummary[][]): PiSessionSummary[] {
   return Array.from(merged.values());
 }
 
-async function pickWorkspaceFolder(): Promise<string | null> {
+async function pickWorkspaceFolder(title: string, promptLabel: string): Promise<string | null> {
   if ("__TAURI_INTERNALS__" in window) {
     const { open } = await import("@tauri-apps/plugin-dialog");
-    const selected = await open({ directory: true, multiple: false, title: "Open workspace folder" });
+    const selected = await open({ directory: true, multiple: false, title });
     return typeof selected === "string" ? selected : null;
   }
-  return window.prompt("Workspace folder path")?.trim() || null;
+  return window.prompt(promptLabel)?.trim() || null;
 }
 
 export function usePiSession() {
+  const { t } = useI18n();
   const client = useMemo(() => createPiClient(), []);
   const [messages, setMessages] = useState<PiMessage[]>([]);
   const [state, setState] = useState<PiState | null>(null);
@@ -133,10 +135,10 @@ export function usePiSession() {
       setError(null);
       setStatus(nextState.runState === "running" ? "running" : "ready");
     } catch (caught) {
-      setError(errorMessage(caught));
+      setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }
-  }, [client, workspacePaths]);
+  }, [client, t, workspacePaths]);
 
   const upsertTool = useCallback((tool: PiToolCall) => {
     const assistantId = activeAssistantIdRef.current;
@@ -230,7 +232,7 @@ export function usePiSession() {
         await refresh();
       } catch (caught) {
         if (disposed) return;
-        setError(errorMessage(caught));
+        setError(errorMessage(caught, t("hook.unknownError")));
         setStatus("error");
       }
     }
@@ -259,7 +261,7 @@ export function usePiSession() {
     try {
       await client.prompt(trimmed);
     } catch (caught) {
-      setError(errorMessage(caught));
+      setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }
   }
@@ -268,7 +270,7 @@ export function usePiSession() {
     try {
       await client.abort();
     } catch (caught) {
-      setError(errorMessage(caught));
+      setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }
   }
@@ -282,7 +284,7 @@ export function usePiSession() {
       setError(null);
       await refresh();
     } catch (caught) {
-      setError(errorMessage(caught));
+      setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }
   }
@@ -295,7 +297,7 @@ export function usePiSession() {
       setError(null);
       await refresh();
     } catch (caught) {
-      setError(errorMessage(caught));
+      setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }
   }
@@ -308,7 +310,7 @@ export function usePiSession() {
       setError(null);
       await refresh();
     } catch (caught) {
-      setError(errorMessage(caught));
+      setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }
   }
@@ -319,7 +321,7 @@ export function usePiSession() {
       setError(null);
       await refresh();
     } catch (caught) {
-      setError(errorMessage(caught));
+      setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }
   }
@@ -330,7 +332,7 @@ export function usePiSession() {
       setError(null);
       await refresh();
     } catch (caught) {
-      setError(errorMessage(caught));
+      setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }
   }
@@ -342,7 +344,7 @@ export function usePiSession() {
       await refresh();
       return outputPath;
     } catch (caught) {
-      setError(errorMessage(caught));
+      setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
       return null;
     }
@@ -351,13 +353,13 @@ export function usePiSession() {
   async function openWorkspaceFolder() {
     try {
       setError(null);
-      const folder = await pickWorkspaceFolder();
+      const folder = await pickWorkspaceFolder(t("hook.openWorkspaceTitle"), t("hook.workspacePrompt"));
       if (!folder) return;
       const nextSessions = await client.listSessions({ cwd: folder });
       setWorkspacePaths((current) => (current.some((item) => normalizePath(item) === normalizePath(folder)) ? current : [...current, folder]));
       setSessions((current) => mergeSessions(current, nextSessions));
     } catch (caught) {
-      setError(errorMessage(caught));
+      setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }
   }
@@ -367,10 +369,10 @@ export function usePiSession() {
       const result = await client.forkSession(entryId);
       activeAssistantIdRef.current = null;
       setFilePreview(null);
-      setError(result.cancelled ? "Fork cancelled by extension." : null);
+      setError(result.cancelled ? t("hook.forkCancelled") : null);
       await refresh();
     } catch (caught) {
-      setError(errorMessage(caught));
+      setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }
   }
@@ -380,10 +382,10 @@ export function usePiSession() {
       const result = await client.cloneSession();
       activeAssistantIdRef.current = null;
       setFilePreview(null);
-      setError(result.cancelled ? "Clone cancelled by extension." : null);
+      setError(result.cancelled ? t("hook.cloneCancelled") : null);
       await refresh();
     } catch (caught) {
-      setError(errorMessage(caught));
+      setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }
   }
@@ -394,7 +396,7 @@ export function usePiSession() {
       setError(null);
       setSessionTree(await client.getSessionTree().catch(() => ({ nodes: [] })));
     } catch (caught) {
-      setError(errorMessage(caught));
+      setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }
   }
@@ -406,7 +408,7 @@ export function usePiSession() {
       setError(null);
       await refresh();
     } catch (caught) {
-      setError(errorMessage(caught));
+      setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }
   }
@@ -421,7 +423,7 @@ export function usePiSession() {
       await client.executeCommand(commandName);
       await refresh();
     } catch (caught) {
-      setError(errorMessage(caught));
+      setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }
   }
@@ -431,7 +433,7 @@ export function usePiSession() {
       await client.recordSafetyEvent(event);
       setSafetyEvents((current) => [event, ...current.filter((item) => item.id !== event.id)].slice(0, 20));
     } catch (caught) {
-      setError(errorMessage(caught));
+      setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }
   }
@@ -442,7 +444,7 @@ export function usePiSession() {
       setPendingExtensionUi((current) => current.filter((item) => item.id !== response.id));
       setError(null);
     } catch (caught) {
-      const message = errorMessage(caught);
+      const message = errorMessage(caught, t("hook.unknownError"));
       setError(message);
       setStatus("error");
       throw new Error(message);
@@ -455,7 +457,7 @@ export function usePiSession() {
       const preview = await client.readFile(path);
       setFilePreview(preview);
     } catch (caught) {
-      setError(errorMessage(caught));
+      setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }
   }

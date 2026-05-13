@@ -1,4 +1,5 @@
 import { FileText, Terminal } from "lucide-react";
+import { useI18n } from "@/shared/i18n";
 import type { PiToolCall } from "@/shared/pi/types";
 
 interface ToolResultPanelProps {
@@ -6,6 +7,7 @@ interface ToolResultPanelProps {
 }
 
 export function ToolResultPanel({ tool }: ToolResultPanelProps) {
+  const { t } = useI18n();
   const isBash = tool.name === "bash";
   const Icon = isBash ? Terminal : FileText;
 
@@ -26,7 +28,7 @@ export function ToolResultPanel({ tool }: ToolResultPanelProps) {
           {tool.output}
         </pre>
       ) : (
-        <div className="border-t border-border px-3 py-3 text-xs text-muted-foreground">No output yet.</div>
+        <div className="border-t border-border px-3 py-3 text-xs text-muted-foreground">{t("tool.noOutput")}</div>
       )}
     </div>
   );

@@ -1,6 +1,7 @@
 import { File, FileCode2, FileImage, Folder, Globe2, SearchX, Text } from "lucide-react";
-import type { PiFileEntry, PiFilePreview } from "@/shared/pi/types";
 import { cn } from "@/shared/lib/cn";
+import { useI18n } from "@/shared/i18n";
+import type { PiFileEntry, PiFilePreview } from "@/shared/pi/types";
 
 interface FilesPreviewPanelProps {
   cwd: string;
@@ -11,10 +12,12 @@ interface FilesPreviewPanelProps {
 }
 
 export function FilesPreviewPanel({ cwd, files, preview, selectedPath, onSelectFile }: FilesPreviewPanelProps) {
+  const { t } = useI18n();
+
   return (
     <section className="rounded-2xl border border-border bg-background/60 p-3">
       <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-        <Folder size={14} /> Files / Preview
+        <Folder size={14} /> {t("files.title")}
       </div>
 
       <div className="mb-3 rounded-xl bg-surface p-3 font-mono text-[11px] text-muted-foreground" title={cwd}>
@@ -45,19 +48,20 @@ export function FilesPreviewPanel({ cwd, files, preview, selectedPath, onSelectF
           ))
         ) : (
           <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
-            <SearchX size={14} /> No files available.
+            <SearchX size={14} /> {t("files.noFiles")}
           </div>
         )}
       </div>
 
       <div className="mt-3 overflow-hidden rounded-xl border border-border bg-surface">
-        {preview ? <PreviewBody preview={preview} /> : <div className="p-3 text-xs text-muted-foreground">Select file to preview.</div>}
+        {preview ? <PreviewBody preview={preview} /> : <div className="p-3 text-xs text-muted-foreground">{t("files.selectPreview")}</div>}
       </div>
     </section>
   );
 }
 
 function PreviewBody({ preview }: { preview: PiFilePreview }) {
+  const { t } = useI18n();
   const Icon = preview.kind === "markdown" ? Text : preview.kind === "html" ? Globe2 : preview.kind === "image" ? FileImage : FileCode2;
 
   return (
@@ -71,14 +75,14 @@ function PreviewBody({ preview }: { preview: PiFilePreview }) {
       </div>
       {preview.kind === "image" ? (
         <div className="p-3 text-xs leading-5 text-muted-foreground">
-          Image preview placeholder. Open externally later. {preview.mime ? `(${preview.mime})` : null}
+          {t("files.imagePlaceholder")} {preview.mime ? `(${preview.mime})` : null}
         </div>
       ) : preview.kind === "binary" || preview.kind === "missing" ? (
-        <div className="p-3 text-xs leading-5 text-muted-foreground">{preview.content ?? "Binary preview unavailable."}</div>
+        <div className="p-3 text-xs leading-5 text-muted-foreground">{preview.content ?? t("files.binaryUnavailable")}</div>
       ) : (
         <pre className="max-h-72 overflow-auto p-3 font-mono text-[11px] leading-5 text-foreground">
           {preview.content}
-          {preview.truncated ? "\n\n… truncated for preview" : ""}
+          {preview.truncated ? `\n\n${t("files.truncated")}` : ""}
         </pre>
       )}
     </div>

@@ -1,4 +1,5 @@
 import { AlertTriangle, Blocks, Command, Info, PanelTop, ShieldAlert } from "lucide-react";
+import { useI18n } from "@/shared/i18n";
 import type { PiCommand, PiExtensionError, PiExtensionMessage, PiExtensionPanel } from "@/shared/pi/types";
 
 interface ExtensionsPanelProps {
@@ -10,11 +11,13 @@ interface ExtensionsPanelProps {
 }
 
 export function ExtensionsPanel({ commands, extensionPanels, extensionMessages, pendingExtensionUi, extensionErrors }: ExtensionsPanelProps) {
+  const { t } = useI18n();
+
   return (
     <div className="space-y-4">
       <section className="rounded-2xl border border-border bg-background/60 p-3">
         <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          <Command size={14} /> Commands
+          <Command size={14} /> {t("extension.commands")}
         </div>
         <div className="space-y-2">
           {commands.length ? (
@@ -28,7 +31,7 @@ export function ExtensionsPanel({ commands, extensionPanels, extensionMessages, 
                 <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
                   {command.dangerous ? (
                     <span className="inline-flex items-center gap-1 rounded-full bg-danger/10 px-2 py-0.5 text-danger">
-                      <ShieldAlert size={11} /> confirm
+                      <ShieldAlert size={11} /> {t("extension.confirm")}
                     </span>
                   ) : null}
                   {command.path ? <span className="truncate font-mono">{command.path}</span> : null}
@@ -36,14 +39,14 @@ export function ExtensionsPanel({ commands, extensionPanels, extensionMessages, 
               </div>
             ))
           ) : (
-            <div className="rounded-xl bg-surface p-3 text-xs text-muted-foreground">No commands loaded.</div>
+            <div className="rounded-xl bg-surface p-3 text-xs text-muted-foreground">{t("extension.noCommands")}</div>
           )}
         </div>
       </section>
 
       <section className="rounded-2xl border border-border bg-background/60 p-3">
         <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          <PanelTop size={14} /> Extension UI
+          <PanelTop size={14} /> {t("extension.ui")}
         </div>
         <div className="space-y-2">
           {extensionPanels.length ? (
@@ -61,16 +64,16 @@ export function ExtensionsPanel({ commands, extensionPanels, extensionMessages, 
               </div>
             ))
           ) : (
-            <div className="rounded-xl bg-surface p-3 text-xs text-muted-foreground">No extension panels yet.</div>
+            <div className="rounded-xl bg-surface p-3 text-xs text-muted-foreground">{t("extension.noPanels")}</div>
           )}
         </div>
       </section>
 
       <section className="rounded-2xl border border-border bg-background/60 p-3">
         <div className="mb-3 flex items-center justify-between gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          <span className="inline-flex items-center gap-2"><Blocks size={14} /> UI messages</span>
+          <span className="inline-flex items-center gap-2"><Blocks size={14} /> {t("extension.uiMessages")}</span>
           {pendingExtensionUi.length ? (
-            <span className="rounded-full border border-primary/30 px-2 py-0.5 text-[10px] text-primary">{pendingExtensionUi.length} pending</span>
+            <span className="rounded-full border border-primary/30 px-2 py-0.5 text-[10px] text-primary">{pendingExtensionUi.length} {t("extension.pending")}</span>
           ) : null}
         </div>
         {pendingExtensionUi.length ? (
@@ -79,9 +82,9 @@ export function ExtensionsPanel({ commands, extensionPanels, extensionMessages, 
               <div key={message.id} className="rounded-xl border border-primary/25 bg-primary/5 p-3">
                 <div className="mb-1 flex items-center justify-between gap-2 text-xs">
                   <span className="font-semibold text-primary">{message.title ?? message.method}</span>
-                  <span className="rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[10px] text-primary">waiting</span>
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[10px] text-primary">{t("extension.waiting")}</span>
                 </div>
-                <div className="text-xs leading-5 text-muted-foreground">{message.message ?? `Extension waits for ${message.method} response.`}</div>
+                <div className="text-xs leading-5 text-muted-foreground">{message.message ?? t("extension.waitsFor", { method: message.method })}</div>
                 {message.source ? <div className="mt-2 truncate font-mono text-[11px] text-muted-foreground">{message.source}</div> : null}
               </div>
             ))}
@@ -95,34 +98,34 @@ export function ExtensionsPanel({ commands, extensionPanels, extensionMessages, 
                   <Info size={12} className={message.level === "error" ? "text-danger" : message.level === "warning" ? "text-warning" : "text-primary"} />
                   <span className="font-semibold">{message.title ?? message.method}</span>
                   {message.expectsResponse ? (
-                    <span className="rounded-full bg-muted px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground">dialog</span>
+                    <span className="rounded-full bg-muted px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground">{t("extension.dialog")}</span>
                   ) : null}
                   <span className="text-muted-foreground">{message.createdAt}</span>
                 </div>
-                <div className="text-xs leading-5 text-muted-foreground">{message.message ?? "No message body."}</div>
+                <div className="text-xs leading-5 text-muted-foreground">{message.message ?? t("extension.noBody")}</div>
               </div>
             ))
           ) : (
-            <div className="rounded-xl bg-surface p-3 text-xs text-muted-foreground">No extension messages.</div>
+            <div className="rounded-xl bg-surface p-3 text-xs text-muted-foreground">{t("extension.noMessages")}</div>
           )}
         </div>
       </section>
 
       <section className="rounded-2xl border border-danger/20 bg-danger/5 p-3">
         <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-danger">
-          <AlertTriangle size={14} /> Extension errors
+          <AlertTriangle size={14} /> {t("extension.errors")}
         </div>
         <div className="space-y-2">
           {extensionErrors.length ? (
             extensionErrors.slice(0, 4).map((error) => (
               <div key={error.id} className="rounded-xl border border-danger/20 bg-surface p-3">
-                <div className="mb-1 text-xs font-semibold text-foreground">{error.event ?? "extension error"}</div>
+                <div className="mb-1 text-xs font-semibold text-foreground">{error.event ?? t("extension.errorFallback")}</div>
                 <div className="text-xs leading-5 text-muted-foreground">{error.message}</div>
                 {error.extensionPath ? <div className="mt-2 truncate font-mono text-[11px] text-muted-foreground">{error.extensionPath}</div> : null}
               </div>
             ))
           ) : (
-            <div className="rounded-xl bg-surface p-3 text-xs text-muted-foreground">No extension errors.</div>
+            <div className="rounded-xl bg-surface p-3 text-xs text-muted-foreground">{t("extension.noErrors")}</div>
           )}
         </div>
       </section>

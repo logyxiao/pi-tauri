@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Brain, Check, ChevronDown, Search } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useI18n } from "@/shared/i18n";
 import { demoModels, demoPiState } from "@/shared/pi/mock-data";
 import type { PiModel, PiState } from "@/shared/pi/types";
 
@@ -11,6 +12,7 @@ interface ModelSelectorProps {
 }
 
 export function ModelSelector({ state, models, onModelChange }: ModelSelectorProps) {
+  const { t } = useI18n();
   const [query, setQuery] = useState("");
   const current = state ?? demoPiState;
   const availableModels = models.length ? models : demoModels;
@@ -29,14 +31,14 @@ export function ModelSelector({ state, models, onModelChange }: ModelSelectorPro
       </DropdownMenuTrigger>
       <DropdownMenuContent className="max-h-[32rem] w-80 overflow-auto" align="end">
         <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          Pi models
+          {t("model.title")}
         </div>
         <div className="px-2 pb-2" onKeyDown={(event) => event.stopPropagation()}>
           <label className="flex h-9 items-center gap-2 rounded-md border border-border bg-surface/80 px-2 text-muted-foreground">
             <Search size={13} />
             <input
               value={query}
-              placeholder="Search model/provider..."
+              placeholder={t("model.searchPlaceholder")}
               className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
               onChange={(event) => setQuery(event.target.value)}
             />
@@ -60,7 +62,7 @@ export function ModelSelector({ state, models, onModelChange }: ModelSelectorPro
                       </div>
                     </div>
                     {model.reasoning ? (
-                      <span className="border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] text-primary">thinking</span>
+                      <span className="border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] text-primary">{t("model.thinking")}</span>
                     ) : null}
                   </DropdownMenuItem>
                 );
@@ -68,7 +70,7 @@ export function ModelSelector({ state, models, onModelChange }: ModelSelectorPro
             </div>
           ))
         ) : (
-          <div className="rounded-md bg-surface p-3 text-xs text-muted-foreground">No models match query.</div>
+          <div className="rounded-md bg-surface p-3 text-xs text-muted-foreground">{t("model.noMatch")}</div>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

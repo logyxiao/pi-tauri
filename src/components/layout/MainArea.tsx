@@ -5,6 +5,7 @@ import { ModelSelector } from "@/components/model/ModelSelector";
 import { ErrorBanner } from "@/components/status/ErrorBanner";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useI18n } from "@/shared/i18n";
 import type { PiCommand, PiMessage, PiModel, PiSafetyEvent, PiSettingsUpdate, PiState, PiToolCall } from "@/shared/pi/types";
 
 interface MainAreaProps {
@@ -54,25 +55,27 @@ export function MainArea({
   onToggleInspector,
   onSelectTool,
 }: MainAreaProps) {
+  const { t } = useI18n();
+
   return (
     <main className="flex min-w-0 flex-1 flex-col bg-transparent">
       <header className="flex h-auto min-h-16 shrink-0 flex-col gap-3 border-b border-border bg-surface/55 px-4 py-3 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
-            <span>pi desktop workbench</span>
+            <span>{t("main.title")}</span>
             <span className="rounded-sm border border-border bg-primary/10 px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-primary">
               {status}
             </span>
             {isRefreshing ? <Loader2 size={13} className="animate-spin text-primary" /> : null}
           </div>
-          <div className="mt-1 truncate text-xs text-muted-foreground">cwd: {state?.cwd ?? "waiting for pi runtime..."}</div>
+          <div className="mt-1 truncate text-xs text-muted-foreground">cwd: {state?.cwd ?? t("main.cwdWaiting")}</div>
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <Button size="sm" variant="ghost">
-            <GitBranch size={15} /> Fork
+            <GitBranch size={15} /> {t("main.fork")}
           </Button>
           <Button size="sm" variant="ghost">
-            <Zap size={15} /> Compact
+            <Zap size={15} /> {t("main.compact")}
           </Button>
           <ModelSelector
             state={state}
@@ -81,11 +84,11 @@ export function MainArea({
           />
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button size="icon" variant="ghost" aria-label="Toggle inspector" onClick={onToggleInspector}>
+              <Button size="icon" variant="ghost" aria-label={t("main.toggleInspector")} onClick={onToggleInspector}>
                 {inspectorOpen ? <PanelRight size={17} /> : <PanelRightOpen size={17} />}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{inspectorOpen ? "Hide inspector" : "Show inspector"}</TooltipContent>
+            <TooltipContent>{inspectorOpen ? t("main.hideInspector") : t("main.showInspector")}</TooltipContent>
           </Tooltip>
         </div>
       </header>

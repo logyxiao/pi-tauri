@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Filter, GitBranch, GitFork, GitPullRequest, Info, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/shared/lib/cn";
+import { useI18n } from "@/shared/i18n";
 import type { PiForkMessage, PiSessionTree, PiSessionTreeNode } from "@/shared/pi/types";
 
 interface SessionTreePanelProps {
@@ -17,6 +18,7 @@ type TreeFilterMode = "default" | "no-tools" | "user-only" | "labeled-only" | "a
 const filterModes: TreeFilterMode[] = ["default", "no-tools", "user-only", "labeled-only", "all"];
 
 export function SessionTreePanel({ tree, forkMessages, onForkSession, onCloneSession, onSetLabel }: SessionTreePanelProps) {
+  const { t } = useI18n();
   const nodes = tree?.nodes ?? [];
   const [filterMode, setFilterMode] = useState<TreeFilterMode>("default");
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
@@ -28,7 +30,7 @@ export function SessionTreePanel({ tree, forkMessages, onForkSession, onCloneSes
   const visibleNodes = useMemo(() => filterVisibleNodes(nodes, filterMode, collapsedIds), [nodes, filterMode, collapsedIds]);
 
   async function editLabel(node: PiSessionTreeNode) {
-    const label = window.prompt("Entry label", node.label ?? "");
+    const label = window.prompt(t("sessionTree.entryLabel"), node.label ?? "");
     if (label == null) return;
     await onSetLabel(node.id, label.trim() || undefined);
   }
@@ -45,7 +47,7 @@ export function SessionTreePanel({ tree, forkMessages, onForkSession, onCloneSes
 
   async function forkFrom(node: PiSessionTreeNode) {
     const preview = forkMessagesById.get(node.id)?.text ?? node.title;
-    const confirmed = window.confirm(`Fork from this message?\n\n${preview}`);
+    const confirmed = window.confirm(`${t("sessionTree.forkConfirm")}\n\n${preview}`);
     if (!confirmed) return;
     try {
       setBusyAction(`fork:${node.id}`);
@@ -56,7 +58,7 @@ export function SessionTreePanel({ tree, forkMessages, onForkSession, onCloneSes
   }
 
   async function cloneCurrentBranch() {
-    const confirmed = window.confirm("Clone current active branch into a new session?");
+    const confirmed = window.confirm(t("sessionTree.cloneConfirm"));
     if (!confirmed) return;
     try {
       setBusyAction("clone");
@@ -72,10 +74,10 @@ export function SessionTreePanel({ tree, forkMessages, onForkSession, onCloneSes
     <section className="rounded-2xl border border-border bg-background/60 p-3">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          <GitBranch size={14} /> Session tree
+          <GitBranch size={14} /> {t("sessionTree.title")}
         </div>
         <Button size="sm" variant="ghost" disabled={busyAction === "clone"} onClick={() => void cloneCurrentBranch()}>
-          <GitPullRequest size={12} /> {busyAction === "clone" ? "Cloning" : "Clone"}
+          <GitPullRequest size={12} /> {busyAction === "clone" ? t("sessionTree.cloning") : t("sessionTree.clone")}
         </Button>
       </div>
 
@@ -97,9 +99,9 @@ export function SessionTreePanel({ tree, forkMessages, onForkSession, onCloneSes
 
       {tree?.parentSession ? (
         <div className="mb-3 rounded-xl border border-primary/20 bg-primary/5 p-2 text-xs">
-          <div className="mb-1 font-semibold uppercase tracking-[0.14em] text-primary">Fork lineage</div>
+          <div className="mb-1 font-semibold uppercase tracking-[0.14em] text-primary">{t("sessionTree.forkLineage")}</div>
           <div className="truncate font-mono text-muted-foreground" title={tree.parentSession}>
-            parent: {tree.parentSession}
+            {t("sessionTree.parent")}: {tree.parentSession}
           </div>
         </div>
       ) : null}
@@ -107,10 +109,10 @@ export function SessionTreePanel({ tree, forkMessages, onForkSession, onCloneSes
       {directLabelWrite ? (
         <div className="mb-3 rounded-xl border border-warning/20 bg-warning/10 p-2 text-xs text-muted-foreground">
           <div className="mb-1 flex items-center gap-1.5 font-semibold uppercase tracking-[0.14em] text-warning">
-            <Info size={12} /> Label mode
+            <Info size={12} /> {t("sessionTree.labelMode")}
           </div>
           <div className="leading-5">
-            Labels currently append JSONL entries directly. SDK `SessionManager.appendLabelChange()` / extension `pi.setLabel()` should replace this when sidecar lands.
+            {t("sessionTree.labelModeText")}
           </div>
         </div>
       ) : null}
@@ -118,7 +120,7 @@ export function SessionTreePanel({ tree, forkMessages, onForkSession, onCloneSes
       {tree?.activeLeafSource ? (
         <div className="mb-3 rounded-xl border border-border bg-surface p-2 text-xs text-muted-foreground">
           <div className="flex items-center justify-between gap-2">
-            <span className="font-semibold uppercase tracking-[0.14em]">Cursor</span>
+            <span className="font-semibold uppercase tracking-[0.14em]">{t("sessionTree.cursor")}</span>
             <span className="rounded-full border border-border px-2 py-0.5 font-mono text-[10px] text-foreground">{tree.activeLeafSource}</span>
           </div>
           {tree.activeLeafNote ? <div className="mt-1 leading-5">{tree.activeLeafNote}</div> : null}
@@ -127,7 +129,7 @@ export function SessionTreePanel({ tree, forkMessages, onForkSession, onCloneSes
 
       {branchPath.length ? (
         <div className="mb-3 rounded-xl border border-border bg-surface p-2">
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Active branch</div>
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{t("sessionTree.activeBranch")}</div>
           <div className="space-y-1">
             {branchPath.slice(-4).map((node) => (
               <div key={node.id} className="truncate text-xs text-muted-foreground">
@@ -172,7 +174,7 @@ export function SessionTreePanel({ tree, forkMessages, onForkSession, onCloneSes
                       <span className="rounded-full bg-muted px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground">
                         {node.role ?? node.type}
                       </span>
-                      {inBranch ? <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] text-primary">branch</span> : null}
+                      {inBranch ? <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] text-primary">{t("sessionTree.branch")}</span> : null}
                       {node.label ? (
                         <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 px-1.5 py-0.5 text-[9px] text-primary">
                           <Tag size={9} /> {node.label}
@@ -182,29 +184,29 @@ export function SessionTreePanel({ tree, forkMessages, onForkSession, onCloneSes
                     <div className="mt-1 line-clamp-2 text-xs leading-5 text-foreground">{node.title}</div>
                     {node.summary ? <div className="mt-1 line-clamp-3 text-[11px] leading-4 text-muted-foreground">{node.summary}</div> : null}
                     <div className="mt-1 flex items-center gap-2 font-mono text-[9px] text-muted-foreground">
-                      <span>{node.childrenCount} children</span>
+                      <span>{node.childrenCount} {t("sessionTree.children")}</span>
                       {node.timestamp ? <span className="truncate">{node.timestamp}</span> : null}
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1 opacity-0 transition group-hover:opacity-100">
                     {canFork ? (
-                      <Button size="icon" variant="ghost" aria-label="Fork from entry" disabled={Boolean(busyAction)} onClick={() => void forkFrom(node)}>
+                      <Button size="icon" variant="ghost" aria-label={t("sessionTree.forkFromEntry")} disabled={Boolean(busyAction)} onClick={() => void forkFrom(node)}>
                         <GitFork size={11} />
                       </Button>
                     ) : null}
-                    <Button size="icon" variant="ghost" aria-label="Set label" disabled={Boolean(busyAction)} onClick={() => void editLabel(node)}>
+                    <Button size="icon" variant="ghost" aria-label={t("sessionTree.setLabel")} disabled={Boolean(busyAction)} onClick={() => void editLabel(node)}>
                       <Tag size={11} />
                     </Button>
                   </div>
                 </div>
-                {forkBusy ? <div className="mt-2 pl-6 font-mono text-[10px] text-primary">forking...</div> : null}
+                {forkBusy ? <div className="mt-2 pl-6 font-mono text-[10px] text-primary">{t("sessionTree.forking")}</div> : null}
               </div>
             );
           })
         ) : nodes.length ? (
-          <div className="rounded-xl bg-surface p-3 text-xs text-muted-foreground">No nodes match filter.</div>
+          <div className="rounded-xl bg-surface p-3 text-xs text-muted-foreground">{t("sessionTree.noMatch")}</div>
         ) : (
-          <div className="rounded-xl bg-surface p-3 text-xs text-muted-foreground">No session tree available.</div>
+          <div className="rounded-xl bg-surface p-3 text-xs text-muted-foreground">{t("sessionTree.noTree")}</div>
         )}
       </div>
     </section>

@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Brain, Folder, HardDrive, KeyRound, Repeat, Search, Settings, Workflow } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { useI18n } from "@/shared/i18n";
 import type { PiDeliveryMode, PiModel, PiSettings, PiSettingsUpdate, PiState, PiThinkingLevel } from "@/shared/pi/types";
 
 const thinkingLevels: PiThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
@@ -22,6 +23,7 @@ export function SettingsDialog({
   models,
   onUpdateSettings,
 }: SettingsDialogProps) {
+  const { t, locale, setLocale } = useI18n();
   const [modelQuery, setModelQuery] = useState("");
   const currentModelKey = modelKey(settings?.provider, settings?.model) ?? modelKeyFromState(state?.model);
   const currentThinking = settings?.thinkingLevel ?? state?.thinkingLevel ?? "off";
@@ -30,22 +32,22 @@ export function SettingsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        title="Pi settings"
-        description="Configure pi model, thinking level, cwd, and current session context. Dangerous tool execution stays visible in run stream."
+        title={t("settings.title")}
+        description={t("settings.description")}
         className="w-[min(92vw,640px)]"
       >
         <div className="space-y-4">
           <section className="rounded-2xl border border-border bg-background/60 p-4">
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              <Brain size={14} /> Model
+              <Brain size={14} /> {t("settings.model")}
             </div>
             <label className="space-y-1 text-xs text-muted-foreground">
-              <span>Search models</span>
+              <span>{t("settings.searchModels")}</span>
               <div className="flex h-10 items-center gap-2 rounded-xl border border-border bg-surface px-3 text-muted-foreground">
                 <Search size={14} />
                 <input
                   value={modelQuery}
-                  placeholder="provider, name, model id..."
+                  placeholder={t("settings.searchPlaceholder")}
                   className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
                   onChange={(event) => setModelQuery(event.target.value)}
                 />
@@ -53,7 +55,7 @@ export function SettingsDialog({
             </label>
 
             <label className="mt-3 block space-y-1 text-xs text-muted-foreground">
-              <span>Active model</span>
+              <span>{t("settings.activeModel")}</span>
               <select
                 value={currentModelKey ?? ""}
                 className="h-10 w-full rounded-xl border border-border bg-surface px-3 text-sm text-foreground outline-none transition focus:border-primary"
@@ -76,7 +78,7 @@ export function SettingsDialog({
             </label>
 
             <label className="mt-3 block space-y-1 text-xs text-muted-foreground">
-              <span>Thinking level</span>
+              <span>{t("settings.thinkingLevel")}</span>
               <select
                 value={currentThinking}
                 className="h-10 w-full rounded-xl border border-border bg-surface px-3 text-sm text-foreground outline-none transition focus:border-primary"
@@ -93,32 +95,32 @@ export function SettingsDialog({
 
           <section className="rounded-2xl border border-border bg-background/60 p-4">
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              <Workflow size={14} /> Runtime behavior
+              <Workflow size={14} /> {t("settings.runtimeBehavior")}
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <ToggleCard
                 icon={<Workflow size={14} />}
-                label="auto compaction"
-                description="Compact context when window nears limit."
+                label={t("settings.autoCompaction")}
+                description={t("settings.autoCompactionDesc")}
                 enabled={settings?.autoCompaction ?? true}
                 onToggle={(enabled) => void onUpdateSettings({ autoCompaction: enabled })}
               />
               <ToggleCard
                 icon={<Repeat size={14} />}
-                label="auto retry"
-                description="Retry transient provider errors."
+                label={t("settings.autoRetry")}
+                description={t("settings.autoRetryDesc")}
                 enabled={settings?.autoRetry ?? true}
                 onToggle={(enabled) => void onUpdateSettings({ autoRetry: enabled })}
               />
             </div>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <SelectCard
-                label="steering mode"
+                label={t("settings.steeringMode")}
                 value={settings?.steeringMode ?? "one-at-a-time"}
                 onChange={(value) => void onUpdateSettings({ steeringMode: value })}
               />
               <SelectCard
-                label="follow-up mode"
+                label={t("settings.followUpMode")}
                 value={settings?.followUpMode ?? "one-at-a-time"}
                 onChange={(value) => void onUpdateSettings({ followUpMode: value })}
               />
@@ -127,26 +129,27 @@ export function SettingsDialog({
 
           <section className="grid gap-3 sm:grid-cols-2">
             <InfoCard icon={<Folder size={14} />} label="cwd" value={settings?.cwd ?? state?.cwd ?? "loading..."} />
-            <InfoCard icon={<Settings size={14} />} label="client mode" value={settings?.clientMode ?? "loading"} />
+            <InfoCard icon={<Settings size={14} />} label={t("settings.clientMode")} value={settings?.clientMode ?? t("common.loading")} />
             <InfoCard
               icon={<Settings size={14} />}
-              label="SDK sidecar"
-              value={settings?.sdkSidecar ? `${settings.sdkSidecar.available ? "available" : "unavailable"}${settings.sdkSidecar.version ? ` · ${settings.sdkSidecar.version}` : ""}${settings.sdkSidecar.error ? ` · ${settings.sdkSidecar.error}` : ""}` : "loading"}
+              label={t("settings.sdkSidecar")}
+              value={settings?.sdkSidecar ? `${settings.sdkSidecar.available ? t("settings.available") : t("settings.unavailable")}${settings.sdkSidecar.version ? ` · ${settings.sdkSidecar.version}` : ""}${settings.sdkSidecar.error ? ` · ${settings.sdkSidecar.error}` : ""}` : t("common.loading")}
             />
-            <InfoCard icon={<HardDrive size={14} />} label="session dir" value={settings?.sessionDir ?? "default ~/.pi/agent/sessions"} wide />
-            <InfoCard icon={<HardDrive size={14} />} label="session file" value={settings?.sessionFile ?? state?.sessionFile ?? "no session file"} wide />
+            <InfoCard icon={<HardDrive size={14} />} label={t("settings.sessionDir")} value={settings?.sessionDir ?? t("settings.defaultSessionDir")} wide />
+            <InfoCard icon={<HardDrive size={14} />} label={t("settings.sessionFile")} value={settings?.sessionFile ?? state?.sessionFile ?? t("settings.noSessionFile")} wide />
+            <LocaleCard locale={locale} onChange={setLocale} />
           </section>
 
           <section className="rounded-2xl border border-border bg-background/60 p-4">
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              <KeyRound size={14} /> Auth status
+              <KeyRound size={14} /> {t("settings.authStatus")}
             </div>
             <div className="space-y-2">
-              {(settings?.auth?.length ? settings.auth : [{ provider: settings?.provider ?? "unknown", status: "unknown" as const, detail: "No auth probe available." }]).map((item) => (
+              {(settings?.auth?.length ? settings.auth : [{ provider: settings?.provider ?? t("common.unknown"), status: "unknown" as const, detail: t("settings.noAuthProbe") }]).map((item) => (
                 <div key={item.provider} className="flex items-center justify-between gap-3 rounded-xl bg-surface p-3 text-xs">
                   <div className="min-w-0">
                     <div className="font-mono text-foreground">{item.provider}</div>
-                    <div className="truncate text-muted-foreground">{item.detail ?? "status unavailable"}</div>
+                    <div className="truncate text-muted-foreground">{item.detail ?? t("settings.statusUnavailable")}</div>
                   </div>
                   <span className="rounded-full border border-border px-2 py-0.5 font-mono text-[10px] text-muted-foreground">{item.status}</span>
                 </div>
@@ -155,12 +158,28 @@ export function SettingsDialog({
           </section>
 
           <div className="rounded-2xl border border-border bg-muted/45 p-3 text-xs leading-5 text-muted-foreground">
-            pi 能力优先：model/thinking 直接影响 Agent 执行；工具调用继续在中央流和 Inspector 中透明展示。真实
-            RPC 若某项设置不可用，将保留当前状态并在 console 中记录降级信息。
+            {t("settings.note")}
           </div>
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function LocaleCard({ locale, onChange }: { locale: "zh-CN" | "en"; onChange: (locale: "zh-CN" | "en") => void }) {
+  const { t } = useI18n();
+  return (
+    <label className="block rounded-2xl border border-border bg-background/60 p-3 sm:col-span-2 text-xs text-muted-foreground">
+      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.14em]">{t("language.label")}</span>
+      <select
+        value={locale}
+        className="h-9 w-full rounded-xl border border-border bg-surface px-3 text-xs text-foreground outline-none transition focus:border-primary"
+        onChange={(event) => onChange(event.target.value as "zh-CN" | "en")}
+      >
+        <option value="zh-CN">{t("language.zh")}</option>
+        <option value="en">{t("language.en")}</option>
+      </select>
+    </label>
   );
 }
 
@@ -173,6 +192,8 @@ interface ToggleCardProps {
 }
 
 function ToggleCard({ icon, label, description, enabled, onToggle }: ToggleCardProps) {
+  const { t } = useI18n();
+
   return (
     <button
       className="rounded-2xl border border-border bg-surface p-3 text-left transition hover:border-primary/35"
@@ -183,7 +204,7 @@ function ToggleCard({ icon, label, description, enabled, onToggle }: ToggleCardP
           {icon} {label}
         </div>
         <span className={enabled ? "rounded-full border border-primary/30 px-2 py-0.5 text-[10px] text-primary" : "rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground"}>
-          {enabled ? "on" : "off"}
+          {enabled ? t("common.on") : t("common.off")}
         </span>
       </div>
       <div className="text-xs leading-5 text-muted-foreground">{description}</div>

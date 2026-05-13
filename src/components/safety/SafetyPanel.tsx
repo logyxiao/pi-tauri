@@ -1,4 +1,5 @@
 import { ShieldAlert } from "lucide-react";
+import { useI18n } from "@/shared/i18n";
 import { defaultSafetyPolicy } from "@/shared/pi/safety";
 import type { PiSafetyEvent } from "@/shared/pi/types";
 
@@ -7,15 +8,17 @@ interface SafetyPanelProps {
 }
 
 export function SafetyPanel({ events }: SafetyPanelProps) {
+  const { t } = useI18n();
+
   return (
     <section className="rounded-2xl border border-danger/20 bg-danger/5 p-3">
       <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-danger">
-        <ShieldAlert size={14} /> Safety
+        <ShieldAlert size={14} /> {t("safety.panelTitle")}
       </div>
       <div className="space-y-2 text-xs text-muted-foreground">
-        <PolicyLine enabled label="Dangerous slash commands require confirmation" />
-        <PolicyLine enabled label="Destructive file changes are flagged" />
-        <PolicyLine enabled label="Sensitive paths require review" />
+        <PolicyLine enabled label={t("safety.policyCommands")} />
+        <PolicyLine enabled label={t("safety.policyFiles")} />
+        <PolicyLine enabled label={t("safety.policyPaths")} />
         <div className="rounded-xl border border-danger/15 bg-surface p-3 leading-5">
           {defaultSafetyPolicy.rpcToolLimitation}
         </div>
@@ -38,7 +41,7 @@ export function SafetyPanel({ events }: SafetyPanelProps) {
             </div>
           ))
         ) : (
-          <div className="rounded-xl bg-surface p-3 text-xs text-muted-foreground">No safety events yet.</div>
+          <div className="rounded-xl bg-surface p-3 text-xs text-muted-foreground">{t("safety.noEvents")}</div>
         )}
       </div>
     </section>
@@ -46,11 +49,13 @@ export function SafetyPanel({ events }: SafetyPanelProps) {
 }
 
 function PolicyLine({ enabled, label }: { enabled: boolean; label: string }) {
+  const { t } = useI18n();
+
   return (
     <div className="flex items-center justify-between rounded-xl bg-surface p-2">
       <span>{label}</span>
       <span className={enabled ? "font-mono text-[11px] text-success" : "font-mono text-[11px] text-muted-foreground"}>
-        {enabled ? "on" : "off"}
+        {enabled ? t("common.on") : t("common.off")}
       </span>
     </div>
   );
