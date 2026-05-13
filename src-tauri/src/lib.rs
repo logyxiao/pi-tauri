@@ -400,7 +400,13 @@ fn pi_sdk_sidecar_stop(state: State<'_, SdkSidecarState>) -> RpcResult<()> {
 }
 
 #[tauri::command]
-fn pi_list_sessions(cwd: String) -> RpcResult<Vec<serde_json::Value>> {
+async fn pi_list_sessions(cwd: String) -> RpcResult<Vec<serde_json::Value>> {
+    tauri::async_runtime::spawn_blocking(move || pi_list_sessions_blocking(cwd))
+        .await
+        .map_err(|error| format!("list sessions task failed: {error}"))?
+}
+
+fn pi_list_sessions_blocking(cwd: String) -> RpcResult<Vec<serde_json::Value>> {
     let target_cwd = if cwd.trim().is_empty() {
         None
     } else {
@@ -449,7 +455,13 @@ fn find_assistant_tool_args(messages: &[serde_json::Value], parent_id: Option<&s
 }
 
 #[tauri::command]
-fn pi_read_session_messages(session_path: String) -> RpcResult<Vec<serde_json::Value>> {
+async fn pi_read_session_messages(session_path: String) -> RpcResult<Vec<serde_json::Value>> {
+    tauri::async_runtime::spawn_blocking(move || pi_read_session_messages_blocking(session_path))
+        .await
+        .map_err(|error| format!("read session messages task failed: {error}"))?
+}
+
+fn pi_read_session_messages_blocking(session_path: String) -> RpcResult<Vec<serde_json::Value>> {
     let path = safe_session_path(&session_path)?;
     let file = fs::File::open(&path).map_err(|error| format!("failed to open session file: {error}"))?;
     let reader = BufReader::new(file);
@@ -571,7 +583,13 @@ fn pi_delete_session(session_path: String) -> RpcResult<()> {
 }
 
 #[tauri::command]
-fn pi_session_tree(session_path: String) -> RpcResult<serde_json::Value> {
+async fn pi_session_tree(session_path: String) -> RpcResult<serde_json::Value> {
+    tauri::async_runtime::spawn_blocking(move || pi_session_tree_blocking(session_path))
+        .await
+        .map_err(|error| format!("session tree task failed: {error}"))?
+}
+
+fn pi_session_tree_blocking(session_path: String) -> RpcResult<serde_json::Value> {
     let path = safe_session_path(&session_path)?;
     let file = fs::File::open(&path).map_err(|error| format!("failed to open session file: {error}"))?;
     let reader = BufReader::new(file);
@@ -674,7 +692,13 @@ fn pi_session_tree(session_path: String) -> RpcResult<serde_json::Value> {
 }
 
 #[tauri::command]
-fn pi_set_session_label(session_path: String, target_id: String, label: Option<String>) -> RpcResult<()> {
+async fn pi_set_session_label(session_path: String, target_id: String, label: Option<String>) -> RpcResult<()> {
+    tauri::async_runtime::spawn_blocking(move || pi_set_session_label_blocking(session_path, target_id, label))
+        .await
+        .map_err(|error| format!("set session label task failed: {error}"))?
+}
+
+fn pi_set_session_label_blocking(session_path: String, target_id: String, label: Option<String>) -> RpcResult<()> {
     let path = safe_session_path(&session_path)?;
     let file = fs::File::open(&path).map_err(|error| format!("failed to read session file: {error}"))?;
     let reader = BufReader::new(file);
@@ -706,7 +730,13 @@ fn pi_set_session_label(session_path: String, target_id: String, label: Option<S
 }
 
 #[tauri::command]
-fn pi_list_files(cwd: String) -> RpcResult<Vec<serde_json::Value>> {
+async fn pi_list_files(cwd: String) -> RpcResult<Vec<serde_json::Value>> {
+    tauri::async_runtime::spawn_blocking(move || pi_list_files_blocking(cwd))
+        .await
+        .map_err(|error| format!("list files task failed: {error}"))?
+}
+
+fn pi_list_files_blocking(cwd: String) -> RpcResult<Vec<serde_json::Value>> {
     let root = safe_root(&cwd)?;
     let mut entries = Vec::new();
     collect_files(&root, &root, 0, &mut entries)?;
@@ -714,7 +744,13 @@ fn pi_list_files(cwd: String) -> RpcResult<Vec<serde_json::Value>> {
 }
 
 #[tauri::command]
-fn pi_read_file(cwd: String, path: String) -> RpcResult<serde_json::Value> {
+async fn pi_read_file(cwd: String, path: String) -> RpcResult<serde_json::Value> {
+    tauri::async_runtime::spawn_blocking(move || pi_read_file_blocking(cwd, path))
+        .await
+        .map_err(|error| format!("read file task failed: {error}"))?
+}
+
+fn pi_read_file_blocking(cwd: String, path: String) -> RpcResult<serde_json::Value> {
     let root = safe_root(&cwd)?;
     let full_path = safe_join(&root, &path)?;
     let metadata = fs::metadata(&full_path).map_err(|error| format!("failed to stat file: {error}"))?;

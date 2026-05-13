@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { ArrowDown, Brain, Check, ChevronRight, Copy, FileText, ImageIcon, Loader2, Terminal } from "lucide-react";
+import { MarkdownContent } from "@/components/chat/MarkdownContent";
 import { LoadingPanel } from "@/components/status/LoadingPanel";
 import { ToolCallItem } from "@/components/tools/ToolCallItem";
 import { cn } from "@/shared/lib/cn";
@@ -35,6 +34,8 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const messageRefs = useRef(new Map<string, HTMLDivElement>());
   const shouldAutoScrollRef = useRef(true);
+  const activeTimelineIdRef = useRef<string | null>(null);
+  const scrollRafRef = useRef<number | null>(null);
   const timelineItems = useMemo(() => buildTimelineItems(messages, t), [messages, t]);
   const activeAssistantId = isRunning ? findLastAssistantId(messages) : null;
   const renderItems = useMemo(() => buildRenderItems(messages, activeAssistantId), [messages, activeAssistantId]);
@@ -43,12 +44,21 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
   const streamSignature = useMemo(() => buildStreamSignature(messages), [messages]);
 
   useEffect(() => {
+    activeTimelineIdRef.current = activeTimelineId;
+  }, [activeTimelineId]);
+
+  useEffect(() => {
     if (!timelineItems.length) {
+      activeTimelineIdRef.current = null;
       setActiveTimelineId(null);
       return;
     }
     setActiveTimelineId((current) => (current && timelineItems.some((item) => item.id === current) ? current : timelineItems[0].id));
   }, [timelineItems]);
+
+  useEffect(() => () => {
+    if (scrollRafRef.current !== null) window.cancelAnimationFrame(scrollRafRef.current);
+  }, []);
 
   useLayoutEffect(() => {
     const container = scrollRef.current;
@@ -60,12 +70,20 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
     updateActiveTimelineItem();
   }, [streamSignature, isConnecting, isSwitchingSession, messages, activeAssistantId]);
 
+  function scheduleTimelineUpdate() {
+    if (scrollRafRef.current !== null) return;
+    scrollRafRef.current = window.requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      updateActiveTimelineItem();
+    });
+  }
+
   function updateActiveTimelineItem() {
     const container = scrollRef.current;
     if (!container) return;
     const atBottom = isScrollAtBottom(container);
     shouldAutoScrollRef.current = atBottom;
-    setShowScrollToBottom(!atBottom);
+    setShowScrollToBottom((current) => (current === !atBottom ? current : !atBottom));
     if (!timelineItems.length) return;
     const containerRect = container.getBoundingClientRect();
     const targetY = containerRect.top + containerRect.height * 0.32;
@@ -83,7 +101,10 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
       }
     }
 
-    setActiveTimelineId(nearestId);
+    if (activeTimelineIdRef.current !== nearestId) {
+      activeTimelineIdRef.current = nearestId;
+      setActiveTimelineId(nearestId);
+    }
   }
 
   function scrollToBottom() {
@@ -114,7 +135,7 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
         ref={scrollRef}
         className="message-list-scrollbar h-full overflow-y-auto overflow-x-hidden px-3 py-4 pr-9 sm:px-5 sm:py-6 sm:pr-12"
         aria-label={t("message.listLabel")}
-        onScroll={updateActiveTimelineItem}
+        onScroll={scheduleTimelineUpdate}
       >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 pb-36">
           {isConnecting || isSwitchingSession ? <LoadingPanel label={isSwitchingSession ? t("loading.session") : undefined} /> : null}
@@ -529,36 +550,6 @@ function extractToolTargetFromMessage(message: PiMessage): string {
   if ((message.toolName === "read" || message.toolName === "edit" || message.toolName === "write") && typeof args?.path === "string") return args.path;
   if (typeof args?.pattern === "string") return args.pattern;
   return message.toolName ?? "tool";
-}
-
-function MarkdownContent({ content }: { content: string }) {
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        p: ({ children }) => <p className="mb-2.5 last:mb-0">{children}</p>,
-        h1: ({ children }) => <h1 className="mb-2 mt-3 text-lg font-semibold first:mt-0">{children}</h1>,
-        h2: ({ children }) => <h2 className="mb-2 mt-3 text-base font-semibold first:mt-0">{children}</h2>,
-        h3: ({ children }) => <h3 className="mb-1.5 mt-2.5 text-sm font-semibold first:mt-0">{children}</h3>,
-        ul: ({ children }) => <ul className="mb-2.5 list-disc space-y-1 pl-4 last:mb-0">{children}</ul>,
-        ol: ({ children }) => <ol className="mb-2.5 list-decimal space-y-1 pl-4 last:mb-0">{children}</ol>,
-        li: ({ children }) => <li className="pl-1">{children}</li>,
-        blockquote: ({ children }) => <blockquote className="my-2 border-l-2 border-primary/45 bg-muted/45 px-3 py-2 text-muted-foreground">{children}</blockquote>,
-        a: ({ children, href }) => (
-          <a className="text-primary underline decoration-primary/35 underline-offset-2 hover:decoration-primary" href={href} target="_blank" rel="noreferrer">
-            {children}
-          </a>
-        ),
-        code: ({ children }) => <code className="bg-muted px-1 py-0.5 font-mono text-[12px] text-foreground">{children}</code>,
-        pre: ({ children }) => <pre className="my-2 overflow-x-auto border border-border bg-background/80 p-3 text-[12px] leading-5">{children}</pre>,
-        table: ({ children }) => <div className="my-2 overflow-x-auto"><table className="w-full border-collapse text-xs">{children}</table></div>,
-        th: ({ children }) => <th className="border border-border bg-muted px-2 py-1 text-left font-semibold">{children}</th>,
-        td: ({ children }) => <td className="border border-border px-2 py-1 align-top">{children}</td>,
-      }}
-    >
-      {content}
-    </ReactMarkdown>
-  );
 }
 
 function MessageTimeline({ items, activeId, onJump }: { items: TimelineItem[]; activeId: string | null; onJump: (id: string) => void }) {

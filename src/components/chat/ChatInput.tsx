@@ -40,7 +40,6 @@ function ChatInputComponent({
   disabled = false,
   onSubmit,
   onAbort,
-  onSteer,
   onFollowUp,
   onModelChange,
   onExecuteCommand,

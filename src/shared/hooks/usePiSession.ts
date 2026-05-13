@@ -98,7 +98,7 @@ function loadPersistedWorkspacePaths(): string[] {
     const raw = window.localStorage.getItem(WORKSPACE_PATHS_STORAGE_KEY);
     const value: unknown = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(value)) return [];
-    return Array.from(new Map(value.filter((item): item is string => typeof item === "string" && item.trim()).map((item) => [normalizePath(item), item.trim()])).values());
+    return Array.from(new Map(value.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).map((item) => [normalizePath(item), item.trim()])).values());
   } catch {
     return [];
   }
@@ -131,12 +131,6 @@ function persistSessions(sessions: PiSessionSummary[]) {
   try {
     const durableSessions = sessions.filter((session) => session.filePath && !isLowQualitySessionSummary(session));
     window.localStorage.setItem(SESSION_CACHE_STORAGE_KEY, JSON.stringify(durableSessions.slice(0, 200)));
-    for (const session of sessions) {
-      if (!session.filePath) continue;
-      const cached = loadPersistedSessionMessages(session.filePath);
-      if (cached.length) continue;
-      window.localStorage.setItem(sessionMessagesCacheKey(session.filePath), JSON.stringify([]));
-    }
   } catch {
     // Cache only; ignore storage failures.
   }
@@ -200,12 +194,6 @@ function isMessageLike(value: unknown): value is PiMessage {
     typeof message.content === "string" &&
     typeof message.createdAt === "string"
   );
-}
-
-function isSessionSummaryLike(value: unknown): value is PiSessionSummary {
-  if (!value || typeof value !== "object") return false;
-  const session = value as Record<string, unknown>;
-  return typeof session.id === "string" && typeof session.name === "string" && typeof session.cwd === "string";
 }
 
 function isSettingsLike(value: unknown): value is PiSettings {
@@ -364,6 +352,7 @@ export function usePiSession() {
   const deletedSessionKeysRef = useRef<Set<string>>(new Set());
   const typewriterQueueRef = useRef("");
   const typewriterTimerRef = useRef<number | null>(null);
+  const messagePersistTimerRef = useRef<number | null>(null);
 
   const stopTypewriter = useCallback(() => {
     if (typewriterTimerRef.current !== null) {
@@ -379,14 +368,14 @@ export function usePiSession() {
       typewriterTimerRef.current = null;
       const assistantId = activeAssistantIdRef.current;
       if (!assistantId || !typewriterQueueRef.current) return;
-      const chunkSize = typewriterQueueRef.current.length > 240 ? 8 : 3;
+      const chunkSize = typewriterQueueRef.current.length > 600 ? 80 : typewriterQueueRef.current.length > 160 ? 32 : 12;
       const chunk = typewriterQueueRef.current.slice(0, chunkSize);
       typewriterQueueRef.current = typewriterQueueRef.current.slice(chunk.length);
       setMessages((current) =>
         current.map((message) => (message.id === assistantId ? { ...message, content: `${message.content}${chunk}` } : message)),
       );
       if (typewriterQueueRef.current) scheduleTypewriter();
-    }, 18);
+    }, 50);
   }, []);
 
   const enqueueTypewriterDelta = useCallback((delta: string) => {
@@ -403,7 +392,10 @@ export function usePiSession() {
     setMessages((current) => current.map((message) => (message.id === assistantId ? { ...message, content: `${message.content}${queued}` } : message)));
   }, [stopTypewriter]);
 
-  useEffect(() => () => stopTypewriter(), [stopTypewriter]);
+  useEffect(() => () => {
+    stopTypewriter();
+    if (messagePersistTimerRef.current !== null) window.clearTimeout(messagePersistTimerRef.current);
+  }, [stopTypewriter]);
 
   useEffect(() => {
     persistWorkspacePaths(workspacePaths);
@@ -419,8 +411,18 @@ export function usePiSession() {
 
   useEffect(() => {
     const sessionPath = state?.sessionFile ?? state?.sessionId;
-    if (!sessionPath || !messages.length) return;
-    persistSessionMessages(sessionPath, messages);
+    if (!sessionPath || !messages.length || activeAssistantIdRef.current) return;
+    if (messagePersistTimerRef.current !== null) window.clearTimeout(messagePersistTimerRef.current);
+    messagePersistTimerRef.current = window.setTimeout(() => {
+      messagePersistTimerRef.current = null;
+      persistSessionMessages(sessionPath, messages);
+    }, 500);
+    return () => {
+      if (messagePersistTimerRef.current !== null) {
+        window.clearTimeout(messagePersistTimerRef.current);
+        messagePersistTimerRef.current = null;
+      }
+    };
   }, [messages, state?.sessionFile, state?.sessionId]);
 
   const ensureLiveAssistantMessage = useCallback(() => {
@@ -554,16 +556,17 @@ export function usePiSession() {
       if (event.type === "message_update") {
         const assistantId = ensureLiveAssistantMessage();
         if (event.message) {
+          const eventMessage = event.message;
           stopTypewriter();
           setMessages((current) =>
             current.map((message) => {
               if (message.id !== assistantId) return message;
               return {
                 ...message,
-                ...event.message,
+                ...eventMessage,
                 id: message.id,
                 createdAt: message.createdAt,
-                tools: mergeToolLists(message.tools ?? [], extractToolCallsFromMessage(event.message, message.tools ?? [])),
+                tools: mergeToolLists(message.tools ?? [], extractToolCallsFromMessage(eventMessage, message.tools ?? [])),
               };
             }),
           );
@@ -761,13 +764,6 @@ export function usePiSession() {
       if (messages.length) persistSessionMessages(sessionPath, messages);
     } catch {
       // Warm cache is best-effort.
-    }
-  }
-
-  async function warmKnownSessionCaches(limit = 20) {
-    const targets = sessions.map((session) => session.filePath).filter((path): path is string => Boolean(path)).slice(0, limit);
-    for (const sessionPath of targets) {
-      await warmSessionCache(sessionPath);
     }
   }
 
