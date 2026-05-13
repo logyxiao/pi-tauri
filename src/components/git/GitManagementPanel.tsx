@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Check, ChevronDown, Cloud, GitBranch, GitCommitHorizontal, Loader2, Minus, MoreHorizontal, Plus, RefreshCw, RotateCcw, Rows3, Sparkles, SplitSquareVertical } from "lucide-react";
+import { Check, ChevronDown, Cloud, GitBranch, GitCommitHorizontal, Loader2, Minus, Plus, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/lib/cn";
@@ -166,8 +166,6 @@ export function GitManagementPanel({ cwd, model, thinkingLevel, sessionFile, isR
           <span>{t("git.changesPanel")}</span>
         </div>
         <div className="flex items-center gap-0.5 text-muted-foreground">
-          <ToolbarButton title={t("git.viewAsList")}><Rows3 size={13} /></ToolbarButton>
-          <ToolbarButton title={t("git.viewAsTree")}><SplitSquareVertical size={13} /></ToolbarButton>
           <ToolbarButton
             title={shouldSync ? t("git.sync") : t("git.commit")}
             onClick={() => shouldSync ? void sync() : void commit()}
@@ -176,7 +174,6 @@ export function GitManagementPanel({ cwd, model, thinkingLevel, sessionFile, isR
             {shouldSync ? <Cloud size={13} /> : <Check size={13} />}
           </ToolbarButton>
           <ToolbarButton title={t("git.refresh")} onClick={() => void refreshGit()} disabled={busy === "refresh"}><RefreshCw size={13} className={busy === "refresh" ? "animate-spin" : undefined} /></ToolbarButton>
-          <ToolbarButton title="More"><MoreHorizontal size={14} /></ToolbarButton>
         </div>
       </header>
 

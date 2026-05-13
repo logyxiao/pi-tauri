@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs,
     fs::OpenOptions,
     io::{BufRead, BufReader, Write},
@@ -465,8 +466,17 @@ fn pi_read_session_messages(session_path: String) -> RpcResult<Vec<serde_json::V
     }
 
     let mut messages = Vec::new();
+    let mut hidden_commit_generation_ids = HashSet::new();
 
     for value in &entries {
+        let entry_id = value.get("id").or_else(|| value.get("entryId")).and_then(|item| item.as_str());
+        let parent_id_for_filter = value.get("parentId").and_then(|item| item.as_str());
+        if parent_id_for_filter.map(|id| hidden_commit_generation_ids.contains(id)).unwrap_or(false) {
+            if let Some(id) = entry_id {
+                hidden_commit_generation_ids.insert(id.to_string());
+            }
+            continue;
+        }
         let message = match value.get("message") {
             Some(message) => message,
             None => continue,
@@ -488,6 +498,12 @@ fn pi_read_session_messages(session_path: String) -> RpcResult<Vec<serde_json::V
             "bashExecution" => message.get("output").and_then(|item| item.as_str()).map(str::to_string).unwrap_or_default(),
             _ => extract_session_text(message.get("content")).unwrap_or_default(),
         };
+        if role == "user" && content.starts_with("Staged git diff for commit message generation.") {
+            if let Some(id) = entry_id {
+                hidden_commit_generation_ids.insert(id.to_string());
+            }
+            continue;
+        }
         if role == "assistant" && content.trim().is_empty() && message.get("content").and_then(|item| item.as_array()).map(|items| items.is_empty()).unwrap_or(true) {
             continue;
         }
@@ -875,7 +891,7 @@ fn pi_git_commit(cwd: String, message: String) -> RpcResult<()> {
 }
 
 #[tauri::command]
-fn pi_git_generate_commit_message(cwd: String, model: Option<String>, thinking_level: Option<String>, session_file: Option<String>) -> RpcResult<String> {
+fn pi_git_generate_commit_message(cwd: String, model: Option<String>, thinking_level: Option<String>, _session_file: Option<String>) -> RpcResult<String> {
     let repo_root = git_repo_root(&cwd)?;
     let stat = git_output(&repo_root, &["diff", "--cached", "--stat"])?;
     let diff = git_output(&repo_root, &["diff", "--cached", "--no-ext-diff", "--"])?;
@@ -890,15 +906,9 @@ fn pi_git_generate_commit_message(cwd: String, model: Option<String>, thinking_l
     context.push_str("\n\nDIFF:\n");
     context.push_str(&truncate_for_prompt(&diff, 80_000));
 
-    let prompt = "Generate a git commit message for the staged diff from stdin. Use current session context if useful. Output only one concise commit subject line, imperative mood, <=72 characters. Prefer Conventional Commits when obvious. No markdown, no quotes, no explanation.";
+    let prompt = "Generate a git commit message for the staged diff from stdin. Output only one concise commit subject line, imperative mood, <=72 characters. Prefer Conventional Commits when obvious. No markdown, no quotes, no explanation.";
     let pi_bin = std::env::var("PI_BIN").unwrap_or_else(|_| default_pi_bin());
-    let mut args = vec!["--no-tools".to_string()];
-    if let Some(session_file) = session_file.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-        args.push("--session".to_string());
-        args.push(session_file.to_string());
-    } else {
-        args.push("--no-session".to_string());
-    }
+    let mut args = vec!["--no-tools".to_string(), "--no-session".to_string()];
     if let Some(model) = model.as_deref().map(str::trim).filter(|value| !value.is_empty() && *value != "no model") {
         args.push("--model".to_string());
         args.push(model.to_string());
