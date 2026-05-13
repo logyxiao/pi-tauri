@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -50,6 +50,7 @@ export function LeftSidebar({
   const groups = useMemo(() => groupSessionsByProject(sessions, openedWorkspacePaths), [sessions, openedWorkspacePaths]);
   const selectedGroup = groups.find((group) => group.sessions.some((session) => isSelectedSession(session, currentSessionId)));
   const [closedProjects, setClosedProjects] = useState<Set<string>>(() => new Set());
+  const [sidebarWidth, setSidebarWidth] = useState(288);
 
   async function deleteSession(session: PiSessionSummary) {
     if (!session.filePath) return;
@@ -67,12 +68,33 @@ export function LeftSidebar({
     });
   }
 
+  function startResize(event: ReactPointerEvent<HTMLDivElement>) {
+    if (collapsed) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const startX = event.clientX;
+    const startWidth = sidebarWidth;
+
+    function move(pointerEvent: PointerEvent) {
+      const nextWidth = Math.min(Math.max(startWidth + pointerEvent.clientX - startX, 220), 420);
+      setSidebarWidth(nextWidth);
+    }
+
+    function stop() {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    }
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop, { once: true });
+  }
+
   return (
     <aside
       className={cn(
-        "flex shrink-0 flex-col border-r border-border bg-sidebar/70 transition-[width] duration-200 backdrop-blur-[1px]",
-        collapsed ? "w-[4.5rem]" : "w-72",
+        "relative flex shrink-0 flex-col border-r border-border bg-sidebar/70 backdrop-blur-[1px]",
+        collapsed ? "w-[4.5rem] transition-[width] duration-200" : "",
       )}
+      style={collapsed ? undefined : { width: sidebarWidth }}
     >
       <div className={cn("flex items-center border-b border-border/70 p-3", collapsed ? "justify-center" : "justify-between")}>
         {!collapsed ? (
@@ -137,7 +159,7 @@ export function LeftSidebar({
           {groups.length ? (
             groups.map((group) => {
               const selectedProject = group.cwd === selectedGroup?.cwd;
-              const open = selectedProject || !closedProjects.has(group.cwd);
+              const open = !closedProjects.has(group.cwd);
               return collapsed ? (
                 <CollapsedProjectGroup key={group.cwd} group={group} currentSessionId={currentSessionId} onSwitchSession={onSwitchSession} sessionsLabel={t("sidebar.sessions")} />
               ) : (
@@ -190,6 +212,14 @@ export function LeftSidebar({
           )}
         </div>
       </div>
+      {!collapsed ? (
+        <div
+          className="absolute right-[-3px] top-0 h-full w-1.5 cursor-col-resize bg-transparent transition hover:bg-primary/25"
+          role="separator"
+          aria-orientation="vertical"
+          onPointerDown={startResize}
+        />
+      ) : null}
     </aside>
   );
 }
@@ -214,16 +244,16 @@ function SessionRow({
     <div
       className={cn(
         "group rounded-none border transition",
-        selected ? "border-primary/35 bg-card" : "border-transparent hover:border-border hover:bg-card/80",
+        selected ? "border-primary bg-primary/12 shadow-[inset_3px_0_0_var(--primary),0_8px_24px_rgb(44_54_70/0.08)]" : "border-transparent hover:border-border hover:bg-card/80",
       )}
     >
       <div className="flex items-center gap-1 pr-1">
         <button className="min-w-0 flex-1 cursor-pointer px-2 py-1.5 text-left" onClick={() => void onSwitchSession(switchTarget)}>
           <div className="flex items-center gap-1.5">
-            <CircleDot size={9} className={session.status === "running" ? "text-primary" : "text-muted-foreground"} />
-            <span className="truncate text-xs font-medium leading-snug">{session.name}</span>
+            <CircleDot size={9} className={selected || session.status === "running" ? "text-primary" : "text-muted-foreground"} />
+            <span className={cn("truncate text-xs font-medium leading-snug", selected && "font-semibold text-primary")}>{session.name}</span>
           </div>
-          <div className="mt-0.5 flex items-center gap-2 pl-[17px] font-mono text-[9px] text-muted-foreground">
+          <div className={cn("mt-0.5 flex items-center gap-2 pl-[17px] font-mono text-[9px]", selected ? "text-primary/75" : "text-muted-foreground")}>
             <span className="truncate">{session.updatedAt}</span>
             <span>{session.messageCount ?? 0} {messagesLabel}</span>
           </div>
@@ -304,7 +334,8 @@ function groupSessionsByProject(sessions: PiSessionSummary[], openedWorkspacePat
 }
 
 function isSelectedSession(session: PiSessionSummary, currentSessionId?: string): boolean {
-  return Boolean(currentSessionId && (session.id === currentSessionId || session.filePath === currentSessionId));
+  if (!currentSessionId) return false;
+  return session.id === currentSessionId || session.filePath === currentSessionId || normalizeProjectPath(session.filePath ?? "") === normalizeProjectPath(currentSessionId);
 }
 
 function normalizeProjectPath(cwd: string): string {
@@ -318,8 +349,13 @@ function projectLabel(cwd: string): string {
 }
 
 function compareUpdatedAt(left: string, right: string): number {
-  const leftTime = Date.parse(left);
-  const rightTime = Date.parse(right);
+  const leftTime = parseUpdatedAt(left);
+  const rightTime = parseUpdatedAt(right);
   if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) return leftTime - rightTime;
   return left.localeCompare(right);
+}
+
+function parseUpdatedAt(value: string): number {
+  if (value.startsWith("unix-ms:")) return Number(value.slice("unix-ms:".length));
+  return Date.parse(value);
 }

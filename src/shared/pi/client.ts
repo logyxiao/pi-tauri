@@ -70,6 +70,7 @@ export interface PiClient {
   deleteSession(sessionPath: string): Promise<void>;
   exportHtml(outputPath?: string): Promise<string | null>;
   listSessions(options?: PiSessionListOptions): Promise<PiSessionSummary[]>;
+  readSessionMessages(sessionPath: string): Promise<PiMessage[]>;
   getSessionTree(sessionPath?: string): Promise<PiSessionTree>;
   getForkMessages(): Promise<PiForkMessage[]>;
   forkSession(entryId: string): Promise<{ text?: string; cancelled?: boolean }>;

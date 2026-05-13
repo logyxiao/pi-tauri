@@ -123,6 +123,11 @@ export class TauriPiRpcClient implements PiClient {
     return (data?.outputPath as string | undefined) ?? (data?.path as string | undefined) ?? null;
   }
 
+  async readSessionMessages(sessionPath: string): Promise<PiMessage[]> {
+    const messages = await invoke<unknown[]>("pi_read_session_messages", { sessionPath });
+    return messages.map(mapSessionMessage).filter((message): message is PiMessage => Boolean(message));
+  }
+
   async listSessions(options: PiSessionListOptions = {}): Promise<PiSessionSummary[]> {
     const state = await this.getState();
     try {
@@ -249,12 +254,13 @@ export class TauriPiRpcClient implements PiClient {
   async getSettings(): Promise<PiSettings> {
     const state = await this.getState();
     const [provider, model] = splitModelKey(state.model);
-    const sdkSidecar = await this.getSdkSidecarStatus();
+    const sdkSidecar = await withTimeout(this.getSdkSidecarStatus(), 1_200, { available: false, error: "SDK sidecar status timed out" });
     const persistedSettings = sdkSidecar.available
-      ? await sdkSidecarClient.request<Record<string, unknown>>("sdk_get_settings", { cwd: state.cwd }).catch((error) => {
-          console.warn("pi sdk sidecar settings unavailable", error);
-          return undefined;
-        })
+      ? await withTimeout(sdkSidecarClient.request<Record<string, unknown>>("sdk_get_settings", { cwd: state.cwd }), 1_200)
+          .catch((error) => {
+            console.warn("pi sdk sidecar settings unavailable", error);
+            return undefined;
+          })
       : undefined;
     const persistedModel = pickString(persistedSettings, ["model", "defaultModel"]);
     const persistedProvider = pickString(persistedSettings, ["provider", "defaultProvider"]);
@@ -265,7 +271,7 @@ export class TauriPiRpcClient implements PiClient {
     const persistedSteeringMode = normalizeDeliveryMode(pickString(persistedSettings, ["steeringMode"]));
     const persistedFollowUpMode = normalizeDeliveryMode(pickString(persistedSettings, ["followUpMode"]));
     const auth = sdkSidecar.available
-      ? await sdkSidecarClient.request<PiSettings["auth"]>("sdk_auth_status").catch(() => inferAuthStatus(state.model))
+      ? await withTimeout(sdkSidecarClient.request<PiSettings["auth"]>("sdk_auth_status"), 1_200, inferAuthStatus(state.model)).catch(() => inferAuthStatus(state.model))
       : inferAuthStatus(state.model);
     return {
       model: persistedModel ?? model,
@@ -603,7 +609,7 @@ function mapSessionSummary(raw: unknown): PiSessionSummary | null {
     id,
     name,
     cwd,
-    updatedAt: typeof session.updatedAt === "string" ? session.updatedAt : "unknown",
+    updatedAt: formatSessionTimestamp(session.updatedAt),
     model: typeof session.model === "string" ? session.model : "unknown",
     status: session.status === "running" ? "running" : "idle",
     filePath: typeof session.filePath === "string" ? session.filePath : undefined,
@@ -775,6 +781,17 @@ function nowLabel(): string {
   return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+function mapSessionMessage(raw: unknown): PiMessage | null {
+  if (!raw || typeof raw !== "object") return null;
+  const message = raw as Record<string, unknown>;
+  const id = message.id;
+  const role = message.role;
+  const content = message.content;
+  const createdAt = message.createdAt;
+  if (typeof id !== "string" || (role !== "user" && role !== "assistant" && role !== "system") || typeof content !== "string" || typeof createdAt !== "string") return null;
+  return { id, role, content, createdAt };
+}
+
 function mapAgentMessage(raw: unknown): PiMessage | null {
   if (!raw || typeof raw !== "object") return null;
   const message = raw as Record<string, unknown>;
@@ -831,6 +848,40 @@ function extractContentText(content: unknown): string {
     })
     .filter(Boolean)
     .join("\n");
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback?: T): Promise<T> {
+  const hasFallback = arguments.length >= 3;
+  return new Promise<T>((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      if (hasFallback) resolve(fallback as T);
+      else reject(new Error(`Timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        window.clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
+}
+
+function formatSessionTimestamp(value: unknown): string {
+  if (typeof value !== "string" || !value || value === "unknown" || value === "current") return typeof value === "string" ? value : "unknown";
+  const normalized = value.startsWith("unix-ms:") ? Number(value.slice("unix-ms:".length)) : Date.parse(value);
+  if (!Number.isFinite(normalized)) return value;
+  const date = new Date(normalized);
+  const now = new Date();
+  const sameDay = date.toDateString() === now.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (sameDay) return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (date.toDateString() === yesterday.toDateString()) return `Yesterday ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 function formatTimestamp(value: unknown): string {

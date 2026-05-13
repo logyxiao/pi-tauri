@@ -5,11 +5,14 @@ import { MainArea } from "./MainArea";
 import { RightInspector } from "./RightInspector";
 import { WindowTitlebar } from "./WindowTitlebar";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
+import { GlobalLoadingOverlay } from "@/components/status/GlobalLoadingOverlay";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useI18n } from "@/shared/i18n";
 import { usePiSession } from "@/shared/hooks/usePiSession";
 import type { PiToolCall } from "@/shared/pi/types";
 
 export function AppShell() {
+  const { t } = useI18n();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -37,6 +40,7 @@ export function AppShell() {
     isConnecting,
     isRefreshing,
     isSwitchingSession,
+    pendingSessionTarget,
     isRunning,
     prompt,
     switchSession,
@@ -75,7 +79,7 @@ export function AppShell() {
               onToggle={() => setSidebarCollapsed((value) => !value)}
               sessions={sessions}
               openedWorkspacePaths={workspacePaths}
-              currentSessionId={state?.sessionId}
+              currentSessionId={pendingSessionTarget ?? state?.sessionId}
               onOpenWorkspaceFolder={openWorkspaceFolder}
               onSwitchSession={switchSession}
               onDeleteSession={deleteSession}
@@ -137,6 +141,11 @@ export function AppShell() {
         settings={settings}
         models={models}
         onUpdateSettings={updateSettings}
+      />
+      <GlobalLoadingOverlay
+        open={isConnecting || isSwitchingSession}
+        title={isSwitchingSession ? t("loading.session") : t("loading.globalTitle")}
+        description={isSwitchingSession ? t("loading.sessionDescription") : t("loading.globalDescription")}
       />
     </TooltipProvider>
   );

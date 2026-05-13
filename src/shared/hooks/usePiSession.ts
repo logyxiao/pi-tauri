@@ -24,6 +24,9 @@ import type {
 export type PiSessionStatus = "connecting" | "ready" | "refreshing" | "running" | "error";
 
 const WORKSPACE_PATHS_STORAGE_KEY = "pi-tauri.workspacePaths";
+const SESSION_CACHE_STORAGE_KEY = "pi-tauri.sessions.cache";
+const SESSION_MESSAGES_CACHE_PREFIX = "pi-tauri.sessionMessages.";
+const SETTINGS_CACHE_STORAGE_KEY = "pi-tauri.settings.cache";
 
 const nowLabel = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
@@ -41,10 +44,17 @@ function mergeSessions(...groups: PiSessionSummary[][]): PiSessionSummary[] {
   const merged = new Map<string, PiSessionSummary>();
   for (const group of groups) {
     for (const session of group) {
-      merged.set(session.filePath ?? session.id, session);
+      const key = session.filePath ?? session.id;
+      const previous = merged.get(key);
+      if (previous && isLowQualitySessionSummary(session) && !isLowQualitySessionSummary(previous)) continue;
+      merged.set(key, session);
     }
   }
   return Array.from(merged.values());
+}
+
+function isLowQualitySessionSummary(session: PiSessionSummary): boolean {
+  return session.name === "Current session" || !session.cwd || session.cwd.toLowerCase() === "unknown cwd" || session.updatedAt === "current";
 }
 
 function loadPersistedWorkspacePaths(): string[] {
@@ -66,6 +76,125 @@ function persistWorkspacePaths(paths: string[]) {
   }
 }
 
+function loadPersistedSessions(): PiSessionSummary[] {
+  try {
+    const raw = window.localStorage.getItem(SESSION_CACHE_STORAGE_KEY);
+    const value: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(value)) return [];
+    return value.filter(isSessionSummaryLike).filter((session) => !isLowQualitySessionSummary(session));
+  } catch {
+    return [];
+  }
+}
+
+function persistSessions(sessions: PiSessionSummary[]) {
+  try {
+    const durableSessions = sessions.filter((session) => session.filePath && !isLowQualitySessionSummary(session));
+    window.localStorage.setItem(SESSION_CACHE_STORAGE_KEY, JSON.stringify(durableSessions.slice(0, 200)));
+    for (const session of sessions) {
+      if (!session.filePath) continue;
+      const cached = loadPersistedSessionMessages(session.filePath);
+      if (cached.length) continue;
+      window.localStorage.setItem(sessionMessagesCacheKey(session.filePath), JSON.stringify([]));
+    }
+  } catch {
+    // Cache only; ignore storage failures.
+  }
+}
+
+function sessionMessagesCacheKey(sessionPath: string): string {
+  return `${SESSION_MESSAGES_CACHE_PREFIX}${encodeURIComponent(normalizePath(sessionPath))}`;
+}
+
+function loadPersistedSessionMessages(sessionPath: string): PiMessage[] {
+  try {
+    const raw = window.localStorage.getItem(sessionMessagesCacheKey(sessionPath));
+    const value: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(value)) return [];
+    return value.filter(isMessageLike).slice(-200);
+  } catch {
+    return [];
+  }
+}
+
+function persistSessionMessages(sessionPath: string, messages: PiMessage[]) {
+  try {
+    window.localStorage.setItem(sessionMessagesCacheKey(sessionPath), JSON.stringify(messages.slice(-200)));
+  } catch {
+    // Cache only; ignore storage failures.
+  }
+}
+
+function loadPersistedSettings(): PiSettings | null {
+  try {
+    const raw = window.localStorage.getItem(SETTINGS_CACHE_STORAGE_KEY);
+    const value: unknown = raw ? JSON.parse(raw) : null;
+    return isSettingsLike(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistSettings(settings: PiSettings | null) {
+  if (!settings) return;
+  try {
+    window.localStorage.setItem(SETTINGS_CACHE_STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    // Cache only; ignore storage failures.
+  }
+}
+
+function persistMessagesForState(state: PiState | null, messages: PiMessage[]) {
+  const sessionPath = state?.sessionFile ?? state?.sessionId;
+  if (!sessionPath || !messages.length) return;
+  persistSessionMessages(sessionPath, messages);
+}
+
+function isMessageLike(value: unknown): value is PiMessage {
+  if (!value || typeof value !== "object") return false;
+  const message = value as Record<string, unknown>;
+  return typeof message.id === "string" && (message.role === "user" || message.role === "assistant" || message.role === "system") && typeof message.content === "string" && typeof message.createdAt === "string";
+}
+
+function isSessionSummaryLike(value: unknown): value is PiSessionSummary {
+  if (!value || typeof value !== "object") return false;
+  const session = value as Record<string, unknown>;
+  return typeof session.id === "string" && typeof session.name === "string" && typeof session.cwd === "string";
+}
+
+function isSettingsLike(value: unknown): value is PiSettings {
+  if (!value || typeof value !== "object") return false;
+  const settings = value as Record<string, unknown>;
+  return typeof settings.model === "string" && typeof settings.provider === "string" && typeof settings.cwd === "string";
+}
+
+interface TimingEntry {
+  step: string;
+  ms: number;
+  ok: boolean;
+}
+
+async function timed<T>(entries: TimingEntry[], step: string, task: () => Promise<T>): Promise<T> {
+  const startedAt = performance.now();
+  try {
+    const result = await task();
+    entries.push({ step, ms: Math.round(performance.now() - startedAt), ok: true });
+    return result;
+  } catch (error) {
+    entries.push({ step, ms: Math.round(performance.now() - startedAt), ok: false });
+    throw error;
+  }
+}
+
+function logTimings(scope: string, entries: TimingEntry[], totalStartedAt: number) {
+  const totalMs = Math.round(performance.now() - totalStartedAt);
+  const rows = [...entries, { step: "total", ms: totalMs, ok: true }];
+  const slowest = [...entries].sort((left, right) => right.ms - left.ms).slice(0, 3);
+  const summary = slowest.map((entry) => `${entry.step}=${entry.ms}ms`).join(", ");
+  console.info(`[pi-tauri timing] ${scope}: ${totalMs}ms${summary ? ` | slowest: ${summary}` : ""}`);
+  console.table(rows);
+}
+
 async function pickWorkspaceFolder(title: string, promptLabel: string): Promise<string | null> {
   if ("__TAURI_INTERNALS__" in window) {
     const { open } = await import("@tauri-apps/plugin-dialog");
@@ -81,10 +210,10 @@ export function usePiSession() {
   const [messages, setMessages] = useState<PiMessage[]>([]);
   const [state, setState] = useState<PiState | null>(null);
   const [stats, setStats] = useState<PiSessionStats | null>(null);
-  const [sessions, setSessions] = useState<PiSessionSummary[]>([]);
+  const [sessions, setSessions] = useState<PiSessionSummary[]>(() => loadPersistedSessions());
   const [workspacePaths, setWorkspacePaths] = useState<string[]>(() => loadPersistedWorkspacePaths());
   const [models, setModels] = useState<PiModel[]>([]);
-  const [settings, setSettings] = useState<PiSettings | null>(null);
+  const [settings, setSettings] = useState<PiSettings | null>(() => loadPersistedSettings());
   const [commands, setCommands] = useState<PiCommand[]>([]);
   const [extensionPanels, setExtensionPanels] = useState<PiExtensionPanel[]>([]);
   const [extensionMessages, setExtensionMessages] = useState<PiExtensionMessage[]>([]);
@@ -96,6 +225,7 @@ export function usePiSession() {
   const [prefillInput, setPrefillInput] = useState("");
   const [status, setStatus] = useState<PiSessionStatus>("connecting");
   const [isSwitchingSession, setIsSwitchingSession] = useState(false);
+  const [pendingSessionTarget, setPendingSessionTarget] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const activeAssistantIdRef = useRef<string | null>(null);
 
@@ -103,7 +233,51 @@ export function usePiSession() {
     persistWorkspacePaths(workspacePaths);
   }, [workspacePaths]);
 
-  const refresh = useCallback(async () => {
+  useEffect(() => {
+    persistSessions(sessions);
+  }, [sessions]);
+
+  useEffect(() => {
+    persistSettings(settings);
+  }, [settings]);
+
+  useEffect(() => {
+    const sessionPath = state?.sessionFile ?? state?.sessionId;
+    if (!sessionPath || !messages.length) return;
+    persistSessionMessages(sessionPath, messages);
+  }, [messages, state?.sessionFile, state?.sessionId]);
+
+  const refreshWorkspaceSessions = useCallback(async () => {
+    if (!workspacePaths.length) return;
+    const totalStartedAt = performance.now();
+    const timings: TimingEntry[] = [];
+    try {
+      const workspaceSessions = (
+        await timed(timings, "listSessions.workspaces", () =>
+          Promise.all(
+            workspacePaths.map(async (cwd) => {
+              try {
+                return await client.listSessions({ cwd });
+              } catch {
+                return [];
+              }
+            }),
+          ),
+        )
+      ).flat();
+      setSessions((current) => mergeSessions(current, workspaceSessions));
+      for (const session of workspaceSessions.slice(0, 20)) {
+        if (session.filePath) void warmSessionCache(session.filePath);
+      }
+      logTimings("workspaceSessions.refresh", timings, totalStartedAt);
+    } catch {
+      logTimings("workspaceSessions.refresh: failed", timings, totalStartedAt);
+    }
+  }, [client, workspacePaths]);
+
+  const refresh = useCallback(async (scope = "refresh") => {
+    const totalStartedAt = performance.now();
+    const timings: TimingEntry[] = [];
     setStatus((current) => (current === "connecting" || current === "running" ? current : "refreshing"));
     try {
       const [
@@ -120,36 +294,24 @@ export function usePiSession() {
         nextSafetyEvents,
         nextFiles,
       ] = await Promise.all([
-        client.getMessages(),
-        client.getState(),
-        client.getSessionStats(),
-        client.listSessions(),
-        client.listModels(),
-        client.getSettings(),
-        client.listCommands(),
-        client.listExtensionPanels(),
-        client.listExtensionMessages(),
-        client.listExtensionErrors(),
-        client.listSafetyEvents(),
-        client.listFiles(),
+        timed(timings, "getMessages", () => client.getMessages()),
+        timed(timings, "getState", () => client.getState()),
+        timed(timings, "getSessionStats", () => client.getSessionStats()),
+        timed(timings, "listSessions.current", () => client.listSessions()),
+        timed(timings, "listModels", () => client.listModels()),
+        timed(timings, "getSettings", () => client.getSettings()),
+        timed(timings, "listCommands", () => client.listCommands()),
+        timed(timings, "listExtensionPanels", () => client.listExtensionPanels()),
+        timed(timings, "listExtensionMessages", () => client.listExtensionMessages()),
+        timed(timings, "listExtensionErrors", () => client.listExtensionErrors()),
+        timed(timings, "listSafetyEvents", () => client.listSafetyEvents()),
+        timed(timings, "listFiles", () => client.listFiles()),
       ]);
       setMessages(nextMessages);
+      persistMessagesForState(nextState, nextMessages);
       setState(nextState);
-      const workspaceSessions = workspacePaths.length
-        ? (
-            await Promise.all(
-              workspacePaths.map(async (cwd) => {
-                try {
-                  return await client.listSessions({ cwd });
-                } catch {
-                  return [];
-                }
-              }),
-            )
-          ).flat()
-        : [];
       setStats(nextStats);
-      setSessions(mergeSessions(nextSessions, workspaceSessions));
+      setSessions((current) => mergeSessions(current, nextSessions));
       setModels(nextModels);
       setSettings(nextSettings);
       setCommands(nextCommands);
@@ -160,7 +322,10 @@ export function usePiSession() {
       setFiles(nextFiles);
       setError(null);
       setStatus(nextState.runState === "running" ? "running" : "ready");
+      logTimings(scope, timings, totalStartedAt);
+      if (scope.startsWith("startup")) void refreshWorkspaceSessions();
     } catch (caught) {
+      logTimings(`${scope}: failed`, timings, totalStartedAt);
       setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }
@@ -251,12 +416,20 @@ export function usePiSession() {
     const unsubscribe = client.subscribe(handleEvent);
 
     async function connect() {
+      const totalStartedAt = performance.now();
+      const timings: TimingEntry[] = [];
       setStatus("connecting");
       try {
-        await client.connect();
+        await timed(timings, "client.connect", () => client.connect());
         if (disposed) return;
-        await refresh();
+
+        setError(null);
+        setStatus("ready");
+        logTimings("startup.critical", timings, totalStartedAt);
+
+        void refresh("startup.backgroundRefresh");
       } catch (caught) {
+        logTimings("startup.critical: failed", timings, totalStartedAt);
         if (disposed) return;
         setError(errorMessage(caught, t("hook.unknownError")));
         setStatus("error");
@@ -328,17 +501,58 @@ export function usePiSession() {
     }
   }
 
-  async function switchSession(sessionPath: string) {
+  async function warmSessionCache(sessionPath: string) {
     try {
-      setIsSwitchingSession(true);
+      const cached = loadPersistedSessionMessages(sessionPath);
+      if (cached.length) return;
+      const messages = await client.readSessionMessages(sessionPath);
+      if (messages.length) persistSessionMessages(sessionPath, messages);
+    } catch {
+      // Warm cache is best-effort.
+    }
+  }
+
+  async function warmKnownSessionCaches(limit = 20) {
+    const targets = sessions.map((session) => session.filePath).filter((path): path is string => Boolean(path)).slice(0, limit);
+    for (const sessionPath of targets) {
+      await warmSessionCache(sessionPath);
+    }
+  }
+
+  async function switchSession(sessionPath: string) {
+    const totalStartedAt = performance.now();
+    const timings: TimingEntry[] = [];
+    const cachedMessages = loadPersistedSessionMessages(sessionPath);
+    const hasCachedMessages = cachedMessages.length > 0;
+    try {
+      setPendingSessionTarget(sessionPath);
+      setIsSwitchingSession(!hasCachedMessages);
       setStatus("refreshing");
-      setMessages([]);
-      await client.switchSession(sessionPath);
+      setMessages(cachedMessages);
+      await timed(timings, "switchSession.rpc", () => client.switchSession(sessionPath));
+
+      const [nextMessages, nextState, nextStats, nextSessions] = await Promise.all([
+        timed(timings, "switchSession.getMessages", () => client.getMessages()),
+        timed(timings, "switchSession.getState", () => client.getState()),
+        timed(timings, "switchSession.getSessionStats", () => client.getSessionStats()),
+        timed(timings, "switchSession.listSessions.current", () => client.listSessions()),
+      ]);
+
       activeAssistantIdRef.current = null;
+      setMessages(nextMessages);
+      persistMessagesForState(nextState, nextMessages);
+      setState(nextState);
+      setStats(nextStats);
+      setSessions((current) => mergeSessions(current, nextSessions));
       setFilePreview(null);
       setError(null);
-      await refresh();
+      setStatus(nextState.runState === "running" ? "running" : "ready");
+      setPendingSessionTarget(null);
+      logTimings("switchSession.total", timings, totalStartedAt);
+      void refresh("switchSession.backgroundRefresh");
     } catch (caught) {
+      logTimings("switchSession.total: failed", timings, totalStartedAt);
+      setPendingSessionTarget(null);
       setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     } finally {
@@ -488,6 +702,7 @@ export function usePiSession() {
     isConnecting: status === "connecting",
     isRefreshing: status === "refreshing",
     isSwitchingSession,
+    pendingSessionTarget,
     isRunning: status === "running" || state?.runState === "running",
     prompt,
     abort,

@@ -201,6 +201,10 @@ export class MockPiClient implements PiClient {
     return this.sessions.filter((session) => normalizePath(session.cwd) === normalizePath(cwd));
   }
 
+  async readSessionMessages(): Promise<PiMessage[]> {
+    return this.messages;
+  }
+
   async getSessionTree(): Promise<PiSessionTree> {
     return {
       sessionFile: this.state.sessionFile,

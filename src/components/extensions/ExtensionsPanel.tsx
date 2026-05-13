@@ -78,8 +78,8 @@ export function ExtensionsPanel({ commands, extensionPanels, extensionMessages, 
         </div>
         {pendingExtensionUi.length ? (
           <div className="mb-3 space-y-2">
-            {pendingExtensionUi.map((message) => (
-              <div key={message.id} className="rounded-none border border-primary/25 bg-primary/5 p-3">
+            {pendingExtensionUi.map((message, index) => (
+              <div key={`pending-${message.id}-${index}`} className="rounded-none border border-primary/25 bg-primary/5 p-3">
                 <div className="mb-1 flex items-center justify-between gap-2 text-xs">
                   <span className="font-semibold text-primary">{message.title ?? message.method}</span>
                   <span className="rounded-none bg-primary/10 px-2 py-0.5 font-mono text-[10px] text-primary">{t("extension.waiting")}</span>
@@ -92,8 +92,8 @@ export function ExtensionsPanel({ commands, extensionPanels, extensionMessages, 
         ) : null}
         <div className="space-y-2">
           {extensionMessages.length ? (
-            extensionMessages.slice(0, 6).map((message) => (
-              <div key={message.id} className="rounded-none border border-border bg-surface p-3">
+            extensionMessages.slice(0, 6).map((message, index) => (
+              <div key={`message-${message.id}-${index}`} className="rounded-none border border-border bg-surface p-3">
                 <div className="mb-1 flex items-center gap-2 text-xs">
                   <Info size={12} className={message.level === "error" ? "text-danger" : message.level === "warning" ? "text-warning" : "text-primary"} />
                   <span className="font-semibold">{message.title ?? message.method}</span>
@@ -117,8 +117,8 @@ export function ExtensionsPanel({ commands, extensionPanels, extensionMessages, 
         </div>
         <div className="space-y-2">
           {extensionErrors.length ? (
-            extensionErrors.slice(0, 4).map((error) => (
-              <div key={error.id} className="rounded-none border border-danger/20 bg-surface p-3">
+            extensionErrors.slice(0, 4).map((error, index) => (
+              <div key={`error-${error.id}-${index}`} className="rounded-none border border-danger/20 bg-surface p-3">
                 <div className="mb-1 text-xs font-semibold text-foreground">{error.event ?? t("extension.errorFallback")}</div>
                 <div className="text-xs leading-5 text-muted-foreground">{error.message}</div>
                 {error.extensionPath ? <div className="mt-2 truncate font-mono text-[11px] text-muted-foreground">{error.extensionPath}</div> : null}

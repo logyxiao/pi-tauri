@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Check, ChevronDown, GitBranch, GitCommitHorizontal, Minus, MoreHorizontal, Plus, RefreshCw, RotateCcw, Rows3, SplitSquareVertical } from "lucide-react";
+import { Check, ChevronDown, Cloud, GitBranch, GitCommitHorizontal, Minus, MoreHorizontal, Plus, RefreshCw, RotateCcw, Rows3, SplitSquareVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/lib/cn";
@@ -52,6 +52,8 @@ export function GitManagementPanel({ cwd, onRefresh }: GitManagementPanelProps) 
 
   const stagedFiles = useMemo(() => status?.files.filter(isStaged) ?? [], [status]);
   const changedFiles = useMemo(() => status?.files.filter(isUnstaged) ?? [], [status]);
+  const hasFileChanges = Boolean(status && status.files.length > 0);
+  const shouldSync = Boolean(status && !hasFileChanges && (status.ahead > 0 || status.behind > 0));
 
   const refreshGit = useCallback(async (silent = false) => {
     const targetCwd = cwdRef.current;
@@ -108,6 +110,20 @@ export function GitManagementPanel({ cwd, onRefresh }: GitManagementPanelProps) 
     }
   }
 
+  async function sync() {
+    if (!status?.upstream) return;
+    setBusy("refresh");
+    try {
+      await invoke("pi_git_sync", { cwd });
+      await refreshGit(true);
+      void onRefresh();
+    } catch (caught) {
+      setError(errorText(caught));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function commit() {
     const trimmed = message.trim();
     if (!trimmed) return;
@@ -134,7 +150,13 @@ export function GitManagementPanel({ cwd, onRefresh }: GitManagementPanelProps) 
         <div className="flex items-center gap-0.5 text-muted-foreground">
           <ToolbarButton title={t("git.viewAsList")}><Rows3 size={13} /></ToolbarButton>
           <ToolbarButton title={t("git.viewAsTree")}><SplitSquareVertical size={13} /></ToolbarButton>
-          <ToolbarButton title={t("git.commit")} onClick={() => void commit()} disabled={!message.trim() || !status?.staged || busy === "commit"}><Check size={13} /></ToolbarButton>
+          <ToolbarButton
+            title={shouldSync ? t("git.sync") : t("git.commit")}
+            onClick={() => shouldSync ? void sync() : void commit()}
+            disabled={shouldSync ? !status?.upstream || busy === "refresh" : !message.trim() || !status?.staged || busy === "commit"}
+          >
+            {shouldSync ? <Cloud size={13} /> : <Check size={13} />}
+          </ToolbarButton>
           <ToolbarButton title={t("git.refresh")} onClick={() => void refreshGit()} disabled={busy === "refresh"}><RefreshCw size={13} className={busy === "refresh" ? "animate-spin" : undefined} /></ToolbarButton>
           <ToolbarButton title="More"><MoreHorizontal size={14} /></ToolbarButton>
         </div>
@@ -151,8 +173,13 @@ export function GitManagementPanel({ cwd, onRefresh }: GitManagementPanelProps) 
           placeholder={t("git.commitPlaceholder", { branch: status?.branch ?? "master" })}
           className="h-7 w-full border border-border bg-surface px-2 text-xs outline-none transition placeholder:text-muted-foreground focus:border-primary/40"
         />
-        <Button className="h-7 w-full cursor-pointer bg-primary/70 text-primary-foreground hover:bg-primary/80 disabled:cursor-default" onClick={() => void commit()} disabled={!message.trim() || !status?.staged || busy === "commit"}>
-          <Check size={13} /> {busy === "commit" ? t("git.committing") : t("git.commit")}
+        <Button
+          className="h-7 w-full cursor-pointer bg-primary/70 text-primary-foreground hover:bg-primary/80 disabled:cursor-default"
+          onClick={() => shouldSync ? void sync() : void commit()}
+          disabled={shouldSync ? !status?.upstream || busy === "refresh" : !message.trim() || !status?.staged || busy === "commit"}
+        >
+          {shouldSync ? <Cloud size={13} /> : <Check size={13} />}
+          {shouldSync ? t("git.syncChanges", { ahead: status?.ahead ?? 0, behind: status?.behind ?? 0 }) : busy === "commit" ? t("git.committing") : t("git.commit")}
         </Button>
         {status ? (
           <div className="flex items-center gap-2 px-0.5 font-mono text-[10px] text-muted-foreground">

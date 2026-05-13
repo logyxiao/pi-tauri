@@ -40,6 +40,13 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
     setActiveTimelineId((current) => (current && timelineItems.some((item) => item.id === current) ? current : timelineItems[0].id));
   }, [timelineItems]);
 
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container || isConnecting || isSwitchingSession) return;
+    container.scrollTo({ top: container.scrollHeight, behavior: "auto" });
+    updateActiveTimelineItem();
+  }, [messages.length, isConnecting, isSwitchingSession]);
+
   function updateActiveTimelineItem() {
     if (!scrollRef.current || !timelineItems.length) return;
     const containerRect = scrollRef.current.getBoundingClientRect();
@@ -69,8 +76,10 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
     setActiveTimelineId(id);
     const containerRect = container.getBoundingClientRect();
     const nodeRect = node.getBoundingClientRect();
+    const safeBottom = 180;
     const targetTop = container.scrollTop + nodeRect.top - containerRect.top - container.clientHeight * 0.28;
-    container.scrollTo({ top: Math.max(targetTop, 0), behavior: "auto" });
+    const maxTop = Math.max(container.scrollHeight - container.clientHeight + safeBottom, 0);
+    container.scrollTo({ top: Math.min(Math.max(targetTop, 0), maxTop), behavior: "auto" });
   }
 
   return (
@@ -81,7 +90,7 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
         aria-label={t("message.listLabel")}
         onScroll={updateActiveTimelineItem}
       >
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 pb-2">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 pb-36">
           {showEmptyState || isConnecting ? <HeroCard /> : null}
           {isConnecting || isSwitchingSession ? <LoadingPanel label={isSwitchingSession ? t("loading.session") : undefined} /> : null}
 
@@ -303,7 +312,7 @@ function MessageTimeline({ items, activeId, onJump }: { items: TimelineItem[]; a
                 )}
               />
             </button>
-            <div className="absolute right-0 top-1/2 z-10 hidden w-80 -translate-y-1/2 pr-5 text-left group-hover:block">
+            <div className="absolute bottom-0 right-0 z-[80] hidden w-80 pr-5 text-left group-hover:block">
               <div className="border border-border bg-popover/96 p-1.5 shadow-[0_16px_45px_rgb(44_54_70/0.16)] backdrop-blur">
                 <div className="space-y-0.5">
                   {nearbyItems.map((nearbyItem) => (

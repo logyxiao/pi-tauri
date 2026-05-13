@@ -179,14 +179,59 @@ fn pi_list_sessions(cwd: String) -> RpcResult<Vec<serde_json::Value>> {
 }
 
 #[tauri::command]
-fn pi_delete_session(session_path: String) -> RpcResult<()> {
-    let sessions_root = default_sessions_root()?;
-    let path = PathBuf::from(&session_path)
-        .canonicalize()
-        .map_err(|error| format!("failed to resolve session path: {error}"))?;
-    if !path.starts_with(&sessions_root) || path.extension().and_then(|value| value.to_str()) != Some("jsonl") {
-        return Err("session delete path must be a jsonl file inside pi sessions dir".to_string());
+fn pi_read_session_messages(session_path: String) -> RpcResult<Vec<serde_json::Value>> {
+    let path = safe_session_path(&session_path)?;
+    let file = fs::File::open(&path).map_err(|error| format!("failed to open session file: {error}"))?;
+    let reader = BufReader::new(file);
+    let mut messages = Vec::new();
+
+    for line in reader.lines().map_while(Result::ok) {
+        let value = match serde_json::from_str::<serde_json::Value>(&line) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        if value.get("type").and_then(|item| item.as_str()) != Some("message") {
+            continue;
+        }
+        let message = match value.get("message") {
+            Some(message) => message,
+            None => continue,
+        };
+        let role = match message.get("role").and_then(|item| item.as_str()) {
+            Some("user") => "user",
+            Some("assistant") => "assistant",
+            Some("system") => "system",
+            _ => continue,
+        };
+        let content = extract_session_text(message.get("content")).unwrap_or_default();
+        if role == "assistant" && content.trim().is_empty() {
+            continue;
+        }
+        let id = value
+            .get("id")
+            .or_else(|| value.get("entryId"))
+            .and_then(|item| item.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("{}:{}", path.to_string_lossy(), messages.len()));
+        let created_at = value
+            .get("timestamp")
+            .and_then(|item| item.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| "--:--".to_string());
+        messages.push(serde_json::json!({
+            "id": id,
+            "role": role,
+            "content": content,
+            "createdAt": created_at
+        }));
     }
+
+    Ok(messages)
+}
+
+#[tauri::command]
+fn pi_delete_session(session_path: String) -> RpcResult<()> {
+    let path = safe_session_path(&session_path)?;
     fs::remove_file(path).map_err(|error| format!("failed to delete session: {error}"))
 }
 
@@ -486,6 +531,21 @@ fn pi_git_action(cwd: String, action: String, path: Option<String>) -> RpcResult
 }
 
 #[tauri::command]
+fn pi_git_sync(cwd: String) -> RpcResult<()> {
+    let repo_root = git_repo_root(&cwd)?;
+    let status = pi_git_status(cwd)?;
+    let ahead = status.get("ahead").and_then(|value| value.as_u64()).unwrap_or(0);
+    let behind = status.get("behind").and_then(|value| value.as_u64()).unwrap_or(0);
+    if behind > 0 {
+        git_status(&repo_root, &["pull", "--ff-only"])?;
+    }
+    if ahead > 0 {
+        git_status(&repo_root, &["push"])?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn pi_git_commit(cwd: String, message: String) -> RpcResult<()> {
     let repo_root = git_repo_root(&cwd)?;
     let trimmed = message.trim();
@@ -568,10 +628,19 @@ fn safe_session_path(session_path: &str) -> RpcResult<PathBuf> {
     let sessions_root = default_sessions_root()?
         .canonicalize()
         .map_err(|error| format!("failed to resolve sessions dir: {error}"))?;
-    let path = PathBuf::from(session_path)
-        .canonicalize()
-        .map_err(|error| format!("failed to resolve session path: {error}"))?;
-    if !path.starts_with(&sessions_root) || path.extension().and_then(|value| value.to_str()) != Some("jsonl") {
+    let candidate = PathBuf::from(session_path);
+    let path = if candidate.exists() {
+        candidate
+            .canonicalize()
+            .map_err(|error| format!("failed to resolve session path: {error}"))?
+    } else if candidate.extension().and_then(|value| value.to_str()) == Some("jsonl") {
+        candidate
+    } else {
+        return Err(format!("session file does not exist: {session_path}"));
+    };
+    let normalized_root = normalize_session_path(&sessions_root.to_string_lossy());
+    let normalized_path = normalize_session_path(&path.to_string_lossy());
+    if !normalized_path.starts_with(&normalized_root) || path.extension().and_then(|value| value.to_str()) != Some("jsonl") {
         return Err("session path must be a jsonl file inside pi sessions dir".to_string());
     }
     Ok(path)
@@ -1020,6 +1089,7 @@ pub fn run() {
             pi_sdk_sidecar_send,
             pi_sdk_sidecar_stop,
             pi_list_sessions,
+            pi_read_session_messages,
             pi_delete_session,
             pi_session_tree,
             pi_set_session_label,
@@ -1028,6 +1098,7 @@ pub fn run() {
             pi_git_status,
             pi_git_log,
             pi_git_action,
+            pi_git_sync,
             pi_git_commit
         ])
         .run(tauri::generate_context!())

@@ -28,14 +28,46 @@
   - tools 区域压缩为更轻的内嵌块，保留透明可点。
 - `src/config/style/global.css`
   - 隐藏消息列表 native scrollbar，使用自定义用户消息时间轴替代滚动条。
+- `src/components/status/GlobalLoadingOverlay.tsx`
+  - 新增全局可复用全屏 loading overlay。
+  - 使用 fixed modal 覆盖整界面、`aria-modal`、`cursor-wait`、拦截 pointer/key 事件，加载期间阻止底层操作。
+  - 动画采用可复用 `PiLogo` SVG：π 字形、旋转轨道、脉冲节点；加载卡片项目名从 `pi desktop` 改为 `π`。
+  - 项目图标替换为 π logo：新增 `public/pi.svg`，`index.html` favicon 指向 `/pi.svg`，覆盖 `public/tauri.svg` 兜底；重新生成 `src-tauri/icons/*` PNG/ICO/ICNS 应用图标。
+- `src/components/layout/AppShell.tsx`
+  - 程序启动 `isConnecting` 阶段挂载 `GlobalLoadingOverlay`，覆盖读取 session、文件、Git 状态、工具能力等初始化耗时阶段。
+  - session 切换 `isSwitchingSession` 阶段也复用全屏 overlay，避免点击 session 后像卡住。
+- `src/shared/i18n.tsx`
+  - 新增 `loading.globalTitle` / `loading.globalDescription` 中英文文案。
+- `src/components/extensions/ExtensionsPanel.tsx`
+  - 修复 React duplicate key warning：pending/message/error 列表 key 加类型前缀和 index，避免扩展消息重复 id 导致渲染异常。
 - `src/components/layout/LeftSidebar.tsx`
   - 工作区模块所有可点击控件补充 `cursor-pointer`：打开文件夹、设置、折叠/展开、项目折叠、session 切换、删除、collapsed project。
+  - 侧边栏支持鼠标横向拖拽调整宽度，范围 220px–420px，折叠模式仍固定 4.5rem。
+  - 修复点击当前选中文件夹无法收起的问题：folder open 状态只由 `closedProjects` 控制，不再被 selectedProject 强制展开。
 - `src/shared/hooks/usePiSession.ts`
   - 为 `workspacePaths` 增加 localStorage 持久化：程序重启后自动恢复已打开工作区列表。
-  - session 切换时新增 `isSwitchingSession` 状态，清空旧消息并进入 refreshing，避免看起来卡住。
+  - session 切换时新增 `isSwitchingSession` 状态和 `pendingSessionTarget` 乐观选中目标，点击 session item 后侧栏激活样式立即切换，不等待 RPC switch 完成。
+  - session 激活样式增强：primary 边框、左侧 inset accent、浅 primary 背景、阴影、标题加粗 primary、meta 变 primary/75。
+  - session 列表时间格式化：前端将 ISO / `unix-ms:` 统一显示为今日 HH:mm、昨日 Yesterday HH:mm、其它日期 Mon Day；排序支持 `unix-ms:`。
+  - 修复删除 session 路径校验：`pi_delete_session` 改用统一 `safe_session_path()`；`safe_session_path()` 支持路径存在时 canonicalize，不存在时给出明确 `session file does not exist`，并用 normalize 后的字符串校验 sessions root，兼容 Windows 前缀。
+  - session cache 持久化只保存有 filePath 且非 `Current session` / `unknown cwd` 的高质量 session，避免缓存 fallback session 导致删除不存在路径。
+  - 根据计时结果确认首屏慢点为 `getSettings`（约 18.8s），而后台刷新约 1s。
+  - 启动初始化改为只等待 `client.connect`，随后立即进入 ready；messages/state/stats/sessions/models/settings/commands/files/extensions 全部交给后台 refresh 补齐，最大限度缩短全屏阻塞时间。
+  - `getSettings()` 中 SDK sidecar status/settings/auth 探测增加 1.2s 上限，超时直接 fallback runtime/env auth，避免 SDK sidecar/auth 探测拖慢首屏或 refresh。
+  - sessions/settings 增加 localStorage cache，首屏可先展示上次数据，再由后台 refresh 修正。
+  - session 切换改为关键数据优先：`switchSession.rpc` 后只等待 messages/state/stats/current sessions，立即结束全屏 overlay；settings/files/extensions 等交给 `switchSession.backgroundRefresh`。
+  - 新增 session messages localStorage cache（每个 session 最多 200 条）：点击 session 时若有缓存，立即展示缓存消息并只显示 refreshing 状态，不再阻塞全屏 overlay；RPC 完成后用真实消息替换。
+  - refresh / switchSession 拿到真实 messages 后立即按当前 sessionFile/sessionId 写入本地缓存；sessions cache 写入时为每条 session 预建 message cache key，后续可增量补齐。
+  - 新增后台 session cache warmer：Tauri `pi_read_session_messages(sessionPath)` 直接解析 JSONL text 消息，不切换 RPC runtime；workspace sessions 刷新后后台预热前 20 条 session 消息缓存。
+  - `listSessions.workspaces` 从主 refresh 拆出为 `workspaceSessions.refresh` 后台任务，并限制为 startup 后触发；session 切换不再刷新整个 workspace sessions 列表，避免侧栏列表抖动/重载。
+  - 修复 session 列表被 current fallback 覆盖问题：refresh / switchSession 只 merge 当前 sessions，不替换整体列表；merge 时避免 `Current session` / `unknown cwd` / `updatedAt=current` 低质量 fallback 覆盖已有真实 session。
+  - 新增性能计时日志：`startup.critical`、`startup.backgroundRefresh`、`switchSession.total`、`switchSession.refresh`，用 `console.info` 输出 slowest summary，并用 `console.table` 直接展开每一步耗时。
   - 恢复工作区 sessions 时单个 cwd 失败不阻塞整体 refresh。
 - `src/components/chat/MessageList.tsx`
   - session 切换期间显示 LoadingPanel：`正在加载 session...`。
+  - 消息列表在加载/切换完成后自动滚动到底部，并同步更新时间轴 active item。
+  - 消息列表底部 padding 增加到 `pb-36`，并压缩输入框外层底部间距，避免时间轴跳转后的用户消息被底部输入框遮挡。
+  - 时间轴 hover 浮层改为从节点向上展开（`bottom-0` + 高 z-index），避免靠近底部时被 ChatInput 覆盖。
 - `src/components/tools/ToolCallItem.tsx`
   - 工具调用 item 压缩：更小 padding、字体、status badge、icon。
 - `src/components/layout/MainArea.tsx`
