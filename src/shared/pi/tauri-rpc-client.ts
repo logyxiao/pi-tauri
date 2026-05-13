@@ -71,6 +71,10 @@ export class TauriPiRpcClient implements PiClient {
   private toolStartTimes = new Map<string, number>();
   private stateCache: { value: PiState; expiresAt: number } | null = null;
   private stateRequest: Promise<PiState> | null = null;
+  private modelsCache: { value: PiModel[]; expiresAt: number } | null = null;
+  private modelsRequest: Promise<PiModel[]> | null = null;
+  private commandsCache: { value: PiCommand[]; expiresAt: number } | null = null;
+  private commandsRequest: Promise<PiCommand[]> | null = null;
 
   async connect(): Promise<void> {
     if (this.connected) return;
@@ -242,17 +246,32 @@ export class TauriPiRpcClient implements PiClient {
   }
 
   async listModels(): Promise<PiModel[]> {
+    const now = Date.now();
+    if (this.modelsCache && this.modelsCache.expiresAt > now) return this.modelsCache.value;
+    if (this.modelsRequest) return this.modelsRequest;
+    this.modelsRequest = this.loadModels().finally(() => {
+      this.modelsRequest = null;
+    });
+    return this.modelsRequest;
+  }
+
+  private async loadModels(): Promise<PiModel[]> {
     try {
       const response = await this.request({ type: "get_available_models" });
       const data = response.data as { models?: unknown[] } | undefined;
       const models = (data?.models ?? []).map(mapModel).filter((model): model is PiModel => Boolean(model));
-      if (models.length) return models;
+      if (models.length) {
+        this.modelsCache = { value: models, expiresAt: Date.now() + 30_000 };
+        return models;
+      }
     } catch (error) {
       console.warn("pi rpc get_available_models unavailable", error);
     }
 
     const state = await this.getState();
-    return [modelFromState(state)];
+    const fallback = [modelFromState(state)];
+    this.modelsCache = { value: fallback, expiresAt: Date.now() + 5_000 };
+    return fallback;
   }
 
   async getSettings(): Promise<PiSettings> {
@@ -307,6 +326,7 @@ export class TauriPiRpcClient implements PiClient {
 
   async updateSettings(update: PiSettingsUpdate): Promise<PiSettings> {
     this.invalidateStateCache();
+    this.invalidateCapabilityCaches();
     const state = await this.getState();
     const sdkSidecar = await this.getSdkSidecarStatus();
     if (sdkSidecar.available) {
@@ -354,15 +374,28 @@ export class TauriPiRpcClient implements PiClient {
   }
 
   async listCommands(): Promise<PiCommand[]> {
+    const now = Date.now();
+    if (this.commandsCache && this.commandsCache.expiresAt > now) return this.commandsCache.value;
+    if (this.commandsRequest) return this.commandsRequest;
+    this.commandsRequest = this.loadCommands().finally(() => {
+      this.commandsRequest = null;
+    });
+    return this.commandsRequest;
+  }
+
+  private async loadCommands(): Promise<PiCommand[]> {
     try {
       const response = await this.request({ type: "get_commands" });
       const data = response.data as { commands?: unknown[] } | undefined;
       const commands = (data?.commands ?? []).map(mapCommand).filter((item): item is PiCommand => Boolean(item));
-      if (commands.length) return mergeCommands(builtinCommands, commands);
+      const merged = commands.length ? mergeCommands(builtinCommands, commands) : builtinCommands;
+      this.commandsCache = { value: merged, expiresAt: Date.now() + 10_000 };
+      return merged;
     } catch (error) {
       console.warn("pi rpc get_commands unavailable", error);
     }
 
+    this.commandsCache = { value: builtinCommands, expiresAt: Date.now() + 5_000 };
     return builtinCommands;
   }
 
@@ -478,6 +511,13 @@ export class TauriPiRpcClient implements PiClient {
   private invalidateStateCache() {
     this.stateCache = null;
     this.stateRequest = null;
+  }
+
+  private invalidateCapabilityCaches() {
+    this.modelsCache = null;
+    this.modelsRequest = null;
+    this.commandsCache = null;
+    this.commandsRequest = null;
   }
 
   private async request(command: Record<string, unknown>, options: { timeoutMs?: number } = {}): Promise<RpcResponse> {

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPiClient } from "@/shared/pi/create-client";
 import { useI18n } from "@/shared/i18n";
+import { commandFeedbackContent, isRpcTimeoutError, mergeTransientCommandMessages, type CommandFeedbackState } from "@/shared/hooks/command-feedback";
 import {
   clearSessionCache,
+  normalizePath,
   loadPersistedSessionMessages,
   loadPersistedSessions,
   loadPersistedSettings,
@@ -14,6 +16,9 @@ import {
   persistWorkspacePaths,
   removePersistedSessionMessages,
 } from "@/shared/hooks/session-cache";
+import { applySessionOverride, filterDeletedSessions, findSessionByPath, isDeletedSession, isKnownCwd, mergeSessions, normalizeSessionKey } from "@/shared/hooks/session-utils";
+import { timed, logTimings, type TimingEntry } from "@/shared/hooks/timing";
+import { extractToolCallsFromMessage, mergeToolCall, mergeToolLists } from "@/shared/hooks/tool-merge";
 import type { PiClientEvent } from "@/shared/pi/client";
 import type {
   PiCommand,
@@ -42,175 +47,6 @@ function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
   return fallback;
-}
-
-function normalizePath(path: string) {
-  return path.replace(/\\/g, "/").replace(/\/$/, "");
-}
-
-function normalizeSessionKey(path: string) {
-  return normalizePath(path).toLowerCase();
-}
-
-function isDeletedSession(session: PiSessionSummary, deletedKeys: Set<string>) {
-  return Boolean(
-    (session.filePath && deletedKeys.has(normalizeSessionKey(session.filePath))) ||
-    (session.id && deletedKeys.has(normalizeSessionKey(session.id))),
-  );
-}
-
-function filterDeletedSessions(sessions: PiSessionSummary[], deletedKeys: Set<string>) {
-  if (!deletedKeys.size) return sessions;
-  return sessions.filter((session) => !isDeletedSession(session, deletedKeys));
-}
-
-function mergeSessions(...groups: PiSessionSummary[][]): PiSessionSummary[] {
-  const merged = new Map<string, PiSessionSummary>();
-  for (const group of groups) {
-    for (const session of group) {
-      const key = session.filePath ?? session.id;
-      const previous = merged.get(key);
-      if (previous && isLowQualitySessionSummary(session) && !isLowQualitySessionSummary(previous)) continue;
-      merged.set(key, session);
-    }
-  }
-  return Array.from(merged.values());
-}
-
-function isLowQualitySessionSummary(session: PiSessionSummary): boolean {
-  return session.name === "Current session" || !session.cwd || session.cwd.toLowerCase() === "unknown cwd" || session.updatedAt === "current";
-}
-
-function isKnownCwd(cwd: string | undefined): cwd is string {
-  return Boolean(cwd && cwd !== "unknown cwd" && cwd !== "Unknown cwd");
-}
-
-function findSessionByPath(sessions: PiSessionSummary[], sessionPath: string) {
-  const target = normalizeSessionKey(sessionPath);
-  return sessions.find((session) => normalizeSessionKey(session.filePath ?? session.id) === target || normalizeSessionKey(session.id) === target);
-}
-
-function applySessionOverride(state: PiState, session: PiSessionSummary | null): PiState {
-  if (!session) return state;
-  return {
-    ...state,
-    cwd: isKnownCwd(session.cwd) ? session.cwd : state.cwd,
-    sessionFile: session.filePath ?? state.sessionFile,
-    sessionId: session.id ?? state.sessionId,
-    sessionName: session.name ?? state.sessionName,
-  };
-}
-
-interface TimingEntry {
-  step: string;
-  ms: number;
-  ok: boolean;
-}
-
-async function timed<T>(entries: TimingEntry[], step: string, task: () => Promise<T>): Promise<T> {
-  const startedAt = performance.now();
-  try {
-    const result = await task();
-    entries.push({ step, ms: Math.round(performance.now() - startedAt), ok: true });
-    return result;
-  } catch (error) {
-    entries.push({ step, ms: Math.round(performance.now() - startedAt), ok: false });
-    throw error;
-  }
-}
-
-function mergeTransientCommandMessages(current: PiMessage[], next: PiMessage[]): PiMessage[] {
-  const nextIds = new Set(next.map((message) => message.id));
-  const transient = current.filter((message) => isTransientCommandMessage(message) && !nextIds.has(message.id));
-  return transient.length ? [...next, ...transient] : next;
-}
-
-function isTransientCommandMessage(message: PiMessage): boolean {
-  return message.role === "custom" && message.id.startsWith("command-");
-}
-
-function commandFeedbackContent(commandName: string, state: "running" | "done" | "timeout" | "error", detail?: string): string {
-  const command = `/${commandName}`;
-  if (state === "running") return `已发送 ${command}，正在执行…`;
-  if (state === "done") return `${command} 执行完成。`;
-  if (state === "timeout") return `${command} 已发送，但 pi 未在预期时间内返回完成信号。压缩可能仍在后台继续；UI 保持可用，可稍后刷新查看结果。`;
-  return `${command} 执行失败：${detail ?? "未知错误"}`;
-}
-
-function isRpcTimeoutError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /pi rpc request timed out/i.test(message);
-}
-
-function mergeToolLists(existing: PiToolCall[], incoming: PiToolCall[]): PiToolCall[] {
-  const merged = new Map(existing.map((tool) => [tool.id, tool]));
-  for (const tool of incoming) {
-    const previous = merged.get(tool.id);
-    merged.set(tool.id, previous ? mergeToolCall(previous, tool) : tool);
-  }
-  return Array.from(merged.values());
-}
-
-function mergeToolCall(previous: PiToolCall, next: PiToolCall): PiToolCall {
-  return {
-    ...previous,
-    ...next,
-    target: isUsefulToolTarget(next.target, next.name) ? next.target : previous.target,
-    args: next.args && Object.keys(next.args).length ? { ...(previous.args ?? {}), ...next.args } : previous.args,
-    details: next.details && Object.keys(next.details).length ? { ...(previous.details ?? {}), ...next.details } : previous.details,
-    output: next.output ?? previous.output,
-    safety: next.safety ?? previous.safety,
-  };
-}
-
-function extractToolCallsFromMessage(message: PiMessage, existing: PiToolCall[]): PiToolCall[] {
-  if (!message.contentBlocks?.length) return existing;
-  const existingById = new Map(existing.map((tool) => [tool.id, tool]));
-  return message.contentBlocks.flatMap((block) => {
-    if (block.type !== "toolCall") return [];
-    const id = block.id ?? `${block.name}:${JSON.stringify(block.arguments ?? {})}`;
-    const previous = existingById.get(id);
-    return [
-      {
-        id,
-        name: block.name,
-        target: extractToolTargetFromArgs(block.name, block.arguments) || previous?.target || "",
-        status: previous?.status ?? "running",
-        summary: previous?.summary ?? "Tool pending",
-        output: previous?.output,
-        args: block.arguments ?? previous?.args,
-        details: previous?.details,
-        durationMs: previous?.durationMs,
-        isError: previous?.isError,
-        safety: previous?.safety,
-      },
-    ];
-  });
-}
-
-function extractToolTargetFromArgs(toolName: string, args: Record<string, unknown> | undefined): string {
-  if (!args) return "";
-  if (toolName === "bash" && typeof args.command === "string") return args.command;
-  for (const key of ["path", "file_path", "filePath", "relativePath", "absolutePath", "target", "filename", "file", "pattern"]) {
-    const value = args[key];
-    if (typeof value === "string" && value.trim()) return value;
-  }
-  return "";
-}
-
-function isUsefulToolTarget(target: string | undefined, toolName: string) {
-  if (!target) return false;
-  const trimmed = target.trim();
-  return Boolean(trimmed && trimmed !== "unknown" && trimmed !== toolName);
-}
-
-function logTimings(scope: string, entries: TimingEntry[], totalStartedAt: number) {
-  const totalMs = Math.round(performance.now() - totalStartedAt);
-  const rows = [...entries, { step: "total", ms: totalMs, ok: true }];
-  const slowest = [...entries].sort((left, right) => right.ms - left.ms).slice(0, 3);
-  const summary = slowest.map((entry) => `${entry.step}=${entry.ms}ms`).join(", ");
-  console.info(`[pi-tauri timing] ${scope}: ${totalMs}ms${summary ? ` | slowest: ${summary}` : ""}`);
-  console.table(rows);
 }
 
 async function pickWorkspaceFolder(title: string, promptLabel: string): Promise<string | null> {
@@ -777,7 +613,7 @@ export function usePiSession() {
     }
   }
 
-  function appendCommandFeedback(id: string, commandName: string, state: "running" | "done" | "timeout" | "error", detail?: string) {
+  function appendCommandFeedback(id: string, commandName: string, state: CommandFeedbackState, detail?: string) {
     const content = commandFeedbackContent(commandName, state, detail);
     setMessages((current) => {
       const nextMessage: PiMessage = {

@@ -20,6 +20,21 @@ export default defineConfig(async () => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("react-markdown") || id.includes("remark-gfm") || id.includes("micromark") || id.includes("mdast") || id.includes("hast") || id.includes("unified")) return "markdown";
+          if (id.includes("@radix-ui")) return "radix";
+          if (id.includes("lucide-react")) return "icons";
+          if (id.includes("react") || id.includes("scheduler")) return "react";
+          if (id.includes("@tauri-apps")) return "tauri";
+          return undefined;
+        },
+      },
+    },
+  },
   server: {
     port: 1420,
     strictPort: true,
