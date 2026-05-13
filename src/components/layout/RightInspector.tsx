@@ -1,4 +1,4 @@
-import { AlertTriangle, FileText, HardDrive, Loader2, Terminal } from "lucide-react";
+import { AlertTriangle, Loader2, Terminal } from "lucide-react";
 import { ExtensionsPanel } from "@/components/extensions/ExtensionsPanel";
 import { FilesPreviewPanel } from "@/components/files/FilesPreviewPanel";
 import { GitManagementPanel } from "@/components/git/GitManagementPanel";
@@ -14,7 +14,6 @@ import type {
   PiFilePreview,
   PiMessage,
   PiSafetyEvent,
-  PiSessionStats,
   PiSettings,
   PiState,
   PiToolCall,
@@ -24,7 +23,6 @@ interface RightInspectorProps {
   selectedTool: PiToolCall | null;
   messages: PiMessage[];
   state: PiState | null;
-  stats: PiSessionStats | null;
   settings: PiSettings | null;
   commands: PiCommand[];
   extensionPanels: PiExtensionPanel[];
@@ -44,7 +42,6 @@ export function RightInspector({
   selectedTool,
   messages,
   state,
-  stats,
   settings,
   commands,
   extensionPanels,
@@ -141,22 +138,6 @@ export function RightInspector({
           </div>
         ) : null}
 
-        {!hasSecondaryContext ? (
-          <div className="mt-3 border border-dashed border-border bg-background/60 p-6 text-center text-xs leading-5 text-muted-foreground">
-            <FileText size={18} className="mx-auto mb-2 text-muted-foreground" />
-            {t("inspector.empty")}
-          </div>
-        ) : null}
-
-        <div className="mt-3 border border-border bg-background/60 p-3 text-xs text-muted-foreground">
-          <div className="mb-2 flex items-center gap-2 font-semibold uppercase tracking-[0.14em]">
-            <HardDrive size={14} /> {t("inspector.session")}
-          </div>
-          <div className="space-y-1.5 font-mono text-[11px]">
-            <div>{t("inspector.messages")}: {stats?.totalMessages ?? 0}</div>
-            <div>{t("inspector.tools")}: {stats?.toolCalls ?? 0}</div>
-          </div>
-        </div>
       </div>
     </aside>
   );

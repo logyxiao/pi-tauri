@@ -20,6 +20,7 @@ interface MainAreaProps {
   error: string | null;
   isConnecting: boolean;
   isRefreshing: boolean;
+  isSwitchingSession: boolean;
   isRunning: boolean;
   onPrompt: (message: string) => Promise<void> | void;
   onRefresh: () => Promise<void> | void;
@@ -45,6 +46,7 @@ export function MainArea({
   error,
   isConnecting,
   isRefreshing,
+  isSwitchingSession,
   isRunning,
   onPrompt,
   onRefresh,
@@ -92,7 +94,7 @@ export function MainArea({
 
       <ErrorBanner message={error} onRetry={onRefresh} onDismiss={onClearError} />
 
-      <MessageList messages={messages} isConnecting={isConnecting} isRefreshing={isRefreshing} onSelectTool={onSelectTool} />
+      <MessageList messages={messages} isConnecting={isConnecting} isRefreshing={isRefreshing} isSwitchingSession={isSwitchingSession} onSelectTool={onSelectTool} />
 
       <div className="shrink-0 bg-gradient-to-t from-background via-background/95 to-background/0 px-3 pb-4 pt-5 sm:px-6 sm:pb-6">
         <div className="mx-auto w-full max-w-4xl">

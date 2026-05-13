@@ -2,7 +2,7 @@ use std::{
     fs,
     fs::OpenOptions,
     io::{BufRead, BufReader, Write},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
@@ -377,6 +377,124 @@ fn pi_read_file(cwd: String, path: String) -> RpcResult<serde_json::Value> {
     }))
 }
 
+#[tauri::command]
+fn pi_git_status(cwd: String) -> RpcResult<serde_json::Value> {
+    let repo_root = git_repo_root(&cwd)?;
+    let output = git_output(&repo_root, &["status", "--porcelain=v1", "-b"])?;
+    let mut branch = "HEAD".to_string();
+    let mut upstream = None::<String>;
+    let mut ahead = 0usize;
+    let mut behind = 0usize;
+    let mut files = Vec::<serde_json::Value>::new();
+    let mut staged = 0usize;
+    let mut unstaged = 0usize;
+    let mut untracked = 0usize;
+
+    for line in output.lines() {
+        if let Some(header) = line.strip_prefix("## ") {
+            let (next_branch, next_upstream, next_ahead, next_behind) = parse_git_branch_header(header);
+            branch = next_branch;
+            upstream = next_upstream;
+            ahead = next_ahead;
+            behind = next_behind;
+            continue;
+        }
+        if line.len() < 4 {
+            continue;
+        }
+        let index_status = line.chars().next().unwrap_or(' ');
+        let worktree_status = line.chars().nth(1).unwrap_or(' ');
+        let raw_path = line.get(3..).unwrap_or("");
+        let (path, original_path) = parse_git_status_path(raw_path);
+        if path.is_empty() {
+            continue;
+        }
+        if index_status != ' ' && index_status != '?' {
+            staged += 1;
+        }
+        if worktree_status != ' ' || index_status == '?' {
+            unstaged += 1;
+        }
+        if index_status == '?' {
+            untracked += 1;
+        }
+        files.push(serde_json::json!({
+            "path": path,
+            "originalPath": original_path,
+            "indexStatus": index_status.to_string(),
+            "worktreeStatus": worktree_status.to_string()
+        }));
+    }
+
+    Ok(serde_json::json!({
+        "repoRoot": display_path(&repo_root),
+        "branch": branch,
+        "upstream": upstream,
+        "ahead": ahead,
+        "behind": behind,
+        "staged": staged,
+        "unstaged": unstaged,
+        "untracked": untracked,
+        "files": files
+    }))
+}
+
+#[tauri::command]
+fn pi_git_log(cwd: String, limit: Option<usize>) -> RpcResult<Vec<serde_json::Value>> {
+    let repo_root = git_repo_root(&cwd)?;
+    let limit_arg = format!("-n{}", limit.unwrap_or(40).clamp(1, 200));
+    let output = git_output(
+        &repo_root,
+        &[
+            "log",
+            "--date-order",
+            "--decorate=short",
+            "--pretty=format:%H%x1f%h%x1f%an%x1f%s%x1f%D",
+            &limit_arg,
+        ],
+    )?;
+    Ok(output
+        .lines()
+        .filter_map(parse_git_log_line)
+        .collect())
+}
+
+#[tauri::command]
+fn pi_git_action(cwd: String, action: String, path: Option<String>) -> RpcResult<()> {
+    let repo_root = git_repo_root(&cwd)?;
+    match (action.as_str(), path.as_deref()) {
+        ("stage", Some(file_path)) => {
+            safe_git_relative_path(file_path)?;
+            git_status(&repo_root, &["add", "--", file_path])
+        }
+        ("stage", None) => git_status(&repo_root, &["add", "-A"]),
+        ("unstage", Some(file_path)) => {
+            safe_git_relative_path(file_path)?;
+            git_status(&repo_root, &["restore", "--staged", "--", file_path])
+        }
+        ("unstage", None) => git_status(&repo_root, &["restore", "--staged", "."]),
+        ("discard", Some(file_path)) => {
+            safe_git_relative_path(file_path)?;
+            if is_untracked_file(&repo_root, file_path)? {
+                git_status(&repo_root, &["clean", "-fd", "--", file_path])
+            } else {
+                git_status(&repo_root, &["restore", "--", file_path])
+            }
+        }
+        _ => Err("unsupported git action".to_string()),
+    }
+}
+
+#[tauri::command]
+fn pi_git_commit(cwd: String, message: String) -> RpcResult<()> {
+    let repo_root = git_repo_root(&cwd)?;
+    let trimmed = message.trim();
+    if trimmed.is_empty() {
+        return Err("commit message is required".to_string());
+    }
+    git_status(&repo_root, &["commit", "-m", trimmed])
+}
+
 fn spawn_stdout_reader(app: AppHandle, stdout: std::process::ChildStdout) {
     spawn_named_stdout_reader(app, "pi-rpc-message", "pi-rpc-error", stdout);
 }
@@ -616,10 +734,15 @@ fn extract_session_text(content: Option<&serde_json::Value>) -> Option<String> {
 
 fn safe_root(cwd: &str) -> RpcResult<PathBuf> {
     let root = PathBuf::from(cwd);
-    if !root.is_absolute() {
-        return Err("cwd must be absolute".to_string());
-    }
-    root.canonicalize()
+    let candidate = if root.is_absolute() {
+        root
+    } else {
+        std::env::current_dir()
+            .map_err(|error| format!("failed to resolve current dir: {error}"))?
+            .join(root)
+    };
+    candidate
+        .canonicalize()
         .map_err(|error| format!("failed to resolve cwd: {error}"))
 }
 
@@ -724,6 +847,147 @@ fn mime_for_path(path: &Path) -> &'static str {
     }
 }
 
+fn parse_git_log_line(line: &str) -> Option<serde_json::Value> {
+    let mut parts = line.split('\u{1f}');
+    let hash = parts.next()?.to_string();
+    let short_hash = parts.next()?.to_string();
+    let author = parts.next()?.to_string();
+    let subject = parts.next()?.to_string();
+    let refs = parts.next().map(str::to_string).filter(|value| !value.trim().is_empty());
+    Some(serde_json::json!({
+        "hash": hash,
+        "shortHash": short_hash,
+        "author": author,
+        "subject": subject,
+        "refs": refs
+    }))
+}
+
+fn git_repo_root(cwd: &str) -> RpcResult<PathBuf> {
+    let mut errors = Vec::<String>::new();
+    for candidate in git_root_candidates(cwd) {
+        match git_output(&candidate, &["rev-parse", "--show-toplevel"]) {
+            Ok(output) => {
+                return PathBuf::from(output.trim())
+                    .canonicalize()
+                    .map_err(|error| format!("failed to resolve git repo root: {error}"));
+            }
+            Err(error) => errors.push(format!("{}: {error}", candidate.display())),
+        }
+    }
+    Err(format!("failed to locate git repository. cwd={cwd}. tried: {}", errors.join(" | ")))
+}
+
+fn git_root_candidates(cwd: &str) -> Vec<PathBuf> {
+    let mut candidates = Vec::<PathBuf>::new();
+    let mut push_candidate = |path: PathBuf| {
+        if path.exists() && !candidates.iter().any(|item| item == &path) {
+            candidates.push(path);
+        }
+    };
+
+    let trimmed = cwd.trim();
+    if !trimmed.is_empty() && trimmed != "unknown cwd" {
+        if let Ok(path) = safe_root(trimmed) {
+            push_candidate(path);
+        }
+    }
+
+    if let Ok(current) = std::env::current_dir().and_then(|path| path.canonicalize()) {
+        push_candidate(current.clone());
+        for ancestor in current.ancestors().skip(1) {
+            push_candidate(ancestor.to_path_buf());
+        }
+    }
+
+    candidates
+}
+
+fn git_output(cwd: &Path, args: &[&str]) -> RpcResult<String> {
+    let output = Command::new(default_git_bin())
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .map_err(|error| format!("failed to run git: {error}"))?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if stderr.is_empty() { "git command failed".to_string() } else { stderr })
+    }
+}
+
+fn git_status(cwd: &Path, args: &[&str]) -> RpcResult<()> {
+    git_output(cwd, args).map(|_| ())
+}
+
+fn parse_git_branch_header(header: &str) -> (String, Option<String>, usize, usize) {
+    let mut subject = header;
+    let mut meta = "";
+    if let Some((left, right)) = header.split_once('[') {
+        subject = left.trim();
+        meta = right.trim_end_matches(']').trim();
+    }
+    let (branch, upstream) = if let Some((left, right)) = subject.split_once("...") {
+        (left.trim().to_string(), Some(right.trim().to_string()))
+    } else {
+        (subject.trim().to_string(), None)
+    };
+    let mut ahead = 0usize;
+    let mut behind = 0usize;
+    for part in meta.split(',').map(str::trim) {
+        if let Some(value) = part.strip_prefix("ahead ") {
+            ahead = value.parse().unwrap_or(0);
+        }
+        if let Some(value) = part.strip_prefix("behind ") {
+            behind = value.parse().unwrap_or(0);
+        }
+    }
+    (branch, upstream, ahead, behind)
+}
+
+fn parse_git_status_path(raw_path: &str) -> (String, Option<String>) {
+    let cleaned = raw_path.trim().trim_matches('"').replace('\\', "/");
+    if let Some((left, right)) = cleaned.split_once(" -> ") {
+        (right.trim_matches('"').to_string(), Some(left.trim_matches('"').to_string()))
+    } else {
+        (cleaned, None)
+    }
+}
+
+fn safe_git_relative_path(path: &str) -> RpcResult<()> {
+    let requested = Path::new(path);
+    if requested.is_absolute() || path.trim().is_empty() {
+        return Err("git path must be relative".to_string());
+    }
+    if requested.components().any(|component| matches!(component, Component::ParentDir | Component::RootDir | Component::Prefix(_))) {
+        return Err("git path must stay inside repository".to_string());
+    }
+    Ok(())
+}
+
+fn is_untracked_file(repo_root: &Path, path: &str) -> RpcResult<bool> {
+    let output = git_output(repo_root, &["status", "--porcelain=v1", "--", path])?;
+    Ok(output.lines().any(|line| line.starts_with("?? ")))
+}
+
+fn display_path(path: &Path) -> String {
+    let value = path.to_string_lossy().replace('\\', "/");
+    value
+        .strip_prefix("//?/")
+        .or_else(|| value.strip_prefix("/?/"))
+        .unwrap_or(&value)
+        .to_string()
+}
+
+fn default_git_bin() -> String {
+    if cfg!(windows) {
+        "git.exe".to_string()
+    } else {
+        "git".to_string()
+    }
+}
+
 fn default_node_bin() -> String {
     if cfg!(windows) {
         "node.exe".to_string()
@@ -760,7 +1024,11 @@ pub fn run() {
             pi_session_tree,
             pi_set_session_label,
             pi_list_files,
-            pi_read_file
+            pi_read_file,
+            pi_git_status,
+            pi_git_log,
+            pi_git_action,
+            pi_git_commit
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

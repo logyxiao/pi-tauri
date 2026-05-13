@@ -36,6 +36,7 @@ export function AppShell() {
     error,
     isConnecting,
     isRefreshing,
+    isSwitchingSession,
     isRunning,
     prompt,
     switchSession,
@@ -93,6 +94,7 @@ export function AppShell() {
             error={error}
             isConnecting={isConnecting}
             isRefreshing={isRefreshing}
+            isSwitchingSession={isSwitchingSession}
             isRunning={isRunning}
             onPrompt={prompt}
             onRefresh={refresh}
@@ -109,7 +111,6 @@ export function AppShell() {
                 selectedTool={selectedTool}
                 messages={messages}
                 state={state}
-                stats={stats}
                 settings={settings}
                 commands={commands}
                 extensionPanels={extensionPanels}

@@ -23,6 +23,8 @@ import type {
 
 export type PiSessionStatus = "connecting" | "ready" | "refreshing" | "running" | "error";
 
+const WORKSPACE_PATHS_STORAGE_KEY = "pi-tauri.workspacePaths";
+
 const nowLabel = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -45,6 +47,25 @@ function mergeSessions(...groups: PiSessionSummary[][]): PiSessionSummary[] {
   return Array.from(merged.values());
 }
 
+function loadPersistedWorkspacePaths(): string[] {
+  try {
+    const raw = window.localStorage.getItem(WORKSPACE_PATHS_STORAGE_KEY);
+    const value: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(value)) return [];
+    return Array.from(new Map(value.filter((item): item is string => typeof item === "string" && item.trim()).map((item) => [normalizePath(item), item.trim()])).values());
+  } catch {
+    return [];
+  }
+}
+
+function persistWorkspacePaths(paths: string[]) {
+  try {
+    window.localStorage.setItem(WORKSPACE_PATHS_STORAGE_KEY, JSON.stringify(paths));
+  } catch {
+    // Ignore storage failures; workspace can still be opened for current run.
+  }
+}
+
 async function pickWorkspaceFolder(title: string, promptLabel: string): Promise<string | null> {
   if ("__TAURI_INTERNALS__" in window) {
     const { open } = await import("@tauri-apps/plugin-dialog");
@@ -61,7 +82,7 @@ export function usePiSession() {
   const [state, setState] = useState<PiState | null>(null);
   const [stats, setStats] = useState<PiSessionStats | null>(null);
   const [sessions, setSessions] = useState<PiSessionSummary[]>([]);
-  const [workspacePaths, setWorkspacePaths] = useState<string[]>([]);
+  const [workspacePaths, setWorkspacePaths] = useState<string[]>(() => loadPersistedWorkspacePaths());
   const [models, setModels] = useState<PiModel[]>([]);
   const [settings, setSettings] = useState<PiSettings | null>(null);
   const [commands, setCommands] = useState<PiCommand[]>([]);
@@ -74,8 +95,13 @@ export function usePiSession() {
   const [filePreview, setFilePreview] = useState<PiFilePreview | null>(null);
   const [prefillInput, setPrefillInput] = useState("");
   const [status, setStatus] = useState<PiSessionStatus>("connecting");
+  const [isSwitchingSession, setIsSwitchingSession] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const activeAssistantIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    persistWorkspacePaths(workspacePaths);
+  }, [workspacePaths]);
 
   const refresh = useCallback(async () => {
     setStatus((current) => (current === "connecting" || current === "running" ? current : "refreshing"));
@@ -110,7 +136,17 @@ export function usePiSession() {
       setMessages(nextMessages);
       setState(nextState);
       const workspaceSessions = workspacePaths.length
-        ? (await Promise.all(workspacePaths.map((cwd) => client.listSessions({ cwd })))).flat()
+        ? (
+            await Promise.all(
+              workspacePaths.map(async (cwd) => {
+                try {
+                  return await client.listSessions({ cwd });
+                } catch {
+                  return [];
+                }
+              }),
+            )
+          ).flat()
         : [];
       setStats(nextStats);
       setSessions(mergeSessions(nextSessions, workspaceSessions));
@@ -294,6 +330,9 @@ export function usePiSession() {
 
   async function switchSession(sessionPath: string) {
     try {
+      setIsSwitchingSession(true);
+      setStatus("refreshing");
+      setMessages([]);
       await client.switchSession(sessionPath);
       activeAssistantIdRef.current = null;
       setFilePreview(null);
@@ -302,6 +341,8 @@ export function usePiSession() {
     } catch (caught) {
       setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
+    } finally {
+      setIsSwitchingSession(false);
     }
   }
 
@@ -446,6 +487,7 @@ export function usePiSession() {
     error,
     isConnecting: status === "connecting",
     isRefreshing: status === "refreshing",
+    isSwitchingSession,
     isRunning: status === "running" || state?.runState === "running",
     prompt,
     abort,

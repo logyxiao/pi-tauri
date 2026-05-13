@@ -11,18 +11,31 @@
 
 - `src/components/chat/MessageList.tsx`
   - 为 AI 回复接入 `react-markdown` + `remark-gfm`，支持常见 Markdown：标题、列表、引用、链接、代码块、表格。
-  - AI 回复改为 header + content 的信息结构，层级更清楚。
+  - AI 回复移除头像、名称和 header，只保留时间 + 内容卡片本身。
   - 新增右侧用户消息时间轴：仅展示用户发送的信息节点，节点改为更长更圆润的 pill，hover 展示附近最多 7 条用户消息摘要，click 跳转对应用户消息。
   - 时间轴根据滚动位置激活最近用户消息节点，active 节点更高更亮并带轻微 glow。
   - 精简 hover 预览：移除作者、时间、标题和数量，仅展示附近最多 7 条用户消息摘要；每条单行 truncate；扩大 hover 桥接区域避免鼠标移出即消失。
-  - 时间轴节点和预览消息项都使用 cursor pointer。
+  - 时间轴节点和预览消息项都使用 cursor pointer；矩形节点支持 pointer down 快速跳转。
+  - 时间轴跳转从 `scrollIntoView` 改为基于滚动容器 `scrollTo({ behavior: "auto" })` 的确定性快速定位，避免嵌套滚动容器下点击无效。
   - 重写消息列表结构：外层滚动区 + 居中窄内容列 + message stack。
   - 缩小 hero、empty cards、message bubble、meta 字体和间距。
-  - user/assistant/system 分流：user 右侧紧凑气泡，assistant 左侧紧凑气泡，system 居中 muted 卡片。
+  - user/assistant/system 分流：user 右侧紧凑气泡且移除头像和“你”称呼，保留时间显示；assistant 左侧紧凑内容卡片且移除头像/名称，保留时间显示；system 居中 muted 卡片。
+  - 用户消息和 AI 回复气泡下方新增 icon-only 复制按钮，支持 Clipboard API + textarea fallback，复制后短暂切换为 Check icon。
+  - RPC message content 映射只提取 `text` / `type === "text"` 内容，忽略 `thinking` 和 `toolCall` block。
+  - AI 回复内 `[tool:` 行直接从正文剔除，不再渲染也不再聚合展示。
+  - 空 assistant 消息在 map 阶段直接 return null；判断基于剔除 `[tool:` 行后的正文是否为空，不再依赖 `tools` 数组，避免仅有时间和空卡片的渲染。
   - avatar 缩小到 `size-7`，小屏隐藏。
   - tools 区域压缩为更轻的内嵌块，保留透明可点。
 - `src/config/style/global.css`
   - 隐藏消息列表 native scrollbar，使用自定义用户消息时间轴替代滚动条。
+- `src/components/layout/LeftSidebar.tsx`
+  - 工作区模块所有可点击控件补充 `cursor-pointer`：打开文件夹、设置、折叠/展开、项目折叠、session 切换、删除、collapsed project。
+- `src/shared/hooks/usePiSession.ts`
+  - 为 `workspacePaths` 增加 localStorage 持久化：程序重启后自动恢复已打开工作区列表。
+  - session 切换时新增 `isSwitchingSession` 状态，清空旧消息并进入 refreshing，避免看起来卡住。
+  - 恢复工作区 sessions 时单个 cwd 失败不阻塞整体 refresh。
+- `src/components/chat/MessageList.tsx`
+  - session 切换期间显示 LoadingPanel：`正在加载 session...`。
 - `src/components/tools/ToolCallItem.tsx`
   - 工具调用 item 压缩：更小 padding、字体、status badge、icon。
 - `src/components/layout/MainArea.tsx`

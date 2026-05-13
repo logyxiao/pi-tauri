@@ -824,8 +824,9 @@ function extractContentText(content: unknown): string {
       if (!block || typeof block !== "object") return "";
       const item = block as Record<string, unknown>;
       if (typeof item.text === "string") return item.text;
-      if (typeof item.thinking === "string") return item.thinking;
-      if (item.type === "toolCall") return `[tool:${String(item.name ?? "tool")}]`;
+      if (item.type === "text" && typeof item.text === "string") return item.text;
+      if (item.type === "thinking" || typeof item.thinking === "string") return "";
+      if (item.type === "toolCall") return "";
       return "";
     })
     .filter(Boolean)

@@ -86,7 +86,7 @@ export function LeftSidebar({
         <div className={cn("flex items-center", collapsed ? "flex-col gap-2" : "gap-1")}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button size="icon" variant="ghost" aria-label={t("sidebar.openWorkspace")} onClick={() => void onOpenWorkspaceFolder()}>
+              <Button className="cursor-pointer" size="icon" variant="ghost" aria-label={t("sidebar.openWorkspace")} onClick={() => void onOpenWorkspaceFolder()}>
                 <FolderPlus size={16} />
               </Button>
             </TooltipTrigger>
@@ -94,10 +94,10 @@ export function LeftSidebar({
           </Tooltip>
           {!collapsed ? (
             <>
-              <Button size="icon" variant="ghost" aria-label={t("sidebar.settings")} onClick={onOpenSettings}>
+              <Button className="cursor-pointer" size="icon" variant="ghost" aria-label={t("sidebar.settings")} onClick={onOpenSettings}>
                 <Settings size={16} />
               </Button>
-              <Button size="icon" variant="ghost" aria-label={t("sidebar.collapse")} onClick={onToggle}>
+              <Button className="cursor-pointer" size="icon" variant="ghost" aria-label={t("sidebar.collapse")} onClick={onToggle}>
                 <PanelLeftClose size={16} />
               </Button>
             </>
@@ -109,7 +109,7 @@ export function LeftSidebar({
         <div className="mt-2 flex flex-col items-center gap-2 px-3">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button size="icon" variant="ghost" aria-label={t("sidebar.settings")} onClick={onOpenSettings}>
+              <Button className="cursor-pointer" size="icon" variant="ghost" aria-label={t("sidebar.settings")} onClick={onOpenSettings}>
                 <Settings size={16} />
               </Button>
             </TooltipTrigger>
@@ -117,7 +117,7 @@ export function LeftSidebar({
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button size="icon" variant="ghost" aria-label={t("sidebar.expand")} onClick={onToggle}>
+              <Button className="cursor-pointer" size="icon" variant="ghost" aria-label={t("sidebar.expand")} onClick={onToggle}>
                 <PanelLeftOpen size={16} />
               </Button>
             </TooltipTrigger>
@@ -148,7 +148,7 @@ export function LeftSidebar({
                     selectedProject ? "border-primary/30 bg-surface/70" : "border-transparent hover:border-border hover:bg-surface/45",
                   )}
                 >
-                  <button className="flex w-full items-center gap-2 px-2 py-1.5 text-left" onClick={() => toggleProject(group.cwd)}>
+                  <button className="flex w-full cursor-pointer items-center gap-2 px-2 py-1.5 text-left" onClick={() => toggleProject(group.cwd)}>
                     {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                     <Folder size={14} className={selectedProject ? "text-primary" : "text-muted-foreground"} />
                     <div className="min-w-0 flex-1">
@@ -218,7 +218,7 @@ function SessionRow({
       )}
     >
       <div className="flex items-center gap-1 pr-1">
-        <button className="min-w-0 flex-1 px-2 py-1.5 text-left" onClick={() => void onSwitchSession(switchTarget)}>
+        <button className="min-w-0 flex-1 cursor-pointer px-2 py-1.5 text-left" onClick={() => void onSwitchSession(switchTarget)}>
           <div className="flex items-center gap-1.5">
             <CircleDot size={9} className={session.status === "running" ? "text-primary" : "text-muted-foreground"} />
             <span className="truncate text-xs font-medium leading-snug">{session.name}</span>
@@ -230,7 +230,7 @@ function SessionRow({
         </button>
         {session.filePath ? (
           <Button
-            className="size-7 opacity-0 transition group-hover:opacity-100"
+            className="size-7 cursor-pointer opacity-0 transition group-hover:opacity-100"
             size="icon"
             variant="ghost"
             aria-label={deleteLabel}
@@ -264,7 +264,7 @@ function CollapsedProjectGroup({
       <TooltipTrigger asChild>
         <button
           className={cn(
-            "flex size-10 items-center justify-center rounded-none border transition",
+            "flex size-10 cursor-pointer items-center justify-center rounded-none border transition",
             selected ? "border-primary/45 bg-surface/70" : "border-transparent hover:bg-surface/70",
           )}
           disabled={!switchTarget}
