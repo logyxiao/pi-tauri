@@ -346,7 +346,7 @@ function StatsTooltip({ state, stats, settings, status }: { state: PiState | nul
       <TooltipTrigger asChild>
         <button
           type="button"
-          className="inline-flex size-8 items-center justify-center text-muted-foreground transition hover:text-primary"
+          className="inline-flex size-8 cursor-pointer items-center justify-center text-muted-foreground transition hover:text-primary"
           aria-label={t("composerStats.label")}
         >
           <BarChart3 size={15} />

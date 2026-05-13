@@ -21,9 +21,9 @@
   - 缩小 hero、empty cards、message bubble、meta 字体和间距。
   - user/assistant/system 分流：user 右侧紧凑气泡且移除头像和“你”称呼，保留时间显示；assistant 左侧紧凑内容卡片且移除头像/名称，保留时间显示；system 居中 muted 卡片。
   - 用户消息和 AI 回复气泡下方新增 icon-only 复制按钮，支持 Clipboard API + textarea fallback，复制后短暂切换为 Check icon。
-  - RPC message content 映射只提取 `text` / `type === "text"` 内容，忽略 `thinking` 和 `toolCall` block。
-  - AI 回复内 `[tool:` 行直接从正文剔除，不再渲染也不再聚合展示。
-  - 空 assistant 消息在 map 阶段直接 return null；判断基于剔除 `[tool:` 行后的正文是否为空，不再依赖 `tools` 数组，避免仅有时间和空卡片的渲染。
+  - RPC message content 映射保留结构化 `contentBlocks`，支持 `text` / `thinking` / `image` / `toolCall` / unknown block；普通 `content` 仍提取可读 text 作为兼容 fallback。
+  - AI 回复内 `[tool:` 行直接从正文剔除，不再渲染也不再聚合展示；结构化 `toolCall` block 改用独立 tool call 卡片展示参数。
+  - 空 assistant 消息在 map 阶段直接 return null；判断基于剔除 `[tool:` 行后的正文是否为空，同时保留 thinking/image/toolCall/error/aborted/length 等结构化内容，避免误隐藏有效 AI 回复。
   - avatar 缩小到 `size-7`，小屏隐藏。
   - tools 区域压缩为更轻的内嵌块，保留透明可点。
 - `src/config/style/global.css`

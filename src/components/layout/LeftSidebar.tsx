@@ -204,7 +204,7 @@ export function LeftSidebar({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
-                          className="size-7 shrink-0 cursor-pointer border border-primary/20 bg-primary/10 text-primary transition hover:bg-primary/15"
+                          className="size-7 shrink-0 cursor-pointer text-muted-foreground transition hover:bg-transparent hover:text-primary"
                           size="icon"
                           variant="ghost"
                           aria-label={t("sidebar.newSession")}

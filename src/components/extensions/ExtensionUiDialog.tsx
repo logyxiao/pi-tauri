@@ -87,7 +87,7 @@ export function ExtensionUiDialog({ request, onRespond }: ExtensionUiDialogProps
                   <button
                     key={option}
                     disabled={busy}
-                    className="w-full rounded-none border border-border bg-surface px-3 py-2 text-left text-sm transition hover:border-primary/40 hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+                    className="cursor-pointer w-full rounded-none border border-border bg-surface px-3 py-2 text-left text-sm transition hover:border-primary/40 hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
                     onClick={() => submit(option)}
                   >
                     {option}

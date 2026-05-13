@@ -10,25 +10,28 @@ export function ToolResultPanel({ tool }: ToolResultPanelProps) {
   const { t } = useI18n();
   const isBash = tool.name === "bash";
   const Icon = isBash ? Terminal : FileText;
+  const title = isBash ? `tool result · bash` : `tool result · ${tool.name}`;
+  const subtitle = isBash ? tool.target : tool.target || tool.name;
 
   return (
-    <div className="mt-2 overflow-hidden rounded-none border border-border bg-background/75">
-      <div className="flex items-center justify-between border-b border-border px-3 py-2">
-        <div className="flex min-w-0 items-center gap-2 text-xs font-medium">
-          <Icon size={14} className="shrink-0 text-primary" />
-          <span className="truncate font-mono">{tool.target || tool.name}</span>
+    <div className="mt-0 overflow-hidden rounded-none border-t border-border bg-background/75">
+      <div className="flex items-center justify-between border-b border-border px-2 py-1.5">
+        <div className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] font-medium leading-5">
+          <Icon size={12} className="shrink-0 text-primary" />
+          <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">{title}</span>
+          <span className="truncate font-mono text-foreground">{subtitle}</span>
         </div>
-        <span className="rounded-none bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{tool.status}</span>
+        <span className="rounded-none bg-muted px-1.5 py-0 text-[10px] leading-5 text-muted-foreground">{tool.status}</span>
       </div>
 
-      <div className="px-3 py-2 text-xs leading-5 text-muted-foreground">{tool.summary}</div>
+      {tool.summary ? <div className="px-2 py-1 font-mono text-[11px] leading-5 text-muted-foreground">{tool.summary}</div> : null}
 
       {tool.output ? (
-        <pre className="max-h-72 overflow-auto border-t border-border bg-surface p-3 font-mono text-[11px] leading-5 text-foreground">
+        <pre className="max-h-72 overflow-auto border-t border-border bg-surface p-2 font-mono text-[11px] leading-5 text-foreground">
           {tool.output}
         </pre>
       ) : (
-        <div className="border-t border-border px-3 py-3 text-xs text-muted-foreground">{t("tool.noOutput")}</div>
+        <div className="border-t border-border px-2 py-1.5 font-mono text-[11px] text-muted-foreground">{t("tool.noOutput")}</div>
       )}
     </div>
   );

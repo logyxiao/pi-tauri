@@ -1,10 +1,14 @@
 import type { ReactNode } from "react";
-import { Maximize2, Minus, Square, X } from "lucide-react";
+import { Maximize2, Minus, Power, Square, X } from "lucide-react";
 import { PiMark } from "@/components/brand/PiMark";
 import { useI18n } from "@/shared/i18n";
 import { closeWindow, minimizeWindow, toggleFullscreenWindow, toggleMaximizeWindow } from "@/shared/window-controls";
 
-export function WindowTitlebar() {
+interface WindowTitlebarProps {
+  onRestartApp?: () => Promise<void> | void;
+}
+
+export function WindowTitlebar({ onRestartApp }: WindowTitlebarProps) {
   const { t } = useI18n();
 
   return (
@@ -17,6 +21,11 @@ export function WindowTitlebar() {
         onMouseDown={(event) => event.stopPropagation()}
         onDoubleClick={(event) => event.stopPropagation()}
       >
+        {onRestartApp ? (
+          <TitlebarButton label={t("window.restartApp")} onClick={onRestartApp}>
+            <Power size={13} />
+          </TitlebarButton>
+        ) : null}
         <TitlebarButton label={t("window.minimize")} onClick={minimizeWindow}>
           <Minus size={13} />
         </TitlebarButton>

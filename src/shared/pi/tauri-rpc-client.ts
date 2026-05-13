@@ -64,6 +64,7 @@ export class TauriPiRpcClient implements PiClient {
   private extensionStatuses = new Map<string, PiExtensionStatus>();
   private safetyEvents: PiSafetyEvent[] = [];
   private settingsWarning: string | undefined;
+  private toolStartTimes = new Map<string, number>();
 
   async connect(): Promise<void> {
     if (this.connected) return;
@@ -436,6 +437,7 @@ export class TauriPiRpcClient implements PiClient {
     this.unlistenMessage = null;
     this.unlistenError = null;
     this.pending.clear();
+    this.toolStartTimes.clear();
     this.connected = false;
     await invoke("pi_rpc_stop");
   }
@@ -492,8 +494,11 @@ export class TauriPiRpcClient implements PiClient {
 
     if (event.type === "message_update") {
       const assistantMessageEvent = event.assistantMessageEvent as Record<string, unknown> | undefined;
+      const mappedMessage = mapAgentMessage(event.message);
       if (assistantMessageEvent?.type === "text_delta") {
-        this.emit({ type: "message_update", delta: String(assistantMessageEvent.delta ?? "") });
+        this.emit({ type: "message_update", delta: String(assistantMessageEvent.delta ?? ""), message: mappedMessage ?? undefined });
+      } else if (mappedMessage) {
+        this.emit({ type: "message_update", message: mappedMessage });
       }
       return;
     }
@@ -521,7 +526,7 @@ export class TauriPiRpcClient implements PiClient {
       event.type === "tool_execution_update" ||
       event.type === "tool_execution_end"
     ) {
-      const tool = mapToolEvent(event);
+      const tool = mapToolEvent(event, this.toolStartTimes);
       if (tool.safety) {
         this.safetyEvents = [createSafetyEvent(tool.safety, "flagged", "rpc-limitation"), ...this.safetyEvents].slice(0, 20);
       }
@@ -785,41 +790,84 @@ function mapSessionMessage(raw: unknown): PiMessage | null {
   if (!raw || typeof raw !== "object") return null;
   const message = raw as Record<string, unknown>;
   const id = message.id;
-  const role = message.role;
+  const role = normalizeMessageRole(message.role);
   const content = message.content;
   const createdAt = message.createdAt;
-  if (typeof id !== "string" || (role !== "user" && role !== "assistant" && role !== "system") || typeof content !== "string" || typeof createdAt !== "string") return null;
-  return { id, role, content, createdAt };
+  if (typeof id !== "string" || !role || typeof content !== "string" || typeof createdAt !== "string") return null;
+  return {
+    id,
+    role,
+    content,
+    createdAt,
+    contentBlocks: extractContentBlocks(message.contentBlocks),
+    toolArgs: asRecord(message.toolArgs),
+    toolDetails: asRecord(message.toolDetails),
+    stopReason: pickString(message, ["stopReason"]),
+    errorMessage: pickString(message, ["errorMessage"]),
+    customType: pickString(message, ["customType"]),
+    tokensBefore: typeof message.tokensBefore === "number" ? message.tokensBefore : undefined,
+    toolName: pickString(message, ["toolName"]),
+    toolCallId: pickString(message, ["toolCallId"]),
+    isError: typeof message.isError === "boolean" ? message.isError : undefined,
+    cancelled: typeof message.cancelled === "boolean" ? message.cancelled : undefined,
+    truncated: typeof message.truncated === "boolean" ? message.truncated : undefined,
+    fullOutputPath: pickString(message, ["fullOutputPath"]),
+    excludeFromContext: typeof message.excludeFromContext === "boolean" ? message.excludeFromContext : undefined,
+  };
 }
 
 function mapAgentMessage(raw: unknown): PiMessage | null {
   if (!raw || typeof raw !== "object") return null;
   const message = raw as Record<string, unknown>;
-  const role = message.role;
-  if (role !== "user" && role !== "assistant" && role !== "system") return null;
+  const role = normalizeMessageRole(message.role);
+  if (!role) return null;
 
   return {
     id: crypto.randomUUID(),
     role,
     content: extractContentText(message.content),
     createdAt: formatTimestamp(message.timestamp),
+    contentBlocks: extractContentBlocks(message.content),
+    toolArgs: extractToolCallArgs(message.content, pickString(message, ["toolCallId"])),
+    toolDetails: asRecord(message.details),
+    stopReason: pickString(message, ["stopReason"]),
+    errorMessage: pickString(message, ["errorMessage"]),
+    customType: pickString(message, ["customType"]),
+    tokensBefore: typeof message.tokensBefore === "number" ? message.tokensBefore : undefined,
+    toolName: pickString(message, ["toolName"]),
+    toolCallId: pickString(message, ["toolCallId"]),
+    isError: typeof message.isError === "boolean" ? message.isError : undefined,
+    cancelled: typeof message.cancelled === "boolean" ? message.cancelled : undefined,
+    truncated: typeof message.truncated === "boolean" ? message.truncated : undefined,
+    fullOutputPath: pickString(message, ["fullOutputPath"]),
+    excludeFromContext: typeof message.excludeFromContext === "boolean" ? message.excludeFromContext : undefined,
   };
 }
 
-function mapToolEvent(event: Record<string, unknown>): PiToolCall {
+function mapToolEvent(event: Record<string, unknown>, startTimes?: Map<string, number>): PiToolCall {
   const result = (event.result ?? event.partialResult) as Record<string, unknown> | undefined;
   const args = event.args as Record<string, unknown> | undefined;
   const name = String(event.toolName ?? "tool");
+  const isStart = event.type === "tool_execution_start";
   const isEnd = event.type === "tool_execution_end";
   const isError = Boolean(event.isError);
+  const id = String(event.toolCallId ?? crypto.randomUUID());
+  if (isStart) startTimes?.set(id, performance.now());
+  const startedAt = startTimes?.get(id);
+  const durationMs = isEnd && startedAt !== undefined ? Math.max(0, Math.round(performance.now() - startedAt)) : undefined;
+  if (isEnd) startTimes?.delete(id);
 
   const tool: PiToolCall = {
-    id: String(event.toolCallId ?? crypto.randomUUID()),
+    id,
     name,
     target: extractToolTarget(name, args),
     status: isEnd ? (isError ? "error" : "success") : "running",
     summary: isEnd ? (isError ? "Tool failed" : "Tool complete") : "Tool running",
     output: extractContentText(result?.content),
+    durationMs,
+    args,
+    details: result?.details && typeof result.details === "object" ? (result.details as Record<string, unknown>) : undefined,
+    isError,
   };
   const safety = detectDangerousTool(tool);
   return safety ? { ...tool, safety } : tool;
@@ -843,11 +891,78 @@ function extractContentText(content: unknown): string {
       if (typeof item.text === "string") return item.text;
       if (item.type === "text" && typeof item.text === "string") return item.text;
       if (item.type === "thinking" || typeof item.thinking === "string") return "";
+      if (item.type === "image") return "[image]";
       if (item.type === "toolCall") return "";
       return "";
     })
     .filter(Boolean)
     .join("\n");
+}
+
+function normalizeMessageRole(role: unknown): PiMessage["role"] | null {
+  if (
+    role === "user" ||
+    role === "assistant" ||
+    role === "system" ||
+    role === "toolResult" ||
+    role === "bashExecution" ||
+    role === "custom" ||
+    role === "branchSummary" ||
+    role === "compactionSummary"
+  ) {
+    return role;
+  }
+  return null;
+}
+
+function extractContentBlocks(content: unknown): PiMessage["contentBlocks"] | undefined {
+  if (!Array.isArray(content)) return undefined;
+  const blocks = content.flatMap((block): NonNullable<PiMessage["contentBlocks"]> => {
+    if (!block || typeof block !== "object") return [];
+    const item = block as Record<string, unknown>;
+    if (item.type === "text" && typeof item.text === "string") return [{ type: "text", text: item.text }];
+    if (item.type === "thinking" && typeof item.thinking === "string") return [{ type: "thinking", thinking: item.thinking, redacted: item.redacted === true }];
+    if (item.type === "image") {
+      return [
+        {
+          type: "image",
+          data: typeof item.data === "string" ? item.data : undefined,
+          mimeType: typeof item.mimeType === "string" ? item.mimeType : undefined,
+          url: typeof item.url === "string" ? item.url : undefined,
+          alt: typeof item.alt === "string" ? item.alt : undefined,
+        },
+      ];
+    }
+    if (item.type === "toolCall" && typeof item.name === "string") {
+      return [
+        {
+          type: "toolCall",
+          id: typeof item.id === "string" ? item.id : undefined,
+          name: item.name,
+          arguments: item.arguments && typeof item.arguments === "object" ? (item.arguments as Record<string, unknown>) : undefined,
+        },
+      ];
+    }
+    const label = typeof item.type === "string" ? item.type : "unknown";
+    return [{ type: "unknown", label, value: item }];
+  });
+  return blocks.length ? blocks : undefined;
+}
+
+function extractToolCallArgs(content: unknown, toolCallId?: string): Record<string, unknown> | undefined {
+  if (!Array.isArray(content)) return undefined;
+  const match = content.find((block) => {
+    if (!block || typeof block !== "object") return false;
+    const item = block as Record<string, unknown>;
+    if (item.type !== "toolCall") return false;
+    return !toolCallId || item.id === toolCallId;
+  }) as Record<string, unknown> | undefined;
+  const args = match?.arguments;
+  return asRecord(args);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback?: T): Promise<T> {

@@ -30,7 +30,7 @@ export function FilesPreviewPanel({ cwd, files, preview, selectedPath, onSelectF
             <button
               key={entry.path}
               className={cn(
-                "flex w-full items-center gap-2 rounded-none px-2 py-1.5 text-left text-xs transition",
+                "flex w-full cursor-pointer items-center gap-2 rounded-none px-2 py-1.5 text-left text-xs transition disabled:cursor-default",
                 entry.kind === "directory" ? "text-muted-foreground" : "text-foreground hover:bg-muted",
                 selectedPath === entry.path && "bg-primary/10 text-primary",
               )}

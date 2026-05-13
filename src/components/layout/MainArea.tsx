@@ -191,7 +191,7 @@ export function MainArea({
             <TooltipTrigger asChild>
               <button
                 className={cn(
-                  "inline-flex size-8 items-center justify-center transition hover:text-primary",
+                  "inline-flex size-8 cursor-pointer items-center justify-center transition hover:text-primary",
                   inspectorOpen ? "text-primary" : "text-muted-foreground",
                 )}
                 aria-label={t("main.toggleGit")}

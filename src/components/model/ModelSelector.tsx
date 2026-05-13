@@ -25,8 +25,8 @@ export function ModelSelector({ state, models, onModelChange, compact = false }:
       <DropdownMenuTrigger asChild>
         <button
           className={compact
-            ? "flex max-w-44 items-center gap-1 px-1 py-1 font-mono text-[9px] leading-none text-muted-foreground transition hover:text-primary"
-            : "flex max-w-64 items-center gap-2 rounded-none border border-border bg-surface/70 px-3 py-2 font-mono text-xs font-semibold uppercase tracking-[0.14em] transition hover:bg-muted"}
+            ? "flex max-w-44 cursor-pointer items-center gap-1 px-1 py-1 font-mono text-[9px] leading-none text-muted-foreground transition hover:text-primary"
+            : "flex max-w-64 cursor-pointer items-center gap-2 rounded-none border border-border bg-surface/70 px-3 py-2 font-mono text-xs font-semibold uppercase tracking-[0.14em] transition hover:bg-muted"}
           aria-label={t("model.title")}
         >
           <span className="min-w-0 max-w-28 truncate  text-[10px]" >{current.model}</span>

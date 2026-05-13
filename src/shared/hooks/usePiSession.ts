@@ -193,7 +193,13 @@ function persistMessagesForState(state: PiState | null, messages: PiMessage[]) {
 function isMessageLike(value: unknown): value is PiMessage {
   if (!value || typeof value !== "object") return false;
   const message = value as Record<string, unknown>;
-  return typeof message.id === "string" && (message.role === "user" || message.role === "assistant" || message.role === "system") && typeof message.content === "string" && typeof message.createdAt === "string";
+  const role = message.role;
+  return (
+    typeof message.id === "string" &&
+    (role === "user" || role === "assistant" || role === "system" || role === "toolResult" || role === "bashExecution" || role === "custom" || role === "branchSummary" || role === "compactionSummary") &&
+    typeof message.content === "string" &&
+    typeof message.createdAt === "string"
+  );
 }
 
 function isSessionSummaryLike(value: unknown): value is PiSessionSummary {
@@ -407,9 +413,20 @@ export function usePiSession() {
       if (event.type === "message_update") {
         const assistantId = activeAssistantIdRef.current;
         setMessages((current) =>
-          current.map((message) =>
-            message.id === assistantId ? { ...message, content: `${message.content}${event.delta}` } : message,
-          ),
+          current.map((message) => {
+            if (message.id !== assistantId) return message;
+            if (event.message) {
+              return {
+                ...message,
+                ...event.message,
+                id: message.id,
+                createdAt: message.createdAt,
+                content: event.delta ? `${message.content}${event.delta}` : event.message.content,
+                tools: message.tools,
+              };
+            }
+            return { ...message, content: `${message.content}${event.delta ?? ""}` };
+          }),
         );
         return;
       }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { ExtensionUiDialog } from "@/components/extensions/ExtensionUiDialog";
 import { LeftSidebar } from "./LeftSidebar";
 import { MainArea } from "./MainArea";
@@ -64,7 +65,7 @@ export function AppShell() {
     <TooltipProvider delayDuration={250}>
       <div className="pi-grid-bg flex h-screen w-screen overflow-hidden text-foreground">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface/80 backdrop-blur-[1px]">
-          <WindowTitlebar />
+          <WindowTitlebar onRestartApp={() => void invoke("app_restart")} />
           <div className="flex min-h-0 flex-1 overflow-hidden">
             <LeftSidebar
               collapsed={sidebarCollapsed}

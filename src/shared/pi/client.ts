@@ -22,7 +22,8 @@ import type {
 
 export type PiTextDeltaEvent = {
   type: "message_update";
-  delta: string;
+  delta?: string;
+  message?: PiMessage;
 };
 
 export type PiAgentStateEvent = {

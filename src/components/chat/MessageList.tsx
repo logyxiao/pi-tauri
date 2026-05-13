@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check, Copy, Loader2 } from "lucide-react";
+import { ArrowDown, Brain, Check, ChevronRight, Copy, FileText, ImageIcon, Loader2, Terminal } from "lucide-react";
 import { LoadingPanel } from "@/components/status/LoadingPanel";
 import { ToolCallItem } from "@/components/tools/ToolCallItem";
 import { cn } from "@/shared/lib/cn";
@@ -24,13 +24,19 @@ interface TimelineItem {
   summary: string;
 }
 
+type RenderItem =
+  | { type: "message"; message: PiMessage }
+  | { type: "activityGroup"; id: string; tools: PiToolCall[]; messages: PiMessage[] };
+
 export function MessageList({ messages, isConnecting = false, isRefreshing = false, isSwitchingSession = false, onSelectTool }: MessageListProps) {
   const { t } = useI18n();
   const showEmptyState = !messages.length && !isConnecting;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const messageRefs = useRef(new Map<string, HTMLDivElement>());
   const timelineItems = useMemo(() => buildTimelineItems(messages, t), [messages, t]);
+  const renderItems = useMemo(() => buildRenderItems(messages), [messages]);
   const [activeTimelineId, setActiveTimelineId] = useState<string | null>(timelineItems[0]?.id ?? null);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   useEffect(() => {
     if (!timelineItems.length) {
@@ -48,8 +54,11 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
   }, [messages.length, isConnecting, isSwitchingSession]);
 
   function updateActiveTimelineItem() {
-    if (!scrollRef.current || !timelineItems.length) return;
-    const containerRect = scrollRef.current.getBoundingClientRect();
+    const container = scrollRef.current;
+    if (!container) return;
+    setShowScrollToBottom(!isScrollAtBottom(container));
+    if (!timelineItems.length) return;
+    const containerRect = container.getBoundingClientRect();
     const targetY = containerRect.top + containerRect.height * 0.32;
     let nearestId = timelineItems[0].id;
     let nearestDistance = Number.POSITIVE_INFINITY;
@@ -66,6 +75,13 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
     }
 
     setActiveTimelineId(nearestId);
+  }
+
+  function scrollToBottom() {
+    const container = scrollRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    setShowScrollToBottom(false);
   }
 
   function scrollToMessage(id: string) {
@@ -102,18 +118,26 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
           {showEmptyState ? <div className="min-h-[28vh]" /> : null}
 
           <div className="flex flex-col gap-4">
-            {messages.map((message) => {
-              if (isHiddenAssistantMessage(message)) return null;
+            {renderItems.map((item) => {
+              if (item.type === "message") {
+                if (isHiddenAssistantMessage(item.message)) return null;
+                return (
+                  <div
+                    key={item.message.id}
+                    ref={(node) => {
+                      if (node) messageRefs.current.set(item.message.id, node);
+                      else messageRefs.current.delete(item.message.id);
+                    }}
+                    className="scroll-mt-16"
+                  >
+                    <MessageBubble message={item.message} onSelectTool={onSelectTool} />
+                  </div>
+                );
+              }
+
               return (
-                <div
-                  key={message.id}
-                  ref={(node) => {
-                    if (node) messageRefs.current.set(message.id, node);
-                    else messageRefs.current.delete(message.id);
-                  }}
-                  className="scroll-mt-16"
-                >
-                  <MessageBubble message={message} onSelectTool={onSelectTool} />
+                <div key={item.id} className="scroll-mt-16">
+                  <ActivityGroup tools={item.tools} messages={item.messages} onSelectTool={onSelectTool} />
                 </div>
               );
             })}
@@ -121,66 +145,144 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
         </div>
       </div>
 
+      {showScrollToBottom ? (
+        <button
+          type="button"
+          className="absolute bottom-5 right-10 z-40 flex size-9 cursor-pointer items-center justify-center border border-border bg-surface/90 text-muted-foreground shadow-[0_10px_30px_rgb(44_54_70/0.14)] backdrop-blur transition hover:border-primary/30 hover:bg-muted hover:text-primary sm:right-14"
+          aria-label="返回底部"
+          title="返回底部"
+          onClick={scrollToBottom}
+        >
+          <ArrowDown size={16} />
+        </button>
+      ) : null}
+
       {timelineItems.length ? <MessageTimeline items={timelineItems} activeId={activeTimelineId} onJump={scrollToMessage} /> : null}
     </div>
   );
 }
 
 function MessageBubble({ message, onSelectTool }: { message: PiMessage; onSelectTool?: (tool: PiToolCall) => void }) {
-  const { t } = useI18n();
   const isUser = message.role === "user";
-  const isSystem = message.role === "system";
-  const author = isSystem ? "system" : "pi";
-  const displayContent = !isUser && !isSystem ? stripToolMarkers(message.content) : message.content;
+  const displayContent = message.role === "assistant" ? stripToolMarkers(message.content) : message.content;
   const [copied, setCopied] = useState(false);
 
   async function copyMessage() {
-    const text = displayContent.trim();
+    const text = getCopyText(message, displayContent);
     if (!text) return;
     await copyTextToClipboard(text);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1200);
   }
 
-  if (isSystem) {
-    return (
-      <article className="mx-auto max-w-[min(34rem,92%)] border border-border bg-muted/50 px-3 py-2 text-center text-xs leading-5 text-muted-foreground">
-        {message.content || <span>{t("message.thinking")}</span>}
-      </article>
-    );
-  }
+  if (message.role === "system") return <SystemMessage message={message} />;
+  if (message.role === "branchSummary") return <SummaryMessage kind="branch" message={message} />;
+  if (message.role === "compactionSummary") return <SummaryMessage kind="compaction" message={message} />;
+  if (message.role === "custom") return <CustomMessage message={message} />;
+  if (message.role === "bashExecution") return <BashExecutionMessage message={message} />;
+  if (message.role === "toolResult") return <ToolResultMessage message={message} onSelectTool={onSelectTool} />;
 
   return (
     <article className={cn("flex w-full gap-2.5", isUser ? "justify-end" : "justify-start")}>
       <div className={cn("min-w-0", isUser ? "flex max-w-[min(34rem,86%)] flex-col items-end" : "max-w-[min(44rem,94%)] flex-1")}>
-        {isSystem ? (
-          <div className="mb-1 flex items-center gap-1.5 px-1 text-[10px] text-muted-foreground">
-            <span className="font-mono font-semibold uppercase tracking-[0.12em] text-foreground/75">{author}</span>
-            <span className="font-mono">{message.createdAt}</span>
-          </div>
-        ) : null}
+        {isUser ? <UserContent message={message} /> : <AssistantContent message={message} content={displayContent} createdAt={message.createdAt} hasTools={Boolean(message.tools?.length)} />}
+        {getCopyText(message, displayContent) ? <CopyAction align={isUser ? "right" : "left"} copied={copied} onCopy={copyMessage} /> : null}
 
-        {isUser ? <UserContent message={message} /> : <AssistantContent content={displayContent} createdAt={message.createdAt} hasTools={Boolean(message.tools?.length)} />}
-        {displayContent.trim() ? <CopyAction align={isUser ? "right" : "left"} copied={copied} onCopy={copyMessage} /> : null}
-
-        {message.tools?.length ? (
-          <div className="mt-2 w-full border border-border bg-surface/70 p-2 shadow-sm">
-            <div className="mb-1.5 flex items-center justify-between px-1 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
-              <span>{t("message.toolsLabel")}</span>
-              <span>{message.tools.length}</span>
-            </div>
-            <div className="space-y-1.5">
-              {message.tools.map((tool) => (
-                <ToolCallItem key={tool.id} tool={tool} onSelect={onSelectTool} />
-              ))}
-            </div>
-          </div>
-        ) : null}
+        {message.tools?.length ? <ActivityGroup tools={message.tools} messages={[]} onSelectTool={onSelectTool} className="mt-2" /> : null}
       </div>
-
-
     </article>
   );
+}
+
+function ActivityGroup({ tools, messages, onSelectTool, className }: { tools: PiToolCall[]; messages: PiMessage[]; onSelectTool?: (tool: PiToolCall) => void; className?: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const summaryItems = summarizeActivity(tools, messages);
+  const count = tools.length + messages.length;
+  return (
+    <section className={cn("w-full max-w-[min(44rem,96%)]", className)}>
+      <button
+        type="button"
+        className="cursor-pointer group flex w-full items-center gap-1.5 border border-border/70 bg-surface/80 px-2.5 py-1.5 text-left text-[11px] leading-4 text-muted-foreground shadow-[0_8px_24px_rgb(44_54_70/0.04)] transition hover:border-primary/25 hover:bg-muted/50"
+        onClick={() => setExpanded((value) => !value)}
+      >
+        <ChevronRight className={cn("shrink-0 text-muted-foreground transition", expanded && "rotate-90")} size={12} />
+        <span className="shrink-0 text-[10px] font-medium text-foreground">活动</span>
+        <span className="shrink-0 border border-border/70 bg-background/75 px-1.5 font-mono text-[10px] leading-4 text-muted-foreground">{count}</span>
+        {summaryItems.length ? (
+          <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-hidden">
+            {summaryItems.map((item) => (
+              <span key={item} className="max-w-full truncate border border-border/60 bg-background/60 px-1.5 py-0 font-mono text-[10px] leading-4 text-muted-foreground/95">
+                {item}
+              </span>
+            ))}
+          </span>
+        ) : null}
+      </button>
+      {expanded ? (
+        <div className="mt-1.5 space-y-1 border border-border/70 bg-surface/50 p-1.5 font-mono text-[11px] leading-5 shadow-[0_8px_24px_rgb(44_54_70/0.03)]">
+          {messages.map((message) => (
+            <GroupedMessage key={message.id} message={message} />
+          ))}
+          {tools.map((tool) => (
+            <ToolCallItem key={tool.id} tool={tool} onSelect={onSelectTool} />
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function GroupedMessage({ message }: { message: PiMessage }) {
+  if (message.role === "assistant") {
+    return (
+      <div className="border border-border/70 bg-background/60 font-mono text-[11px] leading-5 text-muted-foreground">
+        <AssistantBlocks message={message} fallback={message.content} />
+      </div>
+    );
+  }
+  return <MessageBubble message={message} />;
+}
+
+function summarizeActivity(tools: PiToolCall[], messages: PiMessage[]): string[] {
+  return [...summarizeTools(tools), ...summarizeGroupedMessages(messages)];
+}
+
+function compactThinkingPreview(text: string): string {
+  const compact = text.replace(/[#*_`>\[\]()]/g, "").replace(/\s+/g, " ").trim();
+  if (!compact) return "reasoning trace";
+  return compact.length > 90 ? `${compact.slice(0, 87)}…` : compact;
+}
+
+function summarizeTools(tools: PiToolCall[]): string[] {
+  const counts = tools.reduce<Record<string, number>>((acc, tool) => {
+    acc[tool.name] = (acc[tool.name] ?? 0) + 1;
+    return acc;
+  }, {});
+  return Object.entries(counts).map(([name, count]) => formatActivityCount(getToolActivityLabel(name), count));
+}
+
+function summarizeGroupedMessages(messages: PiMessage[]): string[] {
+  const thinkingCount = messages.filter((message) => message.contentBlocks?.some((block) => block.type === "thinking" && block.thinking.trim())).length;
+  const otherCount = messages.length - thinkingCount;
+  return [thinkingCount ? formatActivityCount("思考", thinkingCount) : "", otherCount ? formatActivityCount("消息", otherCount) : ""].filter(Boolean);
+}
+
+function formatActivityCount(label: string, count: number): string {
+  return count > 1 ? `${label}×${count}` : label;
+}
+
+function getToolActivityLabel(name: string): string {
+  const labels: Record<string, string> = {
+    read: "读取",
+    write: "写入",
+    edit: "修改",
+    bash: "命令",
+    grep: "搜索",
+    find: "查找",
+    ls: "列表",
+    tool: "工具",
+  };
+  return labels[name] ?? name;
 }
 
 function CopyAction({ align, copied, onCopy }: { align: "left" | "right"; copied: boolean; onCopy: () => Promise<void> | void }) {
@@ -212,20 +314,164 @@ function UserContent({ message }: { message: PiMessage }) {
   );
 }
 
-function AssistantContent({ content, createdAt, hasTools }: { content: string; createdAt: string; hasTools: boolean }) {
+function AssistantContent({ message, content, createdAt, hasTools }: { message: PiMessage; content: string; createdAt: string; hasTools: boolean }) {
   const hasContent = Boolean(content.trim());
-  if (!hasContent && hasTools) return null;
+  const renderBlocks = shouldRenderAssistantBlocks(message);
+  if (!hasContent && !renderBlocks && hasTools) return null;
 
   return (
     <div>
       <div className="mb-1 px-1 font-mono text-[10px] text-muted-foreground">{createdAt}</div>
       <div className="overflow-hidden border border-border bg-surface/82 text-foreground shadow-[0_10px_30px_rgb(44_54_70/0.055)]">
-        <div className="px-3.5 py-3 text-[13px] leading-5">
-          {hasContent ? <MarkdownContent content={content} /> : null}
+        <div className="space-y-3 px-3.5 py-3 text-[13px] leading-5">
+          {renderBlocks ? <AssistantBlocks message={message} fallback={content} /> : hasContent ? <MarkdownContent content={content} /> : null}
+          <AssistantStopState message={message} />
         </div>
       </div>
     </div>
   );
+}
+
+function SystemMessage({ message }: { message: PiMessage }) {
+  const { t } = useI18n();
+  return (
+    <article className="mx-auto max-w-[min(34rem,92%)] border border-border bg-muted/50 px-3 py-2 text-center text-xs leading-5 text-muted-foreground">
+      {message.content || <span>{t("message.thinking")}</span>}
+    </article>
+  );
+}
+
+function AssistantBlocks({ message, fallback }: { message: PiMessage; fallback: string }) {
+  const blocks = message.contentBlocks?.length ? message.contentBlocks : fallback ? [{ type: "text" as const, text: fallback }] : [];
+  return (
+    <>
+      {blocks.map((block, index) => {
+        if (block.type === "text") return block.text.trim() ? <MarkdownContent key={index} content={stripToolMarkers(block.text)} /> : null;
+        if (block.type === "thinking") return <ThinkingBlock key={index} block={block} />;
+        if (block.type === "image") return <ImageBlock key={index} block={block} />;
+        if (block.type === "toolCall") return null;
+        return <UnknownBlock key={index} label={block.label} value={block.value} />;
+      })}
+    </>
+  );
+}
+
+function ThinkingBlock({ block }: { block: Extract<NonNullable<PiMessage["contentBlocks"]>[number], { type: "thinking" }> }) {
+  const [expanded, setExpanded] = useState(false);
+  const text = block.redacted ? "Thinking redacted by provider safety filters." : block.thinking.trim();
+  if (!text) return null;
+  return (
+    <div className="rounded-none border border-border bg-background/60 text-muted-foreground">
+      <button type="button" className="group flex w-full cursor-pointer items-center gap-1.5 rounded-none px-2 py-1.5 text-left font-mono text-[11px] leading-5 transition hover:bg-muted/70" onClick={() => setExpanded((value) => !value)}>
+        <span className="flex size-4 shrink-0 items-center justify-center rounded-none bg-surface"><Brain size={13} className="text-primary" /></span>
+        <span className="w-16 shrink-0 truncate font-semibold text-foreground">thinking</span>
+        <span className="min-w-0 flex-1 truncate text-muted-foreground">{compactThinkingPreview(text)}</span>
+        <ChevronRight className={cn("text-muted-foreground transition group-hover:translate-x-0.5", expanded && "rotate-90")} size={12} />
+      </button>
+      {expanded ? <div className="border-t border-border bg-background/75 px-2 py-1.5 font-mono text-[11px] leading-5"><MarkdownContent content={text} /></div> : null}
+    </div>
+  );
+}
+
+function ImageBlock({ block }: { block: Extract<NonNullable<PiMessage["contentBlocks"]>[number], { type: "image" }> }) {
+  const src = block.url ?? (block.data && block.mimeType ? `data:${block.mimeType};base64,${block.data}` : undefined);
+  if (!src) {
+    return <div className="flex items-center gap-2 border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"><ImageIcon size={13} /> image content unavailable</div>;
+  }
+  return <img src={src} alt={block.alt ?? "AI image content"} className="max-h-80 max-w-full border border-border bg-background object-contain" />;
+}
+
+function UnknownBlock({ label, value }: { label: string; value?: unknown }) {
+  return (
+    <details className="border border-border bg-muted/35 p-2 text-xs text-muted-foreground">
+      <summary className="cursor-pointer font-mono uppercase tracking-[0.12em]">{label}</summary>
+      {value ? <pre className="mt-2 overflow-x-auto bg-background/70 p-2 font-mono text-[11px] leading-4">{JSON.stringify(value, null, 2)}</pre> : null}
+    </details>
+  );
+}
+
+function AssistantStopState({ message }: { message: PiMessage }) {
+  if (message.stopReason === "aborted") return <div className="text-xs text-danger">{message.errorMessage && message.errorMessage !== "Request was aborted" ? message.errorMessage : "Operation aborted"}</div>;
+  if (message.stopReason === "error") return <div className="text-xs text-danger">Error: {message.errorMessage ?? "Unknown error"}</div>;
+  if (message.stopReason === "length") return <div className="text-xs text-warning">Response stopped: length limit reached.</div>;
+  return null;
+}
+
+function SummaryMessage({ kind, message }: { kind: "branch" | "compaction"; message: PiMessage }) {
+  const [expanded, setExpanded] = useState(false);
+  const title = kind === "branch" ? "Branch summary" : "Compaction summary";
+  const subtitle = kind === "compaction" && typeof message.tokensBefore === "number" ? `Compacted from ${message.tokensBefore.toLocaleString()} tokens` : "Conversation context summary";
+  return (
+    <article className="mx-auto max-w-[min(42rem,96%)] border border-border bg-muted/45 p-3 text-[13px] leading-5 text-foreground">
+      <button type="button" className="flex w-full cursor-pointer items-center gap-2 text-left" onClick={() => setExpanded((value) => !value)}>
+        <FileText size={14} className="text-primary" />
+        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-foreground">{title}</span>
+        <span className="ml-auto font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">{expanded ? "hide" : "expand"}</span>
+      </button>
+      <div className="mt-1 text-xs text-muted-foreground">{subtitle}</div>
+      {expanded ? <div className="mt-3 border-t border-border pt-3"><MarkdownContent content={message.content} /></div> : null}
+    </article>
+  );
+}
+
+function CustomMessage({ message }: { message: PiMessage }) {
+  return (
+    <article className="max-w-[min(42rem,96%)] border border-primary/15 bg-primary/[0.045] p-3 text-[13px] leading-5 text-foreground">
+      <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.12em] text-primary">[{message.customType ?? "custom"}]</div>
+      <MarkdownContent content={message.content} />
+    </article>
+  );
+}
+
+function BashExecutionMessage({ message }: { message: PiMessage }) {
+  return (
+    <article className="max-w-[min(44rem,96%)] border border-border bg-surface/82 p-3 text-[13px] leading-5 text-foreground">
+      <div className="mb-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground"><Terminal size={13} className="text-primary" /> bash execution {message.excludeFromContext ? <span>· excluded</span> : null}</div>
+      <pre className="overflow-x-auto border border-border bg-background/80 p-3 font-mono text-[12px] leading-5">{message.content || "No output"}</pre>
+      <div className="mt-2 flex gap-3 font-mono text-[10px] text-muted-foreground">{message.cancelled ? <span>cancelled</span> : null}{message.truncated ? <span>truncated</span> : null}{message.fullOutputPath ? <span className="truncate">full: {message.fullOutputPath}</span> : null}</div>
+    </article>
+  );
+}
+
+function ToolResultMessage({ message, onSelectTool }: { message: PiMessage; onSelectTool?: (tool: PiToolCall) => void }) {
+  const tool = messageToToolCall(message);
+  if (tool) {
+    return (
+      <article className="max-w-[min(44rem,96%)]">
+        <ToolCallItem tool={tool} onSelect={onSelectTool} />
+      </article>
+    );
+  }
+
+  return (
+    <article className={cn("max-w-[min(44rem,96%)] border p-3 text-[13px] leading-5", message.isError ? "border-danger/25 bg-danger/5 text-danger" : "border-border bg-muted/35 text-foreground")}>
+      <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">tool result {message.toolName ? `· ${message.toolName}` : ""}</div>
+      {message.contentBlocks?.length ? <AssistantBlocks message={message} fallback={message.content} /> : <MarkdownContent content={message.content || "No result content"} />}
+    </article>
+  );
+}
+
+function messageToToolCall(message: PiMessage): PiToolCall | null {
+  if (!message.toolName) return null;
+  return {
+    id: message.toolCallId ?? message.id,
+    name: message.toolName,
+    target: extractToolTargetFromMessage(message),
+    status: message.isError ? "error" : "success",
+    summary: message.isError ? "Tool failed" : "Tool complete",
+    output: message.content,
+    args: message.toolArgs,
+    details: message.toolDetails,
+    isError: message.isError,
+  };
+}
+
+function extractToolTargetFromMessage(message: PiMessage): string {
+  const args = message.toolArgs;
+  if (message.toolName === "bash" && typeof args?.command === "string") return args.command;
+  if ((message.toolName === "read" || message.toolName === "edit" || message.toolName === "write") && typeof args?.path === "string") return args.path;
+  if (typeof args?.pattern === "string") return args.pattern;
+  return message.toolName ?? "tool";
 }
 
 function MarkdownContent({ content }: { content: string }) {
@@ -340,9 +586,40 @@ async function copyTextToClipboard(text: string) {
   textarea.remove();
 }
 
+function isGroupableActivityMessage(message: PiMessage): boolean {
+  if (message.role !== "assistant") return false;
+  if (message.stopReason === "aborted" || message.stopReason === "error" || message.stopReason === "length") return false;
+  if (stripToolMarkers(message.content).trim()) return false;
+  return Boolean(message.contentBlocks?.some((block) => block.type !== "text" && block.type !== "toolCall"));
+}
+
 function isHiddenAssistantMessage(message: PiMessage): boolean {
   if (message.role !== "assistant") return false;
+  if (message.stopReason === "aborted" || message.stopReason === "error" || message.stopReason === "length") return false;
+  if (message.contentBlocks?.some((block) => block.type === "text" ? stripToolMarkers(block.text).trim() : block.type !== "toolCall")) return false;
   return !stripToolMarkers(message.content).trim();
+}
+
+function shouldRenderAssistantBlocks(message: PiMessage): boolean {
+  if (!message.contentBlocks?.length) return false;
+  return message.contentBlocks.some((block) => block.type !== "text" && block.type !== "toolCall");
+}
+
+function getCopyText(message: PiMessage, fallback: string): string {
+  if (message.contentBlocks?.length) {
+    return message.contentBlocks
+      .map((block) => {
+        if (block.type === "text") return stripToolMarkers(block.text);
+        if (block.type === "thinking") return block.thinking;
+        if (block.type === "toolCall") return "";
+        if (block.type === "image") return "[image]";
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+  return fallback.trim();
 }
 
 function stripToolMarkers(content: string): string {
@@ -353,11 +630,65 @@ function stripToolMarkers(content: string): string {
     .trim();
 }
 
+function isScrollAtBottom(container: HTMLElement): boolean {
+  return container.scrollHeight - container.scrollTop - container.clientHeight < 24;
+}
+
 function getNearbyTimelineItems(items: TimelineItem[], activeIndex: number, limit: number): TimelineItem[] {
   const half = Math.floor(limit / 2);
   const maxStart = Math.max(items.length - limit, 0);
   const start = Math.min(Math.max(activeIndex - half, 0), maxStart);
   return items.slice(start, start + limit);
+}
+
+function buildRenderItems(messages: PiMessage[]): RenderItem[] {
+  const items: RenderItem[] = [];
+  let pendingTools: PiToolCall[] = [];
+  let pendingMessages: PiMessage[] = [];
+  let pendingId: string | null = null;
+
+  function addPendingMessage(message: PiMessage) {
+    pendingId ??= message.id;
+    pendingMessages.push(message);
+  }
+
+  function addPendingTool(message: PiMessage, tool: PiToolCall) {
+    pendingId ??= message.id;
+    pendingTools.push(tool);
+  }
+
+  function flushActivity() {
+    if (!pendingTools.length && !pendingMessages.length) return;
+    items.push({ type: "activityGroup", id: pendingId ?? pendingTools[0]?.id ?? pendingMessages[0].id, tools: pendingTools, messages: pendingMessages });
+    pendingTools = [];
+    pendingMessages = [];
+    pendingId = null;
+  }
+
+  for (const message of messages) {
+    if (message.role === "toolResult") {
+      const tool = messageToToolCall(message);
+      if (tool) {
+        addPendingTool(message, tool);
+        continue;
+      }
+    }
+
+    if (isGroupableActivityMessage(message)) {
+      addPendingMessage(message);
+      continue;
+    }
+
+    if (isHiddenAssistantMessage(message)) {
+      continue;
+    }
+
+    flushActivity();
+    items.push({ type: "message", message });
+  }
+
+  flushActivity();
+  return items;
 }
 
 function buildTimelineItems(messages: PiMessage[], t: (key: string) => string): TimelineItem[] {

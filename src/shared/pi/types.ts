@@ -154,14 +154,40 @@ export interface PiToolCall {
   durationMs?: number;
   summary: string;
   output?: string;
+  args?: Record<string, unknown>;
+  details?: Record<string, unknown>;
+  isError?: boolean;
   safety?: DangerousAction;
 }
 
+export type PiMessageRole = "user" | "assistant" | "system" | "toolResult" | "bashExecution" | "custom" | "branchSummary" | "compactionSummary";
+
+export type PiMessageContentBlock =
+  | { type: "text"; text: string }
+  | { type: "thinking"; thinking: string; redacted?: boolean }
+  | { type: "image"; data?: string; mimeType?: string; url?: string; alt?: string }
+  | { type: "toolCall"; id?: string; name: string; arguments?: Record<string, unknown> }
+  | { type: "unknown"; label: string; value?: unknown };
+
 export interface PiMessage {
   id: string;
-  role: "user" | "assistant" | "system";
+  role: PiMessageRole;
   content: string;
   createdAt: string;
+  contentBlocks?: PiMessageContentBlock[];
+  toolArgs?: Record<string, unknown>;
+  toolDetails?: Record<string, unknown>;
+  stopReason?: "stop" | "length" | "toolUse" | "error" | "aborted" | string;
+  errorMessage?: string;
+  customType?: string;
+  tokensBefore?: number;
+  toolName?: string;
+  toolCallId?: string;
+  isError?: boolean;
+  cancelled?: boolean;
+  truncated?: boolean;
+  fullOutputPath?: string;
+  excludeFromContext?: boolean;
   tools?: PiToolCall[];
 }
 

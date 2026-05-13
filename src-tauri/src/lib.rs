@@ -42,6 +42,16 @@ fn app_info() -> serde_json::Value {
 }
 
 #[tauri::command]
+fn app_restart(app: AppHandle) -> RpcResult<()> {
+    let exe = std::env::current_exe().map_err(|error| format!("failed to resolve current executable: {error}"))?;
+    Command::new(exe)
+        .spawn()
+        .map_err(|error| format!("failed to restart app: {error}"))?;
+    app.exit(0);
+    Ok(())
+}
+
+#[tauri::command]
 fn pi_models_json_read() -> RpcResult<serde_json::Value> {
     let path = pi_models_json_path()?;
     let content = if path.exists() {
@@ -407,20 +417,56 @@ fn pi_list_sessions(cwd: String) -> RpcResult<Vec<serde_json::Value>> {
 }
 
 #[tauri::command]
+
+fn find_tool_call_arguments_by_id(content: &serde_json::Value, tool_call_id: Option<&str>) -> serde_json::Value {
+    let Some(blocks) = content.as_array() else {
+        return serde_json::Value::Null;
+    };
+    blocks
+        .iter()
+        .find(|block| {
+            block.get("type").and_then(|item| item.as_str()) == Some("toolCall")
+                && tool_call_id.map(|id| block.get("id").and_then(|item| item.as_str()) == Some(id)).unwrap_or(true)
+        })
+        .and_then(|block| block.get("arguments"))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null)
+}
+
+fn find_assistant_tool_args(messages: &[serde_json::Value], parent_id: Option<&str>, tool_call_id: Option<&str>) -> serde_json::Value {
+    let Some(parent_id) = parent_id else {
+        return serde_json::Value::Null;
+    };
+    messages
+        .iter()
+        .rev()
+        .find(|entry| entry.get("id").and_then(|item| item.as_str()) == Some(parent_id))
+        .and_then(|entry| entry.get("message"))
+        .and_then(|message| message.get("content"))
+        .map(|content| find_tool_call_arguments_by_id(content, tool_call_id))
+        .unwrap_or(serde_json::Value::Null)
+}
+
+#[tauri::command]
 fn pi_read_session_messages(session_path: String) -> RpcResult<Vec<serde_json::Value>> {
     let path = safe_session_path(&session_path)?;
     let file = fs::File::open(&path).map_err(|error| format!("failed to open session file: {error}"))?;
     let reader = BufReader::new(file);
-    let mut messages = Vec::new();
+    let mut entries = Vec::new();
 
     for line in reader.lines().map_while(Result::ok) {
         let value = match serde_json::from_str::<serde_json::Value>(&line) {
             Ok(value) => value,
             Err(_) => continue,
         };
-        if value.get("type").and_then(|item| item.as_str()) != Some("message") {
-            continue;
+        if value.get("type").and_then(|item| item.as_str()) == Some("message") {
+            entries.push(value);
         }
+    }
+
+    let mut messages = Vec::new();
+
+    for value in &entries {
         let message = match value.get("message") {
             Some(message) => message,
             None => continue,
@@ -429,10 +475,20 @@ fn pi_read_session_messages(session_path: String) -> RpcResult<Vec<serde_json::V
             Some("user") => "user",
             Some("assistant") => "assistant",
             Some("system") => "system",
+            Some("toolResult") => "toolResult",
+            Some("bashExecution") => "bashExecution",
+            Some("custom") => "custom",
+            Some("branchSummary") => "branchSummary",
+            Some("compactionSummary") => "compactionSummary",
             _ => continue,
         };
-        let content = extract_session_text(message.get("content")).unwrap_or_default();
-        if role == "assistant" && content.trim().is_empty() {
+        let content = match role {
+            "branchSummary" => message.get("summary").and_then(|item| item.as_str()).map(str::to_string).unwrap_or_default(),
+            "compactionSummary" => message.get("summary").and_then(|item| item.as_str()).map(str::to_string).unwrap_or_default(),
+            "bashExecution" => message.get("output").and_then(|item| item.as_str()).map(str::to_string).unwrap_or_default(),
+            _ => extract_session_text(message.get("content")).unwrap_or_default(),
+        };
+        if role == "assistant" && content.trim().is_empty() && message.get("content").and_then(|item| item.as_array()).map(|items| items.is_empty()).unwrap_or(true) {
             continue;
         }
         let id = value
@@ -446,11 +502,32 @@ fn pi_read_session_messages(session_path: String) -> RpcResult<Vec<serde_json::V
             .and_then(|item| item.as_str())
             .map(str::to_string)
             .unwrap_or_else(|| "--:--".to_string());
+        let tool_call_id = message.get("toolCallId").and_then(|item| item.as_str());
+        let parent_id = value.get("parentId").and_then(|item| item.as_str());
+        let tool_args = if role == "toolResult" {
+            find_assistant_tool_args(&entries, parent_id, tool_call_id)
+        } else {
+            serde_json::Value::Null
+        };
         messages.push(serde_json::json!({
             "id": id,
             "role": role,
             "content": content,
-            "createdAt": created_at
+            "contentBlocks": message.get("content").cloned().unwrap_or(serde_json::Value::Null),
+            "toolArgs": tool_args,
+            "toolDetails": message.get("details").cloned().unwrap_or(serde_json::Value::Null),
+            "createdAt": created_at,
+            "stopReason": message.get("stopReason").cloned().unwrap_or(serde_json::Value::Null),
+            "errorMessage": message.get("errorMessage").cloned().unwrap_or(serde_json::Value::Null),
+            "customType": message.get("customType").cloned().unwrap_or(serde_json::Value::Null),
+            "tokensBefore": message.get("tokensBefore").cloned().unwrap_or(serde_json::Value::Null),
+            "toolName": message.get("toolName").cloned().unwrap_or(serde_json::Value::Null),
+            "toolCallId": message.get("toolCallId").cloned().unwrap_or(serde_json::Value::Null),
+            "isError": message.get("isError").cloned().unwrap_or(serde_json::Value::Null),
+            "cancelled": message.get("cancelled").cloned().unwrap_or(serde_json::Value::Null),
+            "truncated": message.get("truncated").cloned().unwrap_or(serde_json::Value::Null),
+            "fullOutputPath": message.get("fullOutputPath").cloned().unwrap_or(serde_json::Value::Null),
+            "excludeFromContext": message.get("excludeFromContext").cloned().unwrap_or(serde_json::Value::Null)
         }));
     }
 
@@ -1515,6 +1592,7 @@ pub fn run() {
         .manage(SdkSidecarState::default())
         .invoke_handler(tauri::generate_handler![
             app_info,
+            app_restart,
             pi_models_json_read,
             pi_models_json_write,
             pi_fetch_provider_models,
