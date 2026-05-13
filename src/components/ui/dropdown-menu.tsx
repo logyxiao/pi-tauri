@@ -18,7 +18,7 @@ export function DropdownMenuContent({ children, className, align = "end" }: Drop
         align={align}
         sideOffset={8}
         className={cn(
-          "z-50 min-w-44 rounded-md border border-border bg-popover/95 p-1.5 text-sm text-popover-foreground shadow-xl backdrop-blur-[1px]",
+          "z-50 min-w-44 rounded-none border border-border bg-popover/95 p-1.5 text-sm text-popover-foreground shadow-xl backdrop-blur-[1px]",
           className,
         )}
       >
@@ -39,7 +39,7 @@ export function DropdownMenuItem({ children, className, onSelect }: DropdownMenu
     <DropdownMenuPrimitive.Item
       onSelect={onSelect}
       className={cn(
-        "flex cursor-default select-none items-center gap-2 rounded-sm px-3 py-2 font-mono text-xs outline-none transition hover:bg-muted focus:bg-muted",
+        "flex cursor-default select-none items-center gap-2 rounded-none px-3 py-2 font-mono text-xs outline-none transition hover:bg-muted focus:bg-muted",
         className,
       )}
     >

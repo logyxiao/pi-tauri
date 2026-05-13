@@ -9,7 +9,7 @@ export function LoadingPanel({ label }: LoadingPanelProps) {
   const { t } = useI18n();
 
   return (
-    <div className="rounded-md border border-border bg-surface/70 p-4 text-sm text-muted-foreground">
+    <div className="rounded-none border border-border bg-surface/70 p-4 text-sm text-muted-foreground">
       <div className="flex items-center gap-2 font-mono text-xs uppercase tracking-[0.14em]">
         <Loader2 size={14} className="animate-spin text-primary" /> {label ?? t("loading.connecting")}
       </div>

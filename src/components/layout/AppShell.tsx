@@ -19,8 +19,6 @@ export function AppShell() {
     messages,
     state,
     stats,
-    sessionTree,
-    forkMessages,
     sessions,
     workspacePaths,
     models,
@@ -40,13 +38,9 @@ export function AppShell() {
     isRefreshing,
     isRunning,
     prompt,
-    abort,
     switchSession,
     deleteSession,
     openWorkspaceFolder,
-    forkSession,
-    cloneSession,
-    setSessionEntryLabel,
     updateSettings,
     executeCommand,
     recordSafetyEvent,
@@ -90,6 +84,8 @@ export function AppShell() {
             inspectorOpen={inspectorOpen}
             messages={messages}
             state={state}
+            stats={stats}
+            settings={settings}
             models={models}
             commands={commands}
             prefillInput={prefillInput}
@@ -99,7 +95,6 @@ export function AppShell() {
             isRefreshing={isRefreshing}
             isRunning={isRunning}
             onPrompt={prompt}
-            onAbort={abort}
             onRefresh={refresh}
             onClearError={clearError}
             onUpdateSettings={updateSettings}
@@ -115,8 +110,6 @@ export function AppShell() {
                 messages={messages}
                 state={state}
                 stats={stats}
-                sessionTree={sessionTree}
-                forkMessages={forkMessages}
                 settings={settings}
                 commands={commands}
                 extensionPanels={extensionPanels}
@@ -128,11 +121,7 @@ export function AppShell() {
                 filePreview={filePreview}
                 selectedFilePath={selectedFilePath}
                 error={error}
-                status={status}
                 onSelectFile={selectFile}
-                onForkSession={forkSession}
-                onCloneSession={cloneSession}
-                onSetSessionEntryLabel={setSessionEntryLabel}
                 onRetry={refresh}
               />
             ) : null}

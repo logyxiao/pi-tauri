@@ -144,7 +144,7 @@ export function LeftSidebar({
                 <div
                   key={group.cwd}
                   className={cn(
-                    "rounded-lg border transition",
+                    "rounded-none border transition",
                     selectedProject ? "border-primary/30 bg-surface/70" : "border-transparent hover:border-border hover:bg-surface/45",
                   )}
                 >
@@ -157,7 +157,7 @@ export function LeftSidebar({
                         {group.cwd}
                       </div>
                     </div>
-                    <div className="rounded-full border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground">
+                    <div className="rounded-none border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground">
                       {group.sessions.length}
                     </div>
                   </button>
@@ -184,7 +184,7 @@ export function LeftSidebar({
               );
             })
           ) : (
-            <div className={collapsed ? "px-0" : "rounded-lg border border-border bg-surface/60 p-3 text-xs text-muted-foreground"}>
+            <div className={collapsed ? "px-0" : "rounded-none border border-border bg-surface/60 p-3 text-xs text-muted-foreground"}>
               {!collapsed ? t("sidebar.openFolderEmpty") : null}
             </div>
           )}
@@ -213,8 +213,8 @@ function SessionRow({
   return (
     <div
       className={cn(
-        "group rounded-md border transition",
-        selected ? "border-primary/35 bg-card shadow-[inset_2px_0_0_var(--primary)]" : "border-transparent hover:border-border hover:bg-card/80",
+        "group rounded-none border transition",
+        selected ? "border-primary/35 bg-card" : "border-transparent hover:border-border hover:bg-card/80",
       )}
     >
       <div className="flex items-center gap-1 pr-1">
@@ -264,8 +264,8 @@ function CollapsedProjectGroup({
       <TooltipTrigger asChild>
         <button
           className={cn(
-            "flex size-10 items-center justify-center rounded-md border transition",
-            selected ? "border-primary/45 bg-surface/70 shadow-[inset_2px_0_0_var(--primary)]" : "border-transparent hover:bg-surface/70",
+            "flex size-10 items-center justify-center rounded-none border transition",
+            selected ? "border-primary/45 bg-surface/70" : "border-transparent hover:bg-surface/70",
           )}
           disabled={!switchTarget}
           onClick={() => switchTarget && void onSwitchSession(switchTarget)}

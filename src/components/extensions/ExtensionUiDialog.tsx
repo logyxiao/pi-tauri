@@ -57,7 +57,7 @@ export function ExtensionUiDialog({ request, onRespond }: ExtensionUiDialogProps
         className="w-[min(92vw,520px)]"
       >
         <div className="space-y-4">
-          <div className="rounded-2xl border border-border bg-background/60 p-3 text-xs text-muted-foreground">
+          <div className="rounded-none border border-border bg-background/60 p-3 text-xs text-muted-foreground">
             <div className="flex justify-between gap-3">
               <span>{t("extension.method")}</span>
               <span className="font-mono text-foreground">{request.method}</span>
@@ -71,7 +71,7 @@ export function ExtensionUiDialog({ request, onRespond }: ExtensionUiDialogProps
             {request.timeoutMs ? <div className="mt-2">{t("extension.timeout", { ms: request.timeoutMs })}</div> : null}
           </div>
 
-          {error ? <div className="rounded-xl border border-danger/20 bg-danger/5 p-3 text-xs text-danger">{error}</div> : null}
+          {error ? <div className="rounded-none border border-danger/20 bg-danger/5 p-3 text-xs text-danger">{error}</div> : null}
 
           {request.method === "confirm" ? (
             <div className="flex justify-end gap-2">
@@ -87,14 +87,14 @@ export function ExtensionUiDialog({ request, onRespond }: ExtensionUiDialogProps
                   <button
                     key={option}
                     disabled={busy}
-                    className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-left text-sm transition hover:border-primary/40 hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+                    className="w-full rounded-none border border-border bg-surface px-3 py-2 text-left text-sm transition hover:border-primary/40 hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
                     onClick={() => submit(option)}
                   >
                     {option}
                   </button>
                 ))
               ) : (
-                <div className="rounded-xl bg-surface p-3 text-xs text-muted-foreground">{t("extension.noOptions")}</div>
+                <div className="rounded-none bg-surface p-3 text-xs text-muted-foreground">{t("extension.noOptions")}</div>
               )}
             </div>
           ) : null}
@@ -107,7 +107,7 @@ export function ExtensionUiDialog({ request, onRespond }: ExtensionUiDialogProps
                 disabled={busy}
                 value={value}
                 placeholder={request.placeholder}
-                className="h-10 w-full rounded-xl border border-border bg-surface px-3 text-sm text-foreground outline-none transition focus:border-primary disabled:opacity-60"
+                className="h-10 w-full rounded-none border border-border bg-surface px-3 text-sm text-foreground outline-none transition focus:border-primary disabled:opacity-60"
                 onChange={(event) => setValue(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") submit();
@@ -124,7 +124,7 @@ export function ExtensionUiDialog({ request, onRespond }: ExtensionUiDialogProps
                 disabled={busy}
                 value={value}
                 placeholder={request.placeholder}
-                className="min-h-48 w-full resize-y rounded-xl border border-border bg-surface p-3 font-mono text-sm text-foreground outline-none transition focus:border-primary disabled:opacity-60"
+                className="min-h-48 w-full resize-y rounded-none border border-border bg-surface p-3 font-mono text-sm text-foreground outline-none transition focus:border-primary disabled:opacity-60"
                 onChange={(event) => setValue(event.target.value)}
               />
             </label>

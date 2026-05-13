@@ -36,7 +36,7 @@
   --ring: oklch(0.48 0.075 255 / 0.34);
   --grid-major: oklch(0.52 0.02 250 / 0.16);
   --grid-minor: oklch(0.52 0.02 250 / 0.08);
-  --radius: 0.4rem;
+  --radius: 0;
 }
 
 .dark {
@@ -69,6 +69,7 @@
 }
 
 * { box-sizing: border-box; }
+*, *::before, *::after { border-radius: 0 !important; }
 html, body, #root { width: 100%; height: 100%; margin: 0; }
 body { overflow: hidden; }
 button, textarea, input { font: inherit; }
@@ -90,7 +91,7 @@ button, textarea, input { font: inherit; }
 *::-webkit-scrollbar-thumb {
   min-height: 40px;
   border: 3px solid transparent;
-  border-radius: 999px;
+  border-radius: 0;
   background-color: oklch(0.52 0.02 250 / 0.22);
   background-clip: content-box;
 }
@@ -113,6 +114,47 @@ button, textarea, input { font: inherit; }
 
 .dark *::-webkit-scrollbar-thumb:hover {
   background-color: oklch(0.72 0.065 250 / 0.34);
+}
+
+.settings-panel-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.52 0.02 250 / 0.34) transparent;
+}
+
+.settings-panel-scrollbar::-webkit-scrollbar {
+  width: 10px;
+}
+
+.settings-panel-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.settings-panel-scrollbar::-webkit-scrollbar-thumb {
+  min-height: 40px;
+  border: 3px solid transparent;
+  border-radius: 0;
+  background-color: oklch(0.52 0.02 250 / 0.26);
+  background-clip: content-box;
+}
+
+.settings-panel-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: oklch(0.48 0.075 255 / 0.38);
+}
+
+.message-list-scrollbar {
+  scrollbar-width: none;
+  scrollbar-gutter: auto;
+}
+
+.message-list-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.message-list-scrollbar::-webkit-scrollbar-track,
+.message-list-scrollbar::-webkit-scrollbar-thumb,
+.message-list-scrollbar::-webkit-scrollbar-corner {
+  display: none;
 }
 
 .pi-grid-bg {
@@ -155,8 +197,8 @@ button, textarea, input { font: inherit; }
   --color-ring: var(--ring);
   --color-grid-major: var(--grid-major);
   --color-grid-minor: var(--grid-minor);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
 }

@@ -15,7 +15,7 @@ export function WindowTitlebar() {
       }}
     >
       <div className="flex min-w-0 items-center gap-2 px-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-        <span className="size-2 rounded-full bg-primary/70" />
+        <span className="size-2 rounded-none bg-primary/70" />
         <span className="truncate">Pi Desktop</span>
         <span className="hidden font-mono text-[10px] font-normal lowercase tracking-[0.12em] sm:inline">
           / {t("app.titlebar.subtitle")}
@@ -62,8 +62,8 @@ function TitlebarButton({
       title={label}
       className={
         danger
-          ? "inline-flex size-7 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-danger/12 hover:text-danger"
-          : "inline-flex size-7 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
+          ? "inline-flex size-7 items-center justify-center rounded-none text-muted-foreground transition hover:bg-danger/12 hover:text-danger"
+          : "inline-flex size-7 items-center justify-center rounded-none text-muted-foreground transition hover:bg-muted hover:text-foreground"
       }
       onClick={() => void onClick()}
     >

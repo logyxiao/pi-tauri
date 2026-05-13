@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Brain, Check, ChevronDown, Search } from "lucide-react";
+import { Check, ChevronDown, Search } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useI18n } from "@/shared/i18n";
 import { demoModels, demoPiState } from "@/shared/pi/mock-data";
@@ -9,9 +9,10 @@ interface ModelSelectorProps {
   state: PiState | null;
   models: PiModel[];
   onModelChange: (model: PiModel) => Promise<void> | void;
+  compact?: boolean;
 }
 
-export function ModelSelector({ state, models, onModelChange }: ModelSelectorProps) {
+export function ModelSelector({ state, models, onModelChange, compact = false }: ModelSelectorProps) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
   const current = state ?? demoPiState;
@@ -22,11 +23,14 @@ export function ModelSelector({ state, models, onModelChange }: ModelSelectorPro
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex max-w-64 items-center gap-2 rounded-md border border-border bg-surface/70 px-3 py-2 font-mono text-xs font-semibold uppercase tracking-[0.14em] transition hover:bg-muted">
-          <Brain size={15} className="shrink-0 text-primary" />
-          <span className="truncate">{current.model}</span>
-          <span className="border border-border bg-muted/70 px-2 py-0.5 text-[10px] text-muted-foreground">{current.thinkingLevel}</span>
-          <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
+        <button
+          className={compact
+            ? "flex max-w-44 items-center gap-1 px-1 py-1 font-mono text-[9px] leading-none text-muted-foreground transition hover:text-primary"
+            : "flex max-w-64 items-center gap-2 rounded-none border border-border bg-surface/70 px-3 py-2 font-mono text-xs font-semibold uppercase tracking-[0.14em] transition hover:bg-muted"}
+          aria-label={t("model.title")}
+        >
+          <span className="min-w-0 max-w-28 truncate  text-[10px]" >{current.model}</span>
+          <ChevronDown size={compact ? 12 : 14} className="shrink-0 text-muted-foreground" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="max-h-[32rem] w-80 overflow-auto" align="end">
@@ -34,7 +38,7 @@ export function ModelSelector({ state, models, onModelChange }: ModelSelectorPro
           {t("model.title")}
         </div>
         <div className="px-2 pb-2" onKeyDown={(event) => event.stopPropagation()}>
-          <label className="flex h-9 items-center gap-2 rounded-md border border-border bg-surface/80 px-2 text-muted-foreground">
+          <label className="flex h-9 items-center gap-2 rounded-none border border-border bg-surface/80 px-2 text-muted-foreground">
             <Search size={13} />
             <input
               value={query}
@@ -70,7 +74,7 @@ export function ModelSelector({ state, models, onModelChange }: ModelSelectorPro
             </div>
           ))
         ) : (
-          <div className="rounded-md bg-surface p-3 text-xs text-muted-foreground">{t("model.noMatch")}</div>
+          <div className="rounded-none bg-surface p-3 text-xs text-muted-foreground">{t("model.noMatch")}</div>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

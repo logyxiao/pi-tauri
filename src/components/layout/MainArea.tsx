@@ -1,17 +1,18 @@
-import { GitBranch, Loader2, PanelRight, PanelRightOpen, Zap } from "lucide-react";
+import { GitBranch, Loader2 } from "lucide-react";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { MessageList } from "@/components/chat/MessageList";
-import { ModelSelector } from "@/components/model/ModelSelector";
 import { ErrorBanner } from "@/components/status/ErrorBanner";
-import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useI18n } from "@/shared/i18n";
-import type { PiCommand, PiMessage, PiModel, PiSafetyEvent, PiSettingsUpdate, PiState, PiToolCall } from "@/shared/pi/types";
+import { cn } from "@/shared/lib/cn";
+import type { PiCommand, PiMessage, PiModel, PiSafetyEvent, PiSessionStats, PiSettings, PiSettingsUpdate, PiState, PiToolCall } from "@/shared/pi/types";
 
 interface MainAreaProps {
   inspectorOpen: boolean;
   messages: PiMessage[];
   state: PiState | null;
+  stats: PiSessionStats | null;
+  settings: PiSettings | null;
   models: PiModel[];
   commands: PiCommand[];
   prefillInput: string;
@@ -21,7 +22,6 @@ interface MainAreaProps {
   isRefreshing: boolean;
   isRunning: boolean;
   onPrompt: (message: string) => Promise<void> | void;
-  onAbort: () => Promise<void> | void;
   onRefresh: () => Promise<void> | void;
   onClearError: () => void;
   onUpdateSettings: (update: PiSettingsUpdate) => Promise<void> | void;
@@ -36,6 +36,8 @@ export function MainArea({
   inspectorOpen,
   messages,
   state,
+  stats,
+  settings,
   models,
   commands,
   prefillInput,
@@ -45,7 +47,6 @@ export function MainArea({
   isRefreshing,
   isRunning,
   onPrompt,
-  onAbort,
   onRefresh,
   onClearError,
   onUpdateSettings,
@@ -59,36 +60,32 @@ export function MainArea({
 
   return (
     <main className="flex min-w-0 flex-1 flex-col bg-transparent">
-      <header className="flex h-auto min-h-16 shrink-0 flex-col gap-3 border-b border-border bg-surface/55 px-4 py-3 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
+      <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border bg-surface/45 px-4 sm:px-5">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
-            <span>{t("main.title")}</span>
-            <span className="rounded-sm border border-border bg-primary/10 px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-primary">
+          <div className="flex items-center gap-2 text-xs font-semibold">
+            <span className="truncate">{t("main.title")}</span>
+            <span className="rounded-none bg-primary/10 px-1.5 py-0.5 font-mono text-[9px] font-medium uppercase tracking-[0.12em] text-primary">
               {status}
             </span>
-            {isRefreshing ? <Loader2 size={13} className="animate-spin text-primary" /> : null}
+            {isRefreshing ? <Loader2 size={11} className="animate-spin text-primary" /> : null}
           </div>
-          <div className="mt-1 truncate text-xs text-muted-foreground">cwd: {state?.cwd ?? t("main.cwdWaiting")}</div>
+          <div className="mt-0.5 max-w-[52vw] truncate font-mono text-[10px] text-muted-foreground">{state?.cwd ?? t("main.cwdWaiting")}</div>
         </div>
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <Button size="sm" variant="ghost">
-            <GitBranch size={15} /> {t("main.fork")}
-          </Button>
-          <Button size="sm" variant="ghost">
-            <Zap size={15} /> {t("main.compact")}
-          </Button>
-          <ModelSelector
-            state={state}
-            models={models}
-            onModelChange={(model) => onUpdateSettings({ model: model.id, provider: model.provider })}
-          />
+        <div className="flex shrink-0 items-center gap-1">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button size="icon" variant="ghost" aria-label={t("main.toggleInspector")} onClick={onToggleInspector}>
-                {inspectorOpen ? <PanelRight size={17} /> : <PanelRightOpen size={17} />}
-              </Button>
+              <button
+                className={cn(
+                  "inline-flex size-8 items-center justify-center transition hover:text-primary",
+                  inspectorOpen ? "text-primary" : "text-muted-foreground",
+                )}
+                aria-label={t("main.toggleGit")}
+                onClick={onToggleInspector}
+              >
+                <GitBranch size={17} />
+              </button>
             </TooltipTrigger>
-            <TooltipContent>{inspectorOpen ? t("main.hideInspector") : t("main.showInspector")}</TooltipContent>
+            <TooltipContent>{inspectorOpen ? t("main.hideGit") : t("main.showGit")}</TooltipContent>
           </Tooltip>
         </div>
       </header>
@@ -97,18 +94,25 @@ export function MainArea({
 
       <MessageList messages={messages} isConnecting={isConnecting} isRefreshing={isRefreshing} onSelectTool={onSelectTool} />
 
-      <div className="mx-auto w-full max-w-3xl shrink-0 px-3 pb-4 sm:px-6 sm:pb-6">
-        <ChatInput
-          isRunning={isRunning}
-          commands={commands}
-          prefillValue={prefillInput}
-          disabled={isConnecting}
-          onSubmit={onPrompt}
-          onAbort={onAbort}
-          onExecuteCommand={onExecuteCommand}
-          onRecordSafetyEvent={onRecordSafetyEvent}
-          onConsumePrefill={onConsumePrefill}
-        />
+      <div className="shrink-0 bg-gradient-to-t from-background via-background/95 to-background/0 px-3 pb-4 pt-5 sm:px-6 sm:pb-6">
+        <div className="mx-auto w-full max-w-4xl">
+          <ChatInput
+            isRunning={isRunning}
+            commands={commands}
+            state={state}
+            stats={stats}
+            settings={settings}
+            models={models}
+            status={status}
+            prefillValue={prefillInput}
+            disabled={isConnecting}
+            onSubmit={onPrompt}
+            onModelChange={(model) => onUpdateSettings({ model: model.id, provider: model.provider })}
+            onExecuteCommand={onExecuteCommand}
+            onRecordSafetyEvent={onRecordSafetyEvent}
+            onConsumePrefill={onConsumePrefill}
+          />
+        </div>
       </div>
     </main>
   );

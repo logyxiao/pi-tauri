@@ -1,19 +1,25 @@
-import { useMemo, useState } from "react";
-import { ArrowUp, AtSign, Image, Square } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { ArrowUp, AtSign, BarChart3, Image } from "lucide-react";
 import { CommandPalette } from "@/components/chat/CommandPalette";
+import { ModelSelector } from "@/components/model/ModelSelector";
 import { SafetyConfirmDialog } from "@/components/safety/SafetyConfirmDialog";
-import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useI18n } from "@/shared/i18n";
 import { createSafetyEvent, detectDangerousCommand } from "@/shared/pi/safety";
-import type { PiCommand, PiSafetyEvent } from "@/shared/pi/types";
+import type { PiCommand, PiModel, PiSafetyEvent, PiSessionStats, PiSettings, PiState } from "@/shared/pi/types";
 
 interface ChatInputProps {
   isRunning: boolean;
   commands: PiCommand[];
+  state: PiState | null;
+  stats: PiSessionStats | null;
+  settings: PiSettings | null;
+  models: PiModel[];
+  status: string;
   prefillValue?: string;
   disabled?: boolean;
   onSubmit: (message: string) => Promise<void> | void;
-  onAbort: () => Promise<void> | void;
+  onModelChange: (model: PiModel) => Promise<void> | void;
   onExecuteCommand: (commandName: string, safetyEvent?: PiSafetyEvent) => Promise<void> | void;
   onRecordSafetyEvent: (event: PiSafetyEvent) => Promise<void> | void;
   onConsumePrefill: () => void;
@@ -22,10 +28,15 @@ interface ChatInputProps {
 export function ChatInput({
   isRunning,
   commands,
+  state,
+  stats,
+  settings,
+  models,
+  status,
   prefillValue,
   disabled = false,
   onSubmit,
-  onAbort,
+  onModelChange,
   onExecuteCommand,
   onRecordSafetyEvent,
   onConsumePrefill,
@@ -76,16 +87,16 @@ export function ChatInput({
   }
 
   return (
-    <div className="relative">
+    <div className="relative z-10">
       {commandQuery != null ? (
         <div className="absolute bottom-full left-0 right-0 z-20 mb-3 max-h-[min(20rem,45vh)] overflow-hidden">
           <CommandPalette commands={commands} query={commandQuery} selectedIndex={selectedIndex} onSelect={applyCommand} />
         </div>
       ) : null}
 
-      <div className="rounded-md border border-border bg-surface/80 p-3 shadow-[inset_2px_0_0_var(--primary),0_8px_28px_rgb(44_54_70/0.08)] backdrop-blur-[1px]">
+      <div className="rounded-none border border-border bg-surface/90 p-2.5 shadow-[0_12px_42px_rgb(44_54_70/0.10)] backdrop-blur-[2px] transition focus-within:border-primary/45 focus-within:bg-surface/95">
         <textarea
-          className="max-h-36 min-h-20 w-full resize-none bg-transparent px-2 py-1 font-mono text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          className="max-h-36 min-h-20 w-full resize-none bg-transparent px-2.5 py-2 font-mono text-[13px] leading-5 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
           placeholder={disabled ? t("chat.connecting") : t("chat.placeholder")}
           value={inputValue}
           disabled={disabled}
@@ -129,33 +140,36 @@ export function ChatInput({
             }
           }}
         />
-        <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2 border-t border-border/70 pt-2.5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-1.5">
-            <Button size="sm" variant="ghost" disabled={disabled}>
-              <AtSign size={15} /> {t("chat.file")}
-            </Button>
-            <Button size="sm" variant="ghost" disabled={disabled}>
-              <Image size={15} /> {t("chat.image")}
-            </Button>
-            <div className="border border-border bg-muted/70 px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground sm:ml-2">{t("chat.commandsHint")}</div>
-            <div className="border border-border bg-muted/70 px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{t("chat.newlineHint")}</div>
+            <IconHint label={t("chat.file")} disabled={disabled}>
+              <AtSign size={14} />
+            </IconHint>
+            <IconHint label={t("chat.image")} disabled={disabled}>
+              <Image size={14} />
+            </IconHint>
           </div>
-          <div className="flex items-center justify-end gap-2">
-            <Button size="sm" variant="secondary" disabled={!isRunning} onClick={() => void onAbort()}>
-              <Square size={13} /> {t("chat.abort")}
-            </Button>
-            <Button
-              size="icon"
-              variant="primary"
-              aria-label={t("chat.send")}
-              disabled={!inputValue.trim() || isRunning || disabled}
-              onClick={() => void submit()}
-            >
-              <ArrowUp size={17} />
-            </Button>
+          <div className="flex items-center justify-end gap-1.5">
+            <ModelSelector state={state} models={models} compact onModelChange={onModelChange} />
+            <StatsTooltip state={state} stats={stats} settings={settings} status={status} />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex size-8 items-center justify-center text-primary transition hover:text-primary/80 disabled:cursor-not-allowed disabled:text-muted-foreground/45"
+                  aria-label={t("chat.send")}
+                  disabled={!inputValue.trim() || isRunning || disabled}
+                  onClick={() => void submit()}
+                >
+                  <ArrowUp size={17} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("chat.send")}</TooltipContent>
+            </Tooltip>
           </div>
         </div>
       </div>
+
 
       <SafetyConfirmDialog
         open={Boolean(pendingDangerousCommand)}
@@ -185,5 +199,61 @@ export function ChatInput({
         }}
       />
     </div>
+  );
+}
+
+
+function IconHint({ label, disabled, children }: { label: string; disabled?: boolean; children: ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex size-8 items-center justify-center text-muted-foreground transition hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={disabled}
+          aria-label={label}
+        >
+          {children}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function StatsTooltip({ state, stats, settings, status }: { state: PiState | null; stats: PiSessionStats | null; settings: PiSettings | null; status: string }) {
+  const { t } = useI18n();
+  const rows = [
+    [t("composerStats.run"), state?.runState ?? status],
+    [t("composerStats.context"), stats?.contextPercent == null ? "n/a" : `${stats.contextPercent.toFixed(1)}%`],
+    [t("composerStats.tokens"), (stats?.totalTokens ?? state?.tokenCount ?? 0).toLocaleString()],
+    [t("composerStats.cost"), `$${(stats?.costUsd ?? state?.costUsd ?? 0).toFixed(4)}`],
+    [t("composerStats.model"), settings?.model ?? state?.model ?? t("common.unknown")],
+    [t("composerStats.thinking"), settings?.thinkingLevel ?? state?.thinkingLevel ?? "off"],
+  ];
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex size-8 items-center justify-center text-muted-foreground transition hover:text-primary"
+          aria-label={t("composerStats.label")}
+        >
+          <BarChart3 size={15} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="w-64 p-3">
+        <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{t("composerStats.label")}</div>
+        <div className="space-y-1.5">
+          {rows.map(([label, value]) => (
+            <div key={label} className="flex items-center justify-between gap-3 text-xs">
+              <span className="text-muted-foreground">{label}</span>
+              <span className="min-w-0 truncate font-mono text-foreground" title={value}>{value}</span>
+            </div>
+          ))}
+        </div>
+      </TooltipContent>
+    </Tooltip>
   );
 }

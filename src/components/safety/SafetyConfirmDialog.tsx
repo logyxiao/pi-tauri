@@ -22,16 +22,16 @@ export function SafetyConfirmDialog({ action, open, onOpenChange, onCancel, onCo
         description={t("safety.description")}
       >
         <div className="space-y-4">
-          <div className="rounded-2xl border border-danger/25 bg-danger/5 p-3 text-sm text-muted-foreground">
+          <div className="rounded-none border border-danger/25 bg-danger/5 p-3 text-sm text-muted-foreground">
             <div className="mb-2 flex items-center gap-2 font-semibold text-danger">
               <ShieldAlert size={16} /> {action?.kind ?? "danger"}: {action?.target ?? "unknown"}
             </div>
             <div>{action?.reason ?? t("safety.fallbackReason")}</div>
-            <div className="mt-3 inline-flex rounded-full bg-danger/10 px-2 py-0.5 font-mono text-[11px] uppercase tracking-[0.14em] text-danger">
+            <div className="mt-3 inline-flex rounded-none bg-danger/10 px-2 py-0.5 font-mono text-[11px] uppercase tracking-[0.14em] text-danger">
               {action?.severity ?? "high"} · {t("safety.confirmRequired")}
             </div>
           </div>
-          <div className="rounded-xl border border-border bg-muted/60 p-3 text-xs leading-5 text-muted-foreground">
+          <div className="rounded-none border border-border bg-muted/60 p-3 text-xs leading-5 text-muted-foreground">
             {t("safety.rpcNote")}
           </div>
           <div className="flex justify-end gap-2">

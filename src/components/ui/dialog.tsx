@@ -24,7 +24,7 @@ export function DialogContent({ title, description, children, className }: Dialo
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm" />
       <DialogPrimitive.Content
         className={cn(
-          "fixed left-1/2 top-1/2 z-50 w-[min(92vw,520px)] -translate-x-1/2 -translate-y-1/2 rounded-md border border-border bg-popover/95 p-5 text-popover-foreground shadow-2xl backdrop-blur-[1px] focus:outline-none",
+          "fixed left-1/2 top-1/2 z-50 w-[min(92vw,520px)] -translate-x-1/2 -translate-y-1/2 rounded-none border border-border bg-popover/95 p-5 text-popover-foreground shadow-2xl backdrop-blur-[1px] focus:outline-none",
           className,
         )}
       >
