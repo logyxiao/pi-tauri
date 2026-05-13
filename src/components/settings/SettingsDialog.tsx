@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { AppWindow, Brain, Code2, Folder, HardDrive, Loader2, Plus, RefreshCw, Repeat, Save, Settings, Trash2, Workflow } from "lucide-react";
+import { AlertTriangle, AppWindow, Brain, Code2, Command, Folder, HardDrive, Loader2, PanelTop, Plus, RefreshCw, Repeat, Save, Settings, ShieldAlert, Trash2, Workflow } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { ExtensionsPanel } from "@/components/extensions/ExtensionsPanel";
+import { SafetyPanel } from "@/components/safety/SafetyPanel";
 import { SearchableSelect, type SearchableSelectOption } from "@/components/ui/searchable-select";
 import { cn } from "@/shared/lib/cn";
 import { useI18n } from "@/shared/i18n";
-import type { PiDeliveryMode, PiModel, PiSettings, PiSettingsUpdate, PiState, PiThinkingLevel } from "@/shared/pi/types";
+import type { PiCommand, PiDeliveryMode, PiExtensionError, PiExtensionPanel, PiModel, PiSafetyEvent, PiSettings, PiSettingsUpdate, PiState, PiThinkingLevel } from "@/shared/pi/types";
 
 const thinkingLevels: PiThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
-type SettingsSection = "model" | "runtime" | "workspace" | "app";
+type SettingsSection = "model" | "runtime" | "workspace" | "commands" | "extensionPanels" | "extensionErrors" | "safety" | "app";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -16,6 +18,10 @@ interface SettingsDialogProps {
   state: PiState | null;
   settings: PiSettings | null;
   models: PiModel[];
+  commands: PiCommand[];
+  extensionPanels: PiExtensionPanel[];
+  extensionErrors: PiExtensionError[];
+  safetyEvents: PiSafetyEvent[];
   onUpdateSettings: (update: PiSettingsUpdate) => Promise<void> | void;
   onRefresh?: () => Promise<void> | void;
 }
@@ -56,6 +62,10 @@ export function SettingsDialog({
   state,
   settings,
   models,
+  commands,
+  extensionPanels,
+  extensionErrors,
+  safetyEvents,
   onUpdateSettings,
   onRefresh,
 }: SettingsDialogProps) {
@@ -80,6 +90,10 @@ export function SettingsDialog({
     { id: "model", icon: <Brain size={15} />, label: t("settings.navModel"), description: t("settings.navModelDesc") },
     { id: "runtime", icon: <Workflow size={15} />, label: t("settings.navRuntime"), description: t("settings.navRuntimeDesc") },
     { id: "workspace", icon: <Folder size={15} />, label: t("settings.navWorkspace"), description: t("settings.navWorkspaceDesc") },
+    { id: "commands", icon: <Command size={15} />, label: t("settings.navCommands"), description: t("settings.navCommandsDesc") },
+    { id: "extensionPanels", icon: <PanelTop size={15} />, label: t("settings.navExtensionPanels"), description: t("settings.navExtensionPanelsDesc") },
+    { id: "extensionErrors", icon: <AlertTriangle size={15} />, label: t("settings.navExtensionErrors"), description: t("settings.navExtensionErrorsDesc") },
+    { id: "safety", icon: <ShieldAlert size={15} />, label: t("settings.navSafety"), description: t("settings.navSafetyDesc") },
     { id: "app", icon: <AppWindow size={15} />, label: t("settings.navApp"), description: t("settings.navAppDesc") },
   ];
   const activeNav = navItems.find((item) => item.id === activeSection) ?? navItems[0];
@@ -467,6 +481,22 @@ export function SettingsDialog({
                 </div>
               ) : null}
 
+              {activeSection === "commands" ? (
+                <ExtensionsPanel commands={commands} extensionPanels={extensionPanels} extensionErrors={extensionErrors} sections={["commands"]} />
+              ) : null}
+
+              {activeSection === "extensionPanels" ? (
+                <ExtensionsPanel commands={commands} extensionPanels={extensionPanels} extensionErrors={extensionErrors} sections={["panels"]} />
+              ) : null}
+
+              {activeSection === "extensionErrors" ? (
+                <ExtensionsPanel commands={commands} extensionPanels={extensionPanels} extensionErrors={extensionErrors} sections={["errors"]} />
+              ) : null}
+
+              {activeSection === "safety" ? (
+                <SafetyPanel events={safetyEvents} />
+              ) : null}
+
               {activeSection === "app" ? (
                 <div className="space-y-4">
                   <section className="grid gap-3 sm:grid-cols-2">
@@ -489,6 +519,10 @@ function sectionDescription(section: SettingsSection, t: (key: string) => string
   if (section === "model") return t("settings.sectionModelDesc");
   if (section === "runtime") return t("settings.sectionRuntimeDesc");
   if (section === "workspace") return t("settings.sectionWorkspaceDesc");
+  if (section === "commands") return t("settings.sectionCommandsDesc");
+  if (section === "extensionPanels") return t("settings.sectionExtensionPanelsDesc");
+  if (section === "extensionErrors") return t("settings.sectionExtensionErrorsDesc");
+  if (section === "safety") return t("settings.sectionSafetyDesc");
   return t("settings.sectionAppDesc");
 }
 

@@ -16,8 +16,6 @@ export function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [selectedTool, setSelectedTool] = useState<PiToolCall | null>(null);
-  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const {
     messages,
     state,
@@ -28,12 +26,9 @@ export function AppShell() {
     settings,
     commands,
     extensionPanels,
-    extensionMessages,
     pendingExtensionUi,
     extensionErrors,
     safetyEvents,
-    files,
-    filePreview,
     prefillInput,
     status,
     error,
@@ -61,15 +56,8 @@ export function AppShell() {
   } = usePiSession();
 
   function selectTool(tool: PiToolCall) {
-    setSelectedTool(tool);
     setInspectorOpen(true);
-    if (isPreviewableToolTarget(tool.target)) void selectFile(tool.target);
-  }
-
-  async function selectFile(path: string) {
-    setSelectedFilePath(path);
-    setInspectorOpen(true);
-    await previewFile(path);
+    if (isPreviewableToolTarget(tool.target)) void previewFile(tool.target);
   }
 
   return (
@@ -121,21 +109,8 @@ export function AppShell() {
           />
             {inspectorOpen ? (
               <RightInspector
-                selectedTool={selectedTool}
-                messages={messages}
                 state={state}
                 settings={settings}
-                commands={commands}
-                extensionPanels={extensionPanels}
-                extensionMessages={extensionMessages}
-                pendingExtensionUi={pendingExtensionUi}
-                extensionErrors={extensionErrors}
-                safetyEvents={safetyEvents}
-                files={files}
-                filePreview={filePreview}
-                selectedFilePath={selectedFilePath}
-                error={error}
-                onSelectFile={selectFile}
                 onRetry={refresh}
               />
             ) : null}
@@ -149,6 +124,10 @@ export function AppShell() {
         state={state}
         settings={settings}
         models={models}
+        commands={commands}
+        extensionPanels={extensionPanels}
+        extensionErrors={extensionErrors}
+        safetyEvents={safetyEvents}
         onUpdateSettings={updateSettings}
         onRefresh={refresh}
       />

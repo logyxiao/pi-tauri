@@ -141,7 +141,7 @@ export function GitManagementPanel({ cwd, onRefresh }: GitManagementPanelProps) 
   }
 
   return (
-    <section className="flex min-h-[calc(100vh-5rem)] flex-col bg-background/40 text-xs">
+    <section className="flex h-full min-h-0 flex-col bg-sidebar/70 text-xs">
       <header className="flex h-8 shrink-0 items-center justify-between border-b border-border px-2">
         <div className="flex min-w-0 items-center gap-1.5 font-semibold uppercase tracking-[0.12em] text-muted-foreground">
           <ChevronDown size={13} />
