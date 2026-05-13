@@ -83,7 +83,7 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
   }
 
   return (
-    <div className="relative min-h-0 flex-1">
+    <div className="relative z-30 min-h-0 flex-1">
       <div
         ref={scrollRef}
         className="message-list-scrollbar h-full overflow-y-auto overflow-x-hidden px-3 py-4 pr-9 sm:px-5 sm:py-6 sm:pr-12"
@@ -267,6 +267,7 @@ function MessageTimeline({ items, activeId, onJump }: { items: TimelineItem[]; a
       <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-border/80" />
       {items.map((item, index) => {
         const nearbyItems = getNearbyTimelineItems(items, index, 7);
+        const hoveredNearbyIndex = Math.max(nearbyItems.findIndex((nearbyItem) => nearbyItem.id === item.id), 0);
         const isActive = item.id === activeId;
         return (
           <div
@@ -294,7 +295,10 @@ function MessageTimeline({ items, activeId, onJump }: { items: TimelineItem[]; a
                 )}
               />
             </button>
-            <div className="absolute bottom-0 right-0 z-[80] hidden w-80 pr-5 text-left group-hover:block">
+            <div
+              className="absolute right-0 top-1/2 z-[200] hidden w-80 pr-5 text-left group-hover:block"
+              style={{ transform: `translateY(-${hoveredNearbyIndex * 32 + 16}px)` }}
+            >
               <div className="border border-border bg-popover/96 p-1.5 shadow-[0_16px_45px_rgb(44_54_70/0.16)] backdrop-blur">
                 <div className="space-y-0.5">
                   {nearbyItems.map((nearbyItem) => (
@@ -302,12 +306,12 @@ function MessageTimeline({ items, activeId, onJump }: { items: TimelineItem[]; a
                       key={nearbyItem.id}
                       type="button"
                       className={cn(
-                        "block w-full cursor-pointer border border-transparent px-2 py-1.5 text-left transition hover:border-border hover:bg-muted/60",
+                        "block h-8 w-full cursor-pointer border border-transparent px-2 text-left transition hover:border-border hover:bg-muted/60",
                         nearbyItem.id === item.id && "border-primary/25 bg-primary/10",
                       )}
                       onClick={() => onJump(nearbyItem.id)}
                     >
-                      <span className="block truncate text-[11px] leading-5 text-foreground">{nearbyItem.summary}</span>
+                      <span className="block truncate text-[11px] leading-8 text-foreground">{nearbyItem.summary}</span>
                     </button>
                   ))}
                 </div>
