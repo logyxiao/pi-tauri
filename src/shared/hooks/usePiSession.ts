@@ -85,52 +85,18 @@ export function usePiSession() {
   const activeAssistantIdRef = useRef<string | null>(null);
   const activeSessionOverrideRef = useRef<PiSessionSummary | null>(null);
   const deletedSessionKeysRef = useRef<Set<string>>(new Set());
-  const typewriterQueueRef = useRef("");
-  const typewriterTimerRef = useRef<number | null>(null);
   const messagePersistTimerRef = useRef<number | null>(null);
 
-  const stopTypewriter = useCallback(() => {
-    if (typewriterTimerRef.current !== null) {
-      window.clearTimeout(typewriterTimerRef.current);
-      typewriterTimerRef.current = null;
-    }
-    typewriterQueueRef.current = "";
-  }, []);
-
-  const scheduleTypewriter = useCallback(() => {
-    if (typewriterTimerRef.current !== null) return;
-    typewriterTimerRef.current = window.setTimeout(() => {
-      typewriterTimerRef.current = null;
-      const assistantId = activeAssistantIdRef.current;
-      if (!assistantId || !typewriterQueueRef.current) return;
-      const chunkSize = typewriterQueueRef.current.length > 600 ? 80 : typewriterQueueRef.current.length > 160 ? 32 : 12;
-      const chunk = typewriterQueueRef.current.slice(0, chunkSize);
-      typewriterQueueRef.current = typewriterQueueRef.current.slice(chunk.length);
-      setMessages((current) =>
-        current.map((message) => (message.id === assistantId ? { ...message, content: `${message.content}${chunk}` } : message)),
-      );
-      if (typewriterQueueRef.current) scheduleTypewriter();
-    }, 50);
-  }, []);
-
-  const enqueueTypewriterDelta = useCallback((delta: string) => {
+  const appendDeltaToLiveAssistant = useCallback((delta: string) => {
     if (!delta) return;
-    typewriterQueueRef.current += delta;
-    scheduleTypewriter();
-  }, [scheduleTypewriter]);
-
-  const flushTypewriter = useCallback(() => {
     const assistantId = activeAssistantIdRef.current;
-    const queued = typewriterQueueRef.current;
-    stopTypewriter();
-    if (!assistantId || !queued) return;
-    setMessages((current) => current.map((message) => (message.id === assistantId ? { ...message, content: `${message.content}${queued}` } : message)));
-  }, [stopTypewriter]);
+    if (!assistantId) return;
+    setMessages((current) => current.map((message) => (message.id === assistantId ? { ...message, content: `${message.content}${delta}` } : message)));
+  }, []);
 
   useEffect(() => () => {
-    stopTypewriter();
     if (messagePersistTimerRef.current !== null) window.clearTimeout(messagePersistTimerRef.current);
-  }, [stopTypewriter]);
+  }, []);
 
   useEffect(() => {
     persistWorkspacePaths(workspacePaths);
@@ -280,7 +246,6 @@ export function usePiSession() {
   const handleEvent = useCallback(
     (event: PiClientEvent) => {
       if (event.type === "agent_start") {
-        stopTypewriter();
         ensureLiveAssistantMessage();
         setStatus("running");
         setError(null);
@@ -292,7 +257,6 @@ export function usePiSession() {
         const assistantId = ensureLiveAssistantMessage();
         if (event.message) {
           const eventMessage = event.message;
-          stopTypewriter();
           setMessages((current) =>
             current.map((message) => {
               if (message.id !== assistantId) return message;
@@ -308,7 +272,7 @@ export function usePiSession() {
           return;
         }
         if (event.delta) {
-          enqueueTypewriterDelta(event.delta);
+          appendDeltaToLiveAssistant(event.delta);
         }
         return;
       }
@@ -345,7 +309,6 @@ export function usePiSession() {
 
       if (event.type === "agent_end" || event.type === "aborted") {
         const assistantId = activeAssistantIdRef.current;
-        flushTypewriter();
         if (event.type === "agent_end" && event.messages?.length) {
           setMessages((current) => {
             const liveMessage = assistantId ? current.find((message) => message.id === assistantId) : undefined;
@@ -365,7 +328,7 @@ export function usePiSession() {
         void refresh();
       }
     },
-    [enqueueTypewriterDelta, ensureLiveAssistantMessage, flushTypewriter, refresh, stopTypewriter, upsertTool],
+    [appendDeltaToLiveAssistant, ensureLiveAssistantMessage, refresh, upsertTool],
   );
 
   useEffect(() => {
@@ -411,7 +374,6 @@ export function usePiSession() {
       content: trimmed,
       createdAt: nowLabel(),
     };
-    stopTypewriter();
     const assistantId = crypto.randomUUID();
     activeAssistantIdRef.current = assistantId;
     setMessages((current) => [...current, userMessage, { id: assistantId, role: "assistant", content: "", createdAt: nowLabel(), tools: [] }]);
@@ -423,7 +385,6 @@ export function usePiSession() {
       await client.prompt(trimmed);
     } catch (caught) {
       activeAssistantIdRef.current = null;
-      stopTypewriter();
       setMessages((current) => current.filter((message) => message.id !== assistantId));
       setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");

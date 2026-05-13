@@ -1,16 +1,15 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { AlertTriangle, AppWindow, Brain, Code2, Command, Folder, HardDrive, Loader2, PanelTop, Plus, RefreshCw, Repeat, Save, Settings, ShieldAlert, Trash2, Workflow } from "lucide-react";
+import { AppWindow, Brain, Code2, Command, Loader2, PanelTop, Plus, RefreshCw, Save, Settings, Trash2 } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { ExtensionsPanel } from "@/components/extensions/ExtensionsPanel";
-import { SafetyPanel } from "@/components/safety/SafetyPanel";
 import { SearchableSelect, type SearchableSelectOption } from "@/components/ui/searchable-select";
 import { cn } from "@/shared/lib/cn";
 import { useI18n } from "@/shared/i18n";
-import type { PiCommand, PiDeliveryMode, PiExtensionError, PiExtensionPanel, PiModel, PiSafetyEvent, PiSettings, PiSettingsUpdate, PiState, PiThinkingLevel } from "@/shared/pi/types";
+import type { PiCommand, PiExtensionError, PiExtensionPanel, PiModel, PiSettings, PiSettingsUpdate, PiState, PiThinkingLevel } from "@/shared/pi/types";
 
 const thinkingLevels: PiThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
-type SettingsSection = "model" | "runtime" | "workspace" | "commands" | "extensionPanels" | "extensionErrors" | "safety" | "app";
+type SettingsSection = "model" | "commands" | "extensionPanels" | "app";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -21,7 +20,6 @@ interface SettingsDialogProps {
   commands: PiCommand[];
   extensionPanels: PiExtensionPanel[];
   extensionErrors: PiExtensionError[];
-  safetyEvents: PiSafetyEvent[];
   onUpdateSettings: (update: PiSettingsUpdate) => Promise<void> | void;
   onRefresh?: () => Promise<void> | void;
 }
@@ -65,7 +63,6 @@ export function SettingsDialog({
   commands,
   extensionPanels,
   extensionErrors,
-  safetyEvents,
   onUpdateSettings,
   onRefresh,
 }: SettingsDialogProps) {
@@ -79,7 +76,6 @@ export function SettingsDialog({
   const [providerQuery, setProviderQuery] = useState("");
   const currentModelKey = modelKey(settings?.provider, settings?.model) ?? modelKeyFromState(state?.model);
   const currentThinking = settings?.thinkingLevel ?? state?.thinkingLevel ?? "off";
-  const persistedKeys = settings?.persistedSettings ? Object.keys(settings.persistedSettings).length : 0;
   const modelOptions = useMemo<SearchableSelectOption[]>(() => models.map((model) => ({
     value: modelKey(model.provider, model.id) ?? model.id,
     label: `${model.id} — ${model.name}`,
@@ -88,12 +84,8 @@ export function SettingsDialog({
   })), [models]);
   const navItems: Array<{ id: SettingsSection; icon: ReactNode; label: string; description: string }> = [
     { id: "model", icon: <Brain size={15} />, label: t("settings.navModel"), description: t("settings.navModelDesc") },
-    { id: "runtime", icon: <Workflow size={15} />, label: t("settings.navRuntime"), description: t("settings.navRuntimeDesc") },
-    { id: "workspace", icon: <Folder size={15} />, label: t("settings.navWorkspace"), description: t("settings.navWorkspaceDesc") },
     { id: "commands", icon: <Command size={15} />, label: t("settings.navCommands"), description: t("settings.navCommandsDesc") },
     { id: "extensionPanels", icon: <PanelTop size={15} />, label: t("settings.navExtensionPanels"), description: t("settings.navExtensionPanelsDesc") },
-    { id: "extensionErrors", icon: <AlertTriangle size={15} />, label: t("settings.navExtensionErrors"), description: t("settings.navExtensionErrorsDesc") },
-    { id: "safety", icon: <ShieldAlert size={15} />, label: t("settings.navSafety"), description: t("settings.navSafetyDesc") },
     { id: "app", icon: <AppWindow size={15} />, label: t("settings.navApp"), description: t("settings.navAppDesc") },
   ];
   const activeNav = navItems.find((item) => item.id === activeSection) ?? navItems[0];
@@ -446,40 +438,7 @@ export function SettingsDialog({
                 </div>
               ) : null}
 
-              {activeSection === "runtime" ? (
-                <section className="rounded-none border border-border bg-card/70 p-4">
-                  <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                    <Workflow size={14} /> {t("settings.runtimeBehavior")}
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <ToggleCard icon={<Workflow size={14} />} label={t("settings.autoCompaction")} description={t("settings.autoCompactionDesc")} enabled={settings?.autoCompaction ?? true} onToggle={(enabled) => void onUpdateSettings({ autoCompaction: enabled })} />
-                    <ToggleCard icon={<Repeat size={14} />} label={t("settings.autoRetry")} description={t("settings.autoRetryDesc")} enabled={settings?.autoRetry ?? true} onToggle={(enabled) => void onUpdateSettings({ autoRetry: enabled })} />
-                  </div>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <SelectCard label={t("settings.steeringMode")} value={settings?.steeringMode ?? "one-at-a-time"} onChange={(value) => void onUpdateSettings({ steeringMode: value })} />
-                    <SelectCard label={t("settings.followUpMode")} value={settings?.followUpMode ?? "one-at-a-time"} onChange={(value) => void onUpdateSettings({ followUpMode: value })} />
-                  </div>
-                </section>
-              ) : null}
 
-              {activeSection === "workspace" ? (
-                <div className="space-y-4">
-                  <section className="grid gap-3 sm:grid-cols-2">
-                    <InfoCard icon={<Folder size={14} />} label="cwd" value={settings?.cwd ?? state?.cwd ?? t("common.loading")} />
-                    <InfoCard icon={<Settings size={14} />} label={t("settings.clientMode")} value={settings?.clientMode ?? t("common.loading")} />
-                    <InfoCard icon={<Settings size={14} />} label={t("settings.sdkSidecar")} value={settings?.sdkSidecar ? `${settings.sdkSidecar.available ? t("settings.available") : t("settings.unavailable")}${settings.sdkSidecar.version ? ` · ${settings.sdkSidecar.version}` : ""}${settings.sdkSidecar.error ? ` · ${settings.sdkSidecar.error}` : ""}` : t("common.loading")} />
-                    <InfoCard icon={<HardDrive size={14} />} label={t("settings.persistedSettings")} value={settings?.sdkSidecar?.available ? `${persistedKeys} ${t("settings.persistedKeys")}` : t("settings.unavailable")} />
-                    <InfoCard icon={<HardDrive size={14} />} label={`${t("settings.sessionDir")} · ${sourceLabel(settings?.settingsSources?.sessionDir, t)}`} value={settings?.sessionDir ?? t("settings.defaultSessionDir")} wide />
-                    <InfoCard icon={<HardDrive size={14} />} label={t("settings.sessionFile")} value={settings?.sessionFile ?? state?.sessionFile ?? t("settings.noSessionFile")} wide />
-                  </section>
-                  {settings?.settingsWarning ? (
-                    <section className="rounded-none border border-warning/25 bg-warning/10 p-3 text-xs leading-5 text-muted-foreground">
-                      <div className="mb-1 font-semibold uppercase tracking-[0.14em] text-warning">{t("settings.persistenceWarning")}</div>
-                      {settings.settingsWarning}
-                    </section>
-                  ) : null}
-                </div>
-              ) : null}
 
               {activeSection === "commands" ? (
                 <ExtensionsPanel commands={commands} extensionPanels={extensionPanels} extensionErrors={extensionErrors} sections={["commands"]} />
@@ -489,13 +448,6 @@ export function SettingsDialog({
                 <ExtensionsPanel commands={commands} extensionPanels={extensionPanels} extensionErrors={extensionErrors} sections={["panels"]} />
               ) : null}
 
-              {activeSection === "extensionErrors" ? (
-                <ExtensionsPanel commands={commands} extensionPanels={extensionPanels} extensionErrors={extensionErrors} sections={["errors"]} />
-              ) : null}
-
-              {activeSection === "safety" ? (
-                <SafetyPanel events={safetyEvents} />
-              ) : null}
 
               {activeSection === "app" ? (
                 <div className="space-y-4">
@@ -517,12 +469,8 @@ export function SettingsDialog({
 
 function sectionDescription(section: SettingsSection, t: (key: string) => string): string {
   if (section === "model") return t("settings.sectionModelDesc");
-  if (section === "runtime") return t("settings.sectionRuntimeDesc");
-  if (section === "workspace") return t("settings.sectionWorkspaceDesc");
   if (section === "commands") return t("settings.sectionCommandsDesc");
   if (section === "extensionPanels") return t("settings.sectionExtensionPanelsDesc");
-  if (section === "extensionErrors") return t("settings.sectionExtensionErrorsDesc");
-  if (section === "safety") return t("settings.sectionSafetyDesc");
   return t("settings.sectionAppDesc");
 }
 
@@ -616,49 +564,6 @@ function LocaleCard({ locale, onChange }: { locale: "zh-CN" | "en"; onChange: (l
         searchPlaceholder={t("common.search")}
         emptyText={t("common.noResults")}
         onChange={(value) => onChange(value as "zh-CN" | "en")}
-      />
-    </label>
-  );
-}
-
-interface ToggleCardProps {
-  icon: ReactNode;
-  label: string;
-  description: string;
-  enabled: boolean;
-  onToggle: (enabled: boolean) => void;
-}
-
-function ToggleCard({ icon, label, description, enabled, onToggle }: ToggleCardProps) {
-  const { t } = useI18n();
-  return (
-    <button className="cursor-pointer rounded-none border border-border bg-surface/80 p-3 text-left transition hover:border-primary/35" onClick={() => onToggle(!enabled)}>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{icon} {label}</div>
-        <span className={enabled ? "rounded-none border border-primary/30 px-2 py-0.5 text-[10px] text-primary" : "rounded-none border border-border px-2 py-0.5 text-[10px] text-muted-foreground"}>{enabled ? t("common.on") : t("common.off")}</span>
-      </div>
-      <div className="text-xs leading-5 text-muted-foreground">{description}</div>
-    </button>
-  );
-}
-
-interface SelectCardProps {
-  label: string;
-  value: PiDeliveryMode;
-  onChange: (value: PiDeliveryMode) => void;
-}
-
-function SelectCard({ label, value, onChange }: SelectCardProps) {
-  const { t } = useI18n();
-  return (
-    <label className="block rounded-none border border-border bg-surface/80 p-3 text-xs text-muted-foreground">
-      <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.14em]">{label}</span>
-      <SearchableSelect
-        value={value}
-        options={[{ value: "one-at-a-time", label: t("settings.deliveryOneAtATime") }, { value: "all", label: t("settings.deliveryAll") }]}
-        searchPlaceholder={t("common.search")}
-        emptyText={t("common.noResults")}
-        onChange={(next) => onChange(next as PiDeliveryMode)}
       />
     </label>
   );

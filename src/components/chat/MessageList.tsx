@@ -5,7 +5,7 @@ import { LoadingPanel } from "@/components/status/LoadingPanel";
 import { ToolCallItem } from "@/components/tools/ToolCallItem";
 import { cn } from "@/shared/lib/cn";
 import { useI18n } from "@/shared/i18n";
-import type { PiMessage, PiToolCall } from "@/shared/pi/types";
+import type { PiMessage, PiMessageContentBlock, PiToolCall } from "@/shared/pi/types";
 
 interface MessageListProps {
   messages: PiMessage[];
@@ -370,7 +370,9 @@ function UserContent({ message }: { message: PiMessage }) {
 function AssistantContent({ message, content, createdAt, isActive, onSelectTool }: { message: PiMessage; content: string; createdAt: string; isActive: boolean; onSelectTool?: (tool: PiToolCall) => void }) {
   const hasContent = Boolean(content.trim());
   const renderBlocks = shouldRenderAssistantBlocks(message);
-  const hasTools = Boolean(message.tools?.length);
+  const tools = message.tools ?? [];
+  const hasTools = Boolean(tools.length);
+  const hasInlineToolBlocks = Boolean(message.contentBlocks?.some((block) => block.type === "toolCall"));
   const showWorking = isActive && !hasContent && !renderBlocks && !hasTools;
 
   return (
@@ -378,8 +380,8 @@ function AssistantContent({ message, content, createdAt, isActive, onSelectTool 
       <div className="mb-1 px-1 font-mono text-[10px] text-muted-foreground">{createdAt}</div>
       <div className="overflow-hidden border border-border bg-surface/82 text-foreground shadow-[0_10px_30px_rgb(44_54_70/0.055)]">
         <div className="space-y-3 px-3.5 py-3 text-[13px] leading-5">
-          {showWorking ? <WorkingBlock /> : renderBlocks ? <AssistantBlocks message={message} fallback={content} live={isActive} /> : hasContent ? <MarkdownContent content={content} /> : null}
-          {message.tools?.length ? <ActivityGroup tools={message.tools} messages={[]} onSelectTool={onSelectTool} live={isActive} /> : null}
+          {showWorking ? <WorkingBlock /> : renderBlocks ? <AssistantOrderedBlocks message={message} fallback={content} live={isActive} tools={tools} onSelectTool={onSelectTool} /> : hasContent ? <MarkdownContent content={content} /> : null}
+          {hasTools && !hasInlineToolBlocks ? <ActivityGroup tools={tools} messages={[]} onSelectTool={onSelectTool} live={isActive} /> : null}
           <AssistantStopState message={message} />
           {isActive ? <LiveResponseTail /> : null}
         </div>
@@ -397,6 +399,41 @@ function SystemMessage({ message }: { message: PiMessage }) {
   );
 }
 
+function AssistantOrderedBlocks({
+  message,
+  fallback,
+  live = false,
+  tools,
+  onSelectTool,
+}: {
+  message: PiMessage;
+  fallback: string;
+  live?: boolean;
+  tools: PiToolCall[];
+  onSelectTool?: (tool: PiToolCall) => void;
+}) {
+  const blocks = message.contentBlocks?.length ? message.contentBlocks : fallback ? [{ type: "text" as const, text: fallback }] : [];
+  const renderedToolIds = new Set<string>();
+  const nodes = blocks.map((block, index) => {
+    if (block.type === "text") return block.text.trim() ? <MarkdownContent key={`text:${index}`} content={stripToolMarkers(block.text)} /> : null;
+    if (block.type === "thinking") return <ThinkingBlock key={`thinking:${index}`} block={block} live={live} />;
+    if (block.type === "image") return <ImageBlock key={`image:${index}`} block={block} />;
+    if (block.type === "toolCall") {
+      const tool = findToolForBlock(block, tools) ?? toolFromBlock(block);
+      renderedToolIds.add(tool.id);
+      return <ActivityGroup key={`tool:${tool.id}:${index}`} tools={[tool]} messages={[]} onSelectTool={onSelectTool} live={live} />;
+    }
+    return <UnknownBlock key={`unknown:${index}`} label={block.label} value={block.value} />;
+  });
+  const remainingTools = tools.filter((tool) => !renderedToolIds.has(tool.id));
+  return (
+    <>
+      {nodes}
+      {remainingTools.length ? <ActivityGroup tools={remainingTools} messages={[]} onSelectTool={onSelectTool} live={live} /> : null}
+    </>
+  );
+}
+
 function AssistantBlocks({ message, fallback, live = false }: { message: PiMessage; fallback: string; live?: boolean }) {
   const blocks = message.contentBlocks?.length ? message.contentBlocks : fallback ? [{ type: "text" as const, text: fallback }] : [];
   return (
@@ -410,6 +447,37 @@ function AssistantBlocks({ message, fallback, live = false }: { message: PiMessa
       })}
     </>
   );
+}
+
+function findToolForBlock(block: Extract<PiMessageContentBlock, { type: "toolCall" }>, tools: PiToolCall[]): PiToolCall | undefined {
+  if (block.id) {
+    const byId = tools.find((tool) => tool.id === block.id);
+    if (byId) return byId;
+  }
+  const target = extractToolTargetFromBlock(block);
+  return tools.find((tool) => tool.name === block.name && (!target || tool.target === target));
+}
+
+function toolFromBlock(block: Extract<PiMessageContentBlock, { type: "toolCall" }>): PiToolCall {
+  return {
+    id: block.id ?? `${block.name}:${JSON.stringify(block.arguments ?? {})}`,
+    name: block.name,
+    target: extractToolTargetFromBlock(block),
+    status: "running",
+    summary: "Tool pending",
+    args: block.arguments,
+  };
+}
+
+function extractToolTargetFromBlock(block: Extract<PiMessageContentBlock, { type: "toolCall" }>): string {
+  const args = block.arguments;
+  if (!args) return "";
+  if (block.name === "bash" && typeof args.command === "string") return args.command;
+  for (const key of ["path", "file_path", "filePath", "relativePath", "absolutePath", "target", "filename", "file", "pattern"]) {
+    const value = args[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return "";
 }
 
 function WorkingBlock() {

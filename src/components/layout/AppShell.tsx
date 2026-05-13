@@ -32,7 +32,6 @@ export function AppShell() {
     extensionPanels,
     pendingExtensionUi,
     extensionErrors,
-    safetyEvents,
     prefillInput,
     status,
     error,
@@ -135,7 +134,6 @@ export function AppShell() {
             commands={commands}
             extensionPanels={extensionPanels}
             extensionErrors={extensionErrors}
-            safetyEvents={safetyEvents}
             onUpdateSettings={updateSettings}
             onRefresh={refresh}
           />
