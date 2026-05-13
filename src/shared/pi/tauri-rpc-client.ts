@@ -11,7 +11,6 @@ import type {
   PiFileEntry,
   PiFilePreview,
   PiForkMessage,
-  PiDeliveryMode,
   PiMessage,
   PiModel,
   PiSafetyEvent,
@@ -21,10 +20,23 @@ import type {
   PiSettings,
   PiSettingsUpdate,
   PiState,
-  PiToolCall,
 } from "./types";
-import { createSafetyEvent, detectDangerousCommand, detectDangerousTool } from "./safety";
+import { createSafetyEvent, detectDangerousCommand } from "./safety";
 import { sdkSidecarClient } from "./sdk-sidecar-client";
+import { builtinCommands, mapCommand, mergeCommands } from "./command-mapper";
+import {
+  inferAuthStatus,
+  mapModel,
+  mapStateResponse,
+  modelFromState,
+  normalizeDeliveryMode,
+  normalizeOptionalThinkingLevel,
+  nullableNumber,
+  pickBoolean,
+  pickString,
+  splitModelKey,
+} from "./model-settings-mapper";
+import { mapAgentMessage, mapSessionMessage, mapToolEvent } from "./message-tool-mapper";
 
 type RpcResponse = {
   id?: string;
@@ -44,19 +56,6 @@ type PendingRequest = {
 
 type Listener = (event: PiClientEvent) => void;
 
-const builtinCommands: PiCommand[] = [
-  { name: "compact", description: "Compact current context now", source: "builtin" },
-  { name: "cycle-model", description: "Switch to next available model", source: "builtin" },
-  { name: "cycle-thinking", description: "Switch to next thinking level", source: "builtin" },
-  { name: "abort-retry", description: "Abort active auto-retry", source: "builtin" },
-  { name: "abort-bash", description: "Abort active bash command", source: "builtin" },
-  { name: "export-html", description: "Export current session to HTML", source: "builtin" },
-  { name: "help", description: "Show available slash commands and pi usage hints", source: "builtin" },
-  { name: "models", description: "List available models and current selection", source: "builtin" },
-  { name: "sessions", description: "Show session summary", source: "builtin" },
-  { name: "extensions", description: "Show loaded extensions and UI widgets", source: "builtin" },
-];
-
 export class TauriPiRpcClient implements PiClient {
   private connected = false;
   private listeners = new Set<Listener>();
@@ -70,6 +69,8 @@ export class TauriPiRpcClient implements PiClient {
   private safetyEvents: PiSafetyEvent[] = [];
   private settingsWarning: string | undefined;
   private toolStartTimes = new Map<string, number>();
+  private stateCache: { value: PiState; expiresAt: number } | null = null;
+  private stateRequest: Promise<PiState> | null = null;
 
   async connect(): Promise<void> {
     if (this.connected) return;
@@ -84,23 +85,28 @@ export class TauriPiRpcClient implements PiClient {
   }
 
   async prompt(message: string, options?: PromptOptions): Promise<void> {
+    this.invalidateStateCache();
     await this.request({ type: "prompt", message, streamingBehavior: options?.streamingBehavior });
   }
 
   async steer(message: string): Promise<void> {
+    this.invalidateStateCache();
     await this.request({ type: "steer", message });
   }
 
   async followUp(message: string): Promise<void> {
+    this.invalidateStateCache();
     await this.request({ type: "follow_up", message });
   }
 
   async abort(): Promise<void> {
+    this.invalidateStateCache();
     await this.request({ type: "abort" });
     this.emit({ type: "aborted" });
   }
 
   async newSession(): Promise<void> {
+    this.invalidateStateCache();
     await this.request({ type: "new_session" });
   }
 
@@ -112,10 +118,12 @@ export class TauriPiRpcClient implements PiClient {
   }
 
   async switchSession(sessionPath: string): Promise<void> {
+    this.invalidateStateCache();
     await this.request({ type: "switch_session", sessionPath });
   }
 
   async setSessionName(name: string): Promise<void> {
+    this.invalidateStateCache();
     await this.request({ type: "set_session_name", name });
   }
 
@@ -189,21 +197,20 @@ export class TauriPiRpcClient implements PiClient {
   }
 
   async getState(): Promise<PiState> {
-    const response = await this.request({ type: "get_state" });
-    const data = response.data as Record<string, unknown> | undefined;
-    const model = data?.model as Record<string, unknown> | null | undefined;
+    const now = Date.now();
+    if (this.stateCache && this.stateCache.expiresAt > now) return this.stateCache.value;
+    if (this.stateRequest) return this.stateRequest;
 
-    return {
-      runState: data?.isStreaming ? "running" : "idle",
-      cwd: (data?.cwd as string | undefined) ?? "unknown cwd",
-      model: model ? `${model.provider as string}/${model.id as string}` : "no model",
-      thinkingLevel: normalizeThinkingLevel(data?.thinkingLevel),
-      tokenCount: Number((data?.messageCount as number | undefined) ?? 0),
-      costUsd: 0,
-      sessionFile: data?.sessionFile as string | undefined,
-      sessionId: data?.sessionId as string | undefined,
-      sessionName: data?.sessionName as string | undefined,
-    };
+    this.stateRequest = this.request({ type: "get_state" })
+      .then((response) => {
+        const state = mapStateResponse(response.data);
+        this.stateCache = { value: state, expiresAt: Date.now() + 250 };
+        return state;
+      })
+      .finally(() => {
+        this.stateRequest = null;
+      });
+    return this.stateRequest;
   }
 
   async getMessages(): Promise<PiMessage[]> {
@@ -299,6 +306,7 @@ export class TauriPiRpcClient implements PiClient {
   }
 
   async updateSettings(update: PiSettingsUpdate): Promise<PiSettings> {
+    this.invalidateStateCache();
     const state = await this.getState();
     const sdkSidecar = await this.getSdkSidecarStatus();
     if (sdkSidecar.available) {
@@ -359,6 +367,7 @@ export class TauriPiRpcClient implements PiClient {
   }
 
   async executeCommand(commandName: string): Promise<void> {
+    this.invalidateStateCache();
     const normalizedName = commandName.replace(/^\//, "");
     const commands = await this.listCommands();
     const command = commands.find((item) => item.name === normalizedName);
@@ -464,6 +473,11 @@ export class TauriPiRpcClient implements PiClient {
     this.toolStartTimes.clear();
     this.connected = false;
     await invoke("pi_rpc_stop");
+  }
+
+  private invalidateStateCache() {
+    this.stateCache = null;
+    this.stateRequest = null;
   }
 
   private async request(command: Record<string, unknown>, options: { timeoutMs?: number } = {}): Promise<RpcResponse> {
@@ -621,16 +635,6 @@ export class TauriPiRpcClient implements PiClient {
   }
 }
 
-function mergeCommands(...groups: PiCommand[][]): PiCommand[] {
-  const merged = new Map<string, PiCommand>();
-  for (const group of groups) {
-    for (const command of group) {
-      merged.set(`${command.source}:${command.name}:${command.path ?? ""}`, command);
-    }
-  }
-  return Array.from(merged.values());
-}
-
 function currentSessionFallback(state: PiState): PiSessionSummary[] {
   if (!state.sessionFile) return [];
   return [
@@ -684,23 +688,6 @@ function mapSessionSummary(raw: unknown): PiSessionSummary | null {
   };
 }
 
-function mapCommand(raw: unknown): PiCommand | null {
-  if (!raw || typeof raw !== "object") return null;
-  const command = raw as Record<string, unknown>;
-  if (typeof command.name !== "string") return null;
-  const sourceInfo = command.sourceInfo && typeof command.sourceInfo === "object" ? (command.sourceInfo as Record<string, unknown>) : undefined;
-  const mapped: PiCommand = {
-    name: command.name,
-    description: typeof command.description === "string" ? command.description : undefined,
-    source: normalizeCommandSource(command.source),
-    location: normalizeCommandLocation(command.location ?? sourceInfo?.location ?? sourceInfo?.scope),
-    path: typeof command.path === "string" ? command.path : typeof sourceInfo?.path === "string" ? sourceInfo.path : undefined,
-    dangerous: /delete|reset|shell|batch|wipe|remove/i.test(command.name),
-  };
-  const safety = detectDangerousCommand(mapped);
-  return safety ? { ...mapped, dangerous: true, safety } : mapped;
-}
-
 function mapFileEntry(raw: unknown): PiFileEntry | null {
   if (!raw || typeof raw !== "object") return null;
   const entry = raw as Record<string, unknown>;
@@ -739,106 +726,10 @@ function normalizeFilePreviewKind(value: unknown): PiFilePreview["kind"] {
   return "missing";
 }
 
-function mapModel(raw: unknown): PiModel | null {
-  if (!raw || typeof raw !== "object") return null;
-  const model = raw as Record<string, unknown>;
-  const id = model.id ?? model.model;
-  const provider = model.provider;
-  if (typeof id !== "string" || typeof provider !== "string") return null;
-
-  return {
-    id,
-    provider,
-    name: typeof model.name === "string" ? model.name : id,
-    api: model.api as string | undefined,
-    reasoning: model.reasoning as boolean | undefined,
-    contextWindow: nullableNumber(model.contextWindow) ?? undefined,
-    maxTokens: nullableNumber(model.maxTokens) ?? undefined,
-  };
-}
-
-function modelFromState(state: PiState): PiModel {
-  const [provider, id] = splitModelKey(state.model);
-  return {
-    id: id ?? state.model,
-    provider: provider ?? "unknown",
-    name: state.model,
-    reasoning: state.thinkingLevel !== "off",
-  };
-}
-
 function dirname(path: string): string {
   const normalized = path.replace(/\\/g, "/");
   const index = normalized.lastIndexOf("/");
   return index > 0 ? normalized.slice(0, index) : normalized;
-}
-
-function inferAuthStatus(model: string) {
-  const provider = splitModelKey(model)[0] ?? "unknown";
-  return [
-    {
-      provider,
-      status: "unknown" as const,
-      detail: "RPC auth status not exposed; prompt run will surface auth errors.",
-    },
-  ];
-}
-
-function splitModelKey(value: string | undefined): [string | undefined, string | undefined] {
-  if (!value) return [undefined, undefined];
-  const parts = value.split("/");
-  if (parts.length >= 2) return [parts[0], parts.slice(1).join("/")];
-  return [undefined, value];
-}
-
-function nullableNumber(value: unknown): number | null | undefined {
-  if (value === null) return null;
-  if (typeof value === "number") return value;
-  return undefined;
-}
-
-function pickString(settings: Record<string, unknown> | undefined, keys: string[]): string | undefined {
-  for (const key of keys) {
-    const value = settings?.[key];
-    if (typeof value === "string" && value.trim()) return value;
-  }
-  return undefined;
-}
-
-function pickBoolean(settings: Record<string, unknown> | undefined, keys: string[]): boolean | undefined {
-  for (const key of keys) {
-    const value = settings?.[key];
-    if (typeof value === "boolean") return value;
-  }
-  return undefined;
-}
-
-function normalizeOptionalThinkingLevel(value: unknown): PiState["thinkingLevel"] | undefined {
-  if (value === "off" || value === "minimal" || value === "low" || value === "medium" || value === "high" || value === "xhigh") return value;
-  return undefined;
-}
-
-function normalizeDeliveryMode(value: unknown): PiDeliveryMode | undefined {
-  if (value === "all" || value === "one-at-a-time") return value;
-  return undefined;
-}
-
-function normalizeThinkingLevel(value: unknown): PiState["thinkingLevel"] {
-  if (value === "minimal" || value === "low" || value === "medium" || value === "high" || value === "xhigh") {
-    return value;
-  }
-  return "off";
-}
-
-function normalizeCommandSource(value: unknown): PiCommand["source"] {
-  if (value === "extension" || value === "prompt" || value === "skill") return value;
-  return "builtin";
-}
-
-function normalizeCommandLocation(value: unknown): PiCommand["location"] | undefined {
-  if (value === "user" || value === "project" || value === "path") return value;
-  if (value === "temporary") return "path";
-  return undefined;
 }
 
 function normalizeNotifyType(value: unknown): PiExtensionMessage["level"] {
@@ -848,194 +739,6 @@ function normalizeNotifyType(value: unknown): PiExtensionMessage["level"] {
 
 function nowLabel(): string {
   return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function mapSessionMessage(raw: unknown): PiMessage | null {
-  if (!raw || typeof raw !== "object") return null;
-  const message = raw as Record<string, unknown>;
-  const id = message.id;
-  const role = normalizeMessageRole(message.role);
-  const content = message.content;
-  const createdAt = message.createdAt;
-  if (typeof id !== "string" || !role || typeof content !== "string" || typeof createdAt !== "string") return null;
-  return {
-    id,
-    role,
-    content,
-    createdAt,
-    contentBlocks: extractContentBlocks(message.contentBlocks),
-    toolArgs: asRecord(message.toolArgs),
-    toolDetails: asRecord(message.toolDetails),
-    stopReason: pickString(message, ["stopReason"]),
-    errorMessage: pickString(message, ["errorMessage"]),
-    customType: pickString(message, ["customType"]),
-    tokensBefore: typeof message.tokensBefore === "number" ? message.tokensBefore : undefined,
-    toolName: pickString(message, ["toolName"]),
-    toolCallId: pickString(message, ["toolCallId"]),
-    isError: typeof message.isError === "boolean" ? message.isError : undefined,
-    cancelled: typeof message.cancelled === "boolean" ? message.cancelled : undefined,
-    truncated: typeof message.truncated === "boolean" ? message.truncated : undefined,
-    fullOutputPath: pickString(message, ["fullOutputPath"]),
-    excludeFromContext: typeof message.excludeFromContext === "boolean" ? message.excludeFromContext : undefined,
-  };
-}
-
-function mapAgentMessage(raw: unknown): PiMessage | null {
-  if (!raw || typeof raw !== "object") return null;
-  const message = raw as Record<string, unknown>;
-  const role = normalizeMessageRole(message.role);
-  if (!role) return null;
-
-  return {
-    id: crypto.randomUUID(),
-    role,
-    content: extractContentText(message.content),
-    createdAt: formatTimestamp(message.timestamp),
-    contentBlocks: extractContentBlocks(message.content),
-    toolArgs: extractToolCallArgs(message.content, pickString(message, ["toolCallId"])),
-    toolDetails: asRecord(message.details),
-    stopReason: pickString(message, ["stopReason"]),
-    errorMessage: pickString(message, ["errorMessage"]),
-    customType: pickString(message, ["customType"]),
-    tokensBefore: typeof message.tokensBefore === "number" ? message.tokensBefore : undefined,
-    toolName: pickString(message, ["toolName"]),
-    toolCallId: pickString(message, ["toolCallId"]),
-    isError: typeof message.isError === "boolean" ? message.isError : undefined,
-    cancelled: typeof message.cancelled === "boolean" ? message.cancelled : undefined,
-    truncated: typeof message.truncated === "boolean" ? message.truncated : undefined,
-    fullOutputPath: pickString(message, ["fullOutputPath"]),
-    excludeFromContext: typeof message.excludeFromContext === "boolean" ? message.excludeFromContext : undefined,
-  };
-}
-
-function mapToolEvent(event: Record<string, unknown>, startTimes?: Map<string, number>): PiToolCall {
-  const result = (event.result ?? event.partialResult) as Record<string, unknown> | undefined;
-  const args = event.args as Record<string, unknown> | undefined;
-  const name = String(event.toolName ?? "tool");
-  const isStart = event.type === "tool_execution_start";
-  const isEnd = event.type === "tool_execution_end";
-  const isError = Boolean(event.isError);
-  const id = String(event.toolCallId ?? crypto.randomUUID());
-  if (isStart) startTimes?.set(id, performance.now());
-  const startedAt = startTimes?.get(id);
-  const durationMs = isEnd && startedAt !== undefined ? Math.max(0, Math.round(performance.now() - startedAt)) : undefined;
-  if (isEnd) startTimes?.delete(id);
-
-  const tool: PiToolCall = {
-    id,
-    name,
-    target: extractToolTarget(name, args),
-    status: isEnd ? (isError ? "error" : "success") : "running",
-    summary: isEnd ? (isError ? "Tool failed" : "Tool complete") : "Tool running",
-    output: extractContentText(result?.content),
-    durationMs,
-    args,
-    details: result?.details && typeof result.details === "object" ? (result.details as Record<string, unknown>) : undefined,
-    isError,
-  };
-  const safety = detectDangerousTool(tool);
-  return safety ? { ...tool, safety } : tool;
-}
-
-function extractToolTarget(name: string, args: Record<string, unknown> | undefined): string {
-  if (!args) return "";
-  if (name === "bash") return String(args.command ?? "");
-  const path = pickArgString(args, ["path", "file_path", "filePath", "relativePath", "absolutePath", "target", "filename", "file"]);
-  if (path) return path;
-  if (typeof args.pattern === "string") return args.pattern;
-  return JSON.stringify(args);
-}
-
-function pickArgString(args: Record<string, unknown>, keys: string[]): string | undefined {
-  for (const key of keys) {
-    const value = args[key];
-    if (typeof value === "string" && value.trim()) return value;
-  }
-  return undefined;
-}
-
-function extractContentText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((block) => {
-      if (!block || typeof block !== "object") return "";
-      const item = block as Record<string, unknown>;
-      if (typeof item.text === "string") return item.text;
-      if (item.type === "text" && typeof item.text === "string") return item.text;
-      if (item.type === "thinking" || typeof item.thinking === "string") return "";
-      if (item.type === "image") return "[image]";
-      if (item.type === "toolCall") return "";
-      return "";
-    })
-    .filter(Boolean)
-    .join("\n");
-}
-
-function normalizeMessageRole(role: unknown): PiMessage["role"] | null {
-  if (
-    role === "user" ||
-    role === "assistant" ||
-    role === "system" ||
-    role === "toolResult" ||
-    role === "bashExecution" ||
-    role === "custom" ||
-    role === "branchSummary" ||
-    role === "compactionSummary"
-  ) {
-    return role;
-  }
-  return null;
-}
-
-function extractContentBlocks(content: unknown): PiMessage["contentBlocks"] | undefined {
-  if (!Array.isArray(content)) return undefined;
-  const blocks = content.flatMap((block): NonNullable<PiMessage["contentBlocks"]> => {
-    if (!block || typeof block !== "object") return [];
-    const item = block as Record<string, unknown>;
-    if (item.type === "text" && typeof item.text === "string") return [{ type: "text", text: item.text }];
-    if (item.type === "thinking" && typeof item.thinking === "string") return [{ type: "thinking", thinking: item.thinking, redacted: item.redacted === true }];
-    if (item.type === "image") {
-      return [
-        {
-          type: "image",
-          data: typeof item.data === "string" ? item.data : undefined,
-          mimeType: typeof item.mimeType === "string" ? item.mimeType : undefined,
-          url: typeof item.url === "string" ? item.url : undefined,
-          alt: typeof item.alt === "string" ? item.alt : undefined,
-        },
-      ];
-    }
-    if (item.type === "toolCall" && typeof item.name === "string") {
-      return [
-        {
-          type: "toolCall",
-          id: typeof item.id === "string" ? item.id : undefined,
-          name: item.name,
-          arguments: item.arguments && typeof item.arguments === "object" ? (item.arguments as Record<string, unknown>) : undefined,
-        },
-      ];
-    }
-    const label = typeof item.type === "string" ? item.type : "unknown";
-    return [{ type: "unknown", label, value: item }];
-  });
-  return blocks.length ? blocks : undefined;
-}
-
-function extractToolCallArgs(content: unknown, toolCallId?: string): Record<string, unknown> | undefined {
-  if (!Array.isArray(content)) return undefined;
-  const match = content.find((block) => {
-    if (!block || typeof block !== "object") return false;
-    const item = block as Record<string, unknown>;
-    if (item.type !== "toolCall") return false;
-    return !toolCallId || item.id === toolCallId;
-  }) as Record<string, unknown> | undefined;
-  const args = match?.arguments;
-  return asRecord(args);
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback?: T): Promise<T> {
@@ -1076,11 +779,6 @@ function formatSessionTimestamp(value: unknown): string {
   if (sameDay) return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   if (date.toDateString() === yesterday.toDateString()) return `Yesterday ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
-}
-
-function formatTimestamp(value: unknown): string {
-  if (typeof value !== "number") return "--:--";
-  return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 export const tauriPiRpcClient = new TauriPiRpcClient();

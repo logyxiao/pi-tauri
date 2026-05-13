@@ -1,16 +1,19 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ExtensionUiDialog } from "@/components/extensions/ExtensionUiDialog";
 import { LeftSidebar } from "./LeftSidebar";
 import { MainArea } from "./MainArea";
-import { RightInspector } from "./RightInspector";
+
 import { WindowTitlebar } from "./WindowTitlebar";
-import { SettingsDialog } from "@/components/settings/SettingsDialog";
+
 import { GlobalLoadingOverlay } from "@/components/status/GlobalLoadingOverlay";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useI18n } from "@/shared/i18n";
 import { usePiSession } from "@/shared/hooks/usePiSession";
 import type { PiToolCall } from "@/shared/pi/types";
+
+const RightInspector = lazy(() => import("./RightInspector").then((module) => ({ default: module.RightInspector })));
+const SettingsDialog = lazy(() => import("@/components/settings/SettingsDialog").then((module) => ({ default: module.SettingsDialog })));
 
 export function AppShell() {
   const { t } = useI18n();
@@ -109,29 +112,35 @@ export function AppShell() {
             onSelectTool={selectTool}
           />
             {inspectorOpen ? (
-              <RightInspector
-                state={state}
-                settings={settings}
-                isRunning={isRunning}
-              />
+              <Suspense fallback={null}>
+                <RightInspector
+                  state={state}
+                  settings={settings}
+                  isRunning={isRunning}
+                />
+              </Suspense>
             ) : null}
           </div>
         </div>
       </div>
       <ExtensionUiDialog request={pendingExtensionUi[0] ?? null} onRespond={respondExtensionUi} />
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        state={state}
-        settings={settings}
-        models={models}
-        commands={commands}
-        extensionPanels={extensionPanels}
-        extensionErrors={extensionErrors}
-        safetyEvents={safetyEvents}
-        onUpdateSettings={updateSettings}
-        onRefresh={refresh}
-      />
+      {settingsOpen ? (
+        <Suspense fallback={null}>
+          <SettingsDialog
+            open={settingsOpen}
+            onOpenChange={setSettingsOpen}
+            state={state}
+            settings={settings}
+            models={models}
+            commands={commands}
+            extensionPanels={extensionPanels}
+            extensionErrors={extensionErrors}
+            safetyEvents={safetyEvents}
+            onUpdateSettings={updateSettings}
+            onRefresh={refresh}
+          />
+        </Suspense>
+      ) : null}
       <GlobalLoadingOverlay
         open={isConnecting || isSwitchingSession}
         title={isSwitchingSession ? t("loading.session") : t("loading.globalTitle")}
