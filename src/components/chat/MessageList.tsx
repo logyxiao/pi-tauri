@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check, Copy, GitBranch, Hammer, Loader2, Terminal } from "lucide-react";
+import { Check, Copy, Loader2 } from "lucide-react";
 import { LoadingPanel } from "@/components/status/LoadingPanel";
 import { ToolCallItem } from "@/components/tools/ToolCallItem";
 import { cn } from "@/shared/lib/cn";
@@ -91,7 +91,6 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
         onScroll={updateActiveTimelineItem}
       >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 pb-36">
-          {showEmptyState || isConnecting ? <HeroCard /> : null}
           {isConnecting || isSwitchingSession ? <LoadingPanel label={isSwitchingSession ? t("loading.session") : undefined} /> : null}
 
           {isRefreshing && messages.length ? (
@@ -100,13 +99,7 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
             </div>
           ) : null}
 
-          {showEmptyState ? (
-            <section className="grid gap-2.5 sm:grid-cols-3">
-              <EmptyCard icon={<Terminal size={14} />} title={t("message.emptyPromptTitle")} text={t("message.emptyPromptText")} />
-              <EmptyCard icon={<Hammer size={14} />} title={t("message.emptyToolsTitle")} text={t("message.emptyToolsText")} />
-              <EmptyCard icon={<GitBranch size={14} />} title={t("message.emptySessionTitle")} text={t("message.emptySessionText")} />
-            </section>
-          ) : null}
+          {showEmptyState ? <div className="min-h-[28vh]" /> : null}
 
           <div className="flex flex-col gap-4">
             {messages.map((message) => {
@@ -129,17 +122,6 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
       </div>
 
       {timelineItems.length ? <MessageTimeline items={timelineItems} activeId={activeTimelineId} onJump={scrollToMessage} /> : null}
-    </div>
-  );
-}
-
-function HeroCard() {
-  const { t } = useI18n();
-  return (
-    <div className="border border-border bg-surface/72 p-4 shadow-[0_14px_42px_rgb(44_54_70/0.07)] sm:p-5">
-      <div className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">{t("message.heroKicker")}</div>
-      <h1 className="font-serif text-2xl font-semibold italic tracking-tight sm:text-3xl">{t("message.heroTitle")}</h1>
-      <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground sm:text-sm">{t("message.heroText")}</p>
     </div>
   );
 }
@@ -335,22 +317,6 @@ function MessageTimeline({ items, activeId, onJump }: { items: TimelineItem[]; a
         );
       })}
     </nav>
-  );
-}
-
-interface EmptyCardProps {
-  icon: ReactNode;
-  title: string;
-  text: string;
-}
-
-function EmptyCard({ icon, title, text }: EmptyCardProps) {
-  return (
-    <div className="border border-border bg-surface/62 p-3 shadow-[0_10px_30px_rgb(44_54_70/0.045)]">
-      <div className="mb-2 flex size-7 items-center justify-center border border-border bg-background text-primary">{icon}</div>
-      <div className="text-xs font-semibold">{title}</div>
-      <div className="mt-1.5 text-[11px] leading-4 text-muted-foreground">{text}</div>
-    </div>
   );
 }
 

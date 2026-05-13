@@ -73,6 +73,26 @@ function isLowQualitySessionSummary(session: PiSessionSummary): boolean {
   return session.name === "Current session" || !session.cwd || session.cwd.toLowerCase() === "unknown cwd" || session.updatedAt === "current";
 }
 
+function isKnownCwd(cwd: string | undefined): cwd is string {
+  return Boolean(cwd && cwd !== "unknown cwd" && cwd !== "Unknown cwd");
+}
+
+function findSessionByPath(sessions: PiSessionSummary[], sessionPath: string) {
+  const target = normalizeSessionKey(sessionPath);
+  return sessions.find((session) => normalizeSessionKey(session.filePath ?? session.id) === target || normalizeSessionKey(session.id) === target);
+}
+
+function applySessionOverride(state: PiState, session: PiSessionSummary | null): PiState {
+  if (!session) return state;
+  return {
+    ...state,
+    cwd: isKnownCwd(session.cwd) ? session.cwd : state.cwd,
+    sessionFile: session.filePath ?? state.sessionFile,
+    sessionId: session.id ?? state.sessionId,
+    sessionName: session.name ?? state.sessionName,
+  };
+}
+
 function loadPersistedWorkspacePaths(): string[] {
   try {
     const raw = window.localStorage.getItem(WORKSPACE_PATHS_STORAGE_KEY);
@@ -249,6 +269,7 @@ export function usePiSession() {
   const [pendingSessionTarget, setPendingSessionTarget] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const activeAssistantIdRef = useRef<string | null>(null);
+  const activeSessionOverrideRef = useRef<PiSessionSummary | null>(null);
   const deletedSessionKeysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -331,7 +352,7 @@ export function usePiSession() {
       ]);
       setMessages(nextMessages);
       persistMessagesForState(nextState, nextMessages);
-      setState(nextState);
+      setState(applySessionOverride(nextState, activeSessionOverrideRef.current));
       setStats(nextStats);
       setSessions((current) => filterDeletedSessions(mergeSessions(current, nextSessions), deletedSessionKeysRef.current));
       setModels(nextModels);
@@ -520,6 +541,7 @@ export function usePiSession() {
 
   async function newSession() {
     try {
+      activeSessionOverrideRef.current = null;
       await client.newSession();
       activeAssistantIdRef.current = null;
       setMessages([]);
@@ -534,6 +556,7 @@ export function usePiSession() {
 
   async function continueRecent() {
     try {
+      activeSessionOverrideRef.current = null;
       await client.continueRecent();
       activeAssistantIdRef.current = null;
       setFilePreview(null);
@@ -566,12 +589,16 @@ export function usePiSession() {
   async function switchSession(sessionPath: string) {
     const totalStartedAt = performance.now();
     const timings: TimingEntry[] = [];
+    const targetSession = findSessionByPath(sessions, sessionPath) ?? null;
+    const targetCwd = isKnownCwd(targetSession?.cwd) ? targetSession.cwd : null;
     const cachedMessages = loadPersistedSessionMessages(sessionPath);
     const hasCachedMessages = cachedMessages.length > 0;
     try {
+      activeSessionOverrideRef.current = targetSession;
       setPendingSessionTarget(sessionPath);
       setIsSwitchingSession(!hasCachedMessages);
       setStatus("refreshing");
+      if (targetCwd) setState((current) => (current ? { ...current, cwd: targetCwd, sessionFile: targetSession?.filePath ?? current.sessionFile, sessionId: targetSession?.id ?? current.sessionId, sessionName: targetSession?.name ?? current.sessionName } : current));
       setMessages(cachedMessages);
       await timed(timings, "switchSession.rpc", () => client.switchSession(sessionPath));
 
@@ -585,7 +612,7 @@ export function usePiSession() {
       activeAssistantIdRef.current = null;
       setMessages(nextMessages);
       persistMessagesForState(nextState, nextMessages);
-      setState(nextState);
+      setState(applySessionOverride(nextState, targetSession));
       setStats(nextStats);
       setSessions((current) => filterDeletedSessions(mergeSessions(current, nextSessions), deletedSessionKeysRef.current));
       setFilePreview(null);

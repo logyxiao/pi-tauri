@@ -46,6 +46,7 @@ export function AppShell() {
     abort,
     steer,
     followUp,
+    newSession,
     switchSession,
     deleteSession,
     openWorkspaceFolder,
@@ -86,6 +87,7 @@ export function AppShell() {
               onOpenWorkspaceFolder={openWorkspaceFolder}
               onSwitchSession={switchSession}
               onDeleteSession={deleteSession}
+              onNewSession={newSession}
               onOpenSettings={() => setSettingsOpen(true)}
             />
           <MainArea

@@ -78,6 +78,13 @@ function resolveProjectPath(cwd: string | undefined, workspacePaths: string[]) {
   return workspacePaths[0] ?? null;
 }
 
+function projectFolderName(path: string | null) {
+  if (!path) return null;
+  const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  const parts = normalized.split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? normalized;
+}
+
 export function MainArea({
   inspectorOpen,
   messages,
@@ -111,6 +118,7 @@ export function MainArea({
   const [preferredOpenTarget, setPreferredOpenTarget] = useState<ProjectOpenTarget>(() => loadPreferredOpenTarget());
 
   const projectPath = resolveProjectPath(state?.cwd, workspacePaths);
+  const projectTitle = projectFolderName(projectPath) ?? t("main.title");
 
   function openProject(target = preferredOpenTarget) {
     if (!projectPath) return;
@@ -124,7 +132,7 @@ export function MainArea({
       <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border bg-surface/45 px-4 sm:px-5">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs font-semibold">
-            <span className="truncate">{t("main.title")}</span>
+            <span className="truncate" title={projectPath ?? undefined}>{projectTitle}</span>
             <span className="rounded-none bg-primary/10 px-1.5 py-0.5 font-mono text-[9px] font-medium uppercase tracking-[0.12em] text-primary">
               {status}
             </span>

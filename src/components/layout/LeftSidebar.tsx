@@ -5,6 +5,7 @@ import {
   CircleDot,
   Folder,
   FolderPlus,
+  MessageSquarePlus,
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
@@ -25,6 +26,7 @@ interface LeftSidebarProps {
   onOpenWorkspaceFolder: () => Promise<void> | void;
   onSwitchSession: (sessionPath: string) => Promise<void> | void;
   onDeleteSession: (sessionPath: string) => Promise<void> | void;
+  onNewSession: () => Promise<void> | void;
   onOpenSettings: () => void;
 }
 
@@ -44,6 +46,7 @@ export function LeftSidebar({
   onOpenWorkspaceFolder,
   onSwitchSession,
   onDeleteSession,
+  onNewSession,
   onOpenSettings,
 }: LeftSidebarProps) {
   const { t } = useI18n();
@@ -178,7 +181,7 @@ export function LeftSidebar({
               const selectedProject = group.cwd === selectedGroup?.cwd;
               const open = !closedProjects.has(group.cwd);
               return collapsed ? (
-                <CollapsedProjectGroup key={group.cwd} group={group} currentSessionId={currentSessionId} onSwitchSession={onSwitchSession} sessionsLabel={t("sidebar.sessions")} />
+                <CollapsedProjectGroup key={group.cwd} group={group} currentSessionId={currentSessionId} onSwitchSession={onSwitchSession} />
               ) : (
                 <div
                   key={group.cwd}
@@ -187,19 +190,32 @@ export function LeftSidebar({
                     selectedProject ? "border-primary/30 bg-surface/70" : "border-transparent hover:border-border hover:bg-surface/45",
                   )}
                 >
-                  <button className="flex w-full cursor-pointer items-center gap-2 px-2 py-1.5 text-left" onClick={() => toggleProject(group.cwd)}>
-                    {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                    <Folder size={14} className={selectedProject ? "text-primary" : "text-muted-foreground"} />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-xs font-medium">{group.label}</div>
-                      <div className="truncate font-mono text-[9px] text-muted-foreground" title={group.cwd}>
-                        {group.cwd}
+                  <div className="flex items-center gap-1 px-2 py-1.5">
+                    <button className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left" onClick={() => toggleProject(group.cwd)}>
+                      {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                      <Folder size={14} className={selectedProject ? "text-primary" : "text-muted-foreground"} />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-xs font-medium">{group.label}</div>
+                        <div className="truncate font-mono text-[9px] text-muted-foreground" title={group.cwd}>
+                          {group.cwd}
+                        </div>
                       </div>
-                    </div>
-                    <div className="rounded-none border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground">
-                      {group.sessions.length}
-                    </div>
-                  </button>
+                    </button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          className="size-7 shrink-0 cursor-pointer border border-primary/20 bg-primary/10 text-primary transition hover:bg-primary/15"
+                          size="icon"
+                          variant="ghost"
+                          aria-label={t("sidebar.newSession")}
+                          onClick={() => void onNewSession()}
+                        >
+                          <MessageSquarePlus size={13} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{t("sidebar.newSession")}</TooltipContent>
+                    </Tooltip>
+                  </div>
                   {open ? (
                     <div className="space-y-0.5 border-t border-border/60 p-1 pl-5">
                       {group.sessions.length ? (
@@ -318,12 +334,10 @@ function CollapsedProjectGroup({
   group,
   currentSessionId,
   onSwitchSession,
-  sessionsLabel,
 }: {
   group: ProjectSessionGroup;
   currentSessionId?: string;
   onSwitchSession: (sessionPath: string) => Promise<void> | void;
-  sessionsLabel: string;
 }) {
   const selected = group.sessions.some((session) => isSelectedSession(session, currentSessionId));
   const latestSession = group.sessions[0];
@@ -343,9 +357,7 @@ function CollapsedProjectGroup({
           <Folder size={15} className={selected ? "text-primary" : "text-muted-foreground"} />
         </button>
       </TooltipTrigger>
-      <TooltipContent>
-        {group.label} · {group.sessions.length} {sessionsLabel}
-      </TooltipContent>
+      <TooltipContent>{group.label}</TooltipContent>
     </Tooltip>
   );
 }
