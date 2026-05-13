@@ -1,29 +1,19 @@
 import type { ReactNode } from "react";
 import { Maximize2, Minus, Square, X } from "lucide-react";
+import { PiMark } from "@/components/brand/PiMark";
 import { useI18n } from "@/shared/i18n";
-import { closeWindow, minimizeWindow, startWindowDrag, toggleFullscreenWindow, toggleMaximizeWindow } from "@/shared/window-controls";
+import { closeWindow, minimizeWindow, toggleFullscreenWindow, toggleMaximizeWindow } from "@/shared/window-controls";
 
 export function WindowTitlebar() {
   const { t } = useI18n();
 
   return (
-    <div
-      className="flex h-10 shrink-0 select-none items-center justify-between border-b border-border bg-surface/85 px-2 backdrop-blur-[1px]"
-      onDoubleClick={() => void toggleMaximizeWindow()}
-      onMouseDown={(event) => {
-        if (event.button === 0 && event.detail === 1) void startWindowDrag();
-      }}
-    >
-      <div className="flex min-w-0 items-center gap-2 px-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-        <span className="size-2 rounded-none bg-primary/70" />
-        <span className="truncate">Pi Desktop</span>
-        <span className="hidden font-mono text-[10px] font-normal lowercase tracking-[0.12em] sm:inline">
-          / {t("app.titlebar.subtitle")}
-        </span>
-      </div>
+    <div className="window-drag-region flex h-10 shrink-0 select-none items-center justify-between border-b border-border bg-surface/88 px-2 backdrop-blur-[2px]" data-tauri-drag-region onDoubleClick={() => void toggleMaximizeWindow()}>
+          <PiMark className="size-6" />
+      
 
       <div
-        className="flex items-center gap-1"
+        className="window-no-drag flex shrink-0 items-center gap-0.5  border-border/70 pl-1"
         onMouseDown={(event) => event.stopPropagation()}
         onDoubleClick={(event) => event.stopPropagation()}
       >
@@ -62,8 +52,8 @@ function TitlebarButton({
       title={label}
       className={
         danger
-          ? "inline-flex size-7 items-center justify-center rounded-none text-muted-foreground transition hover:bg-danger/12 hover:text-danger"
-          : "inline-flex size-7 items-center justify-center rounded-none text-muted-foreground transition hover:bg-muted hover:text-foreground"
+          ? "inline-flex size-7 cursor-pointer items-center justify-center rounded-none text-muted-foreground transition hover:bg-danger/12 hover:text-danger"
+          : "inline-flex size-7 cursor-pointer items-center justify-center rounded-none text-muted-foreground transition hover:bg-muted hover:text-foreground"
       }
       onClick={() => void onClick()}
     >

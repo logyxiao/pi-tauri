@@ -23,6 +23,9 @@ interface MainAreaProps {
   isSwitchingSession: boolean;
   isRunning: boolean;
   onPrompt: (message: string) => Promise<void> | void;
+  onAbort: () => Promise<void> | void;
+  onSteer: (message: string) => Promise<void> | void;
+  onFollowUp: (message: string) => Promise<void> | void;
   onRefresh: () => Promise<void> | void;
   onClearError: () => void;
   onUpdateSettings: (update: PiSettingsUpdate) => Promise<void> | void;
@@ -49,6 +52,9 @@ export function MainArea({
   isSwitchingSession,
   isRunning,
   onPrompt,
+  onAbort,
+  onSteer,
+  onFollowUp,
   onRefresh,
   onClearError,
   onUpdateSettings,
@@ -109,6 +115,9 @@ export function MainArea({
             prefillValue={prefillInput}
             disabled={isConnecting}
             onSubmit={onPrompt}
+            onAbort={onAbort}
+            onSteer={onSteer}
+            onFollowUp={onFollowUp}
             onModelChange={(model) => onUpdateSettings({ model: model.id, provider: model.provider })}
             onExecuteCommand={onExecuteCommand}
             onRecordSafetyEvent={onRecordSafetyEvent}

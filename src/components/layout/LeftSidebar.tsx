@@ -51,12 +51,29 @@ export function LeftSidebar({
   const selectedGroup = groups.find((group) => group.sessions.some((session) => isSelectedSession(session, currentSessionId)));
   const [closedProjects, setClosedProjects] = useState<Set<string>>(() => new Set());
   const [sidebarWidth, setSidebarWidth] = useState(288);
+  const [notice, setNotice] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<PiSessionSummary | null>(null);
+
+  function showNotice(kind: "success" | "error", text: string) {
+    setNotice({ kind, text });
+    window.setTimeout(() => setNotice(null), 1800);
+  }
 
   async function deleteSession(session: PiSessionSummary) {
     if (!session.filePath) return;
-    const confirmed = window.confirm(`${t("sidebar.deleteConfirm")}\n\n${session.name}\n${session.filePath}`);
-    if (!confirmed) return;
-    await onDeleteSession(session.filePath);
+    setDeleteTarget(session);
+  }
+
+  async function confirmDeleteTarget() {
+    if (!deleteTarget?.filePath) return;
+    const sessionPath = deleteTarget.filePath;
+    setDeleteTarget(null);
+    try {
+      await onDeleteSession(sessionPath);
+      showNotice("success", t("sidebar.deleteSuccess"));
+    } catch {
+      showNotice("error", t("sidebar.deleteFailed"));
+    }
   }
 
   function toggleProject(cwd: string) {
@@ -212,6 +229,29 @@ export function LeftSidebar({
           )}
         </div>
       </div>
+      {deleteTarget && !collapsed ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-4 backdrop-blur-[1px]">
+          <div className="w-full max-w-[18rem] border border-border bg-popover p-3 text-xs shadow-xl">
+            <div className="font-semibold text-foreground">{t("sidebar.deleteConfirm")}</div>
+            <div className="mt-2 truncate font-medium text-foreground">{deleteTarget.name}</div>
+            <div className="mt-1 break-all font-mono text-[9px] text-muted-foreground">{deleteTarget.filePath}</div>
+            <div className="mt-3 flex justify-end gap-2">
+              <Button className="cursor-pointer" size="sm" variant="ghost" onClick={() => setDeleteTarget(null)}>{t("common.cancel")}</Button>
+              <Button className="cursor-pointer" size="sm" variant="destructive" onClick={() => void confirmDeleteTarget()}>{t("command.confirm")}</Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {notice && !collapsed ? (
+        <div
+          className={cn(
+            "pointer-events-none absolute bottom-3 left-3 right-4 z-20 border px-3 py-2 text-xs shadow-lg backdrop-blur",
+            notice.kind === "success" ? "border-success/30 bg-success/10 text-success" : "border-destructive/30 bg-destructive/10 text-destructive",
+          )}
+        >
+          {notice.text}
+        </div>
+      ) : null}
       {!collapsed ? (
         <div
           className="absolute right-[-3px] top-0 h-full w-1.5 cursor-col-resize bg-transparent transition hover:bg-primary/25"

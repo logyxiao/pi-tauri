@@ -1,3 +1,4 @@
+import { PiMark } from "@/components/brand/PiMark";
 import { cn } from "@/shared/lib/cn";
 
 interface GlobalLoadingOverlayProps {
@@ -16,12 +17,11 @@ export function PiLogo() {
           <stop offset="1" stopColor="currentColor" stopOpacity="0.52" />
         </linearGradient>
       </defs>
-      <rect x="14" y="14" width="68" height="68" fill="none" stroke="currentColor" strokeWidth="1" className="text-border" />
-      <path d="M25 34H71" stroke="url(#pi-logo-gradient)" strokeWidth="7" strokeLinecap="square" />
-      <path d="M38 34V67" stroke="url(#pi-logo-gradient)" strokeWidth="7" strokeLinecap="square" />
-      <path d="M59 34V67" stroke="url(#pi-logo-gradient)" strokeWidth="7" strokeLinecap="square" />
-      <path d="M31 68H45" stroke="currentColor" strokeWidth="3" className="text-primary/55" />
-      <path d="M52 68H66" stroke="currentColor" strokeWidth="3" className="text-primary/55" />
+      <foreignObject x="16" y="16" width="64" height="64">
+        <div className="flex size-16 items-center justify-center text-primary">
+          <PiMark className="size-16" />
+        </div>
+      </foreignObject>
       <circle cx="48" cy="48" r="41" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="18 12" className="animate-spin text-primary/70 [animation-duration:2.8s]" />
       <circle cx="48" cy="9" r="3" className="fill-primary">
         <animate attributeName="opacity" values="0.35;1;0.35" dur="1.4s" repeatCount="indefinite" />

@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowUp, AtSign, BarChart3, Image, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
+import { ArrowUp, AtSign, BarChart3, Image, Pause, X } from "lucide-react";
 import { CommandPalette } from "@/components/chat/CommandPalette";
 import { ModelSelector } from "@/components/model/ModelSelector";
 import { SafetyConfirmDialog } from "@/components/safety/SafetyConfirmDialog";
@@ -19,6 +19,9 @@ interface ChatInputProps {
   prefillValue?: string;
   disabled?: boolean;
   onSubmit: (message: string) => Promise<void> | void;
+  onAbort: () => Promise<void> | void;
+  onSteer: (message: string) => Promise<void> | void;
+  onFollowUp: (message: string) => Promise<void> | void;
   onModelChange: (model: PiModel) => Promise<void> | void;
   onExecuteCommand: (commandName: string, safetyEvent?: PiSafetyEvent) => Promise<void> | void;
   onRecordSafetyEvent: (event: PiSafetyEvent) => Promise<void> | void;
@@ -36,6 +39,9 @@ export function ChatInput({
   prefillValue,
   disabled = false,
   onSubmit,
+  onAbort,
+  onSteer,
+  onFollowUp,
   onModelChange,
   onExecuteCommand,
   onRecordSafetyEvent,
@@ -49,6 +55,17 @@ export function ChatInput({
   const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const inputValue = prefillValue || value;
+
+  useEffect(() => {
+    if (!isRunning || disabled) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      void onAbort();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [disabled, isRunning, onAbort]);
 
   const commandQuery = useMemo(() => {
     if (!inputValue.startsWith("/")) return null;
@@ -67,16 +84,40 @@ export function ChatInput({
   async function submit() {
     const message = buildMessage(inputValue.trim(), images);
     if (!message || isRunning || disabled) return;
-    setValue("");
-    setImages([]);
-    onConsumePrefill();
+    clearInput();
     await onSubmit(message);
   }
 
-  async function addImages(files: FileList | null) {
+  async function submitAltEnter() {
+    const message = buildMessage(inputValue.trim(), images);
+    if (!message || disabled) return;
+    clearInput();
+    await onFollowUp(message);
+  }
+
+  async function abortRunning() {
+    if (!isRunning || disabled) return;
+    await onAbort();
+  }
+
+  function clearInput() {
+    setValue("");
+    setImages([]);
+    onConsumePrefill();
+  }
+
+  async function addImages(files: FileList | File[] | null) {
     if (!files?.length) return;
     const next = await Promise.all(Array.from(files).filter((file) => file.type.startsWith("image/")).map(readImageFile));
+    if (!next.length) return;
     setImages((current) => [...current, ...next].slice(0, 8));
+  }
+
+  function pasteImages(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const imageFiles = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
+    if (!imageFiles.length) return;
+    event.preventDefault();
+    void addImages(imageFiles);
   }
 
   async function runCommand(command: PiCommand) {
@@ -132,7 +173,21 @@ export function ChatInput({
             setSelectedIndex(0);
             setValue(event.currentTarget.value);
           }}
+          onPaste={pasteImages}
           onKeyDown={(event) => {
+            if (event.key === "Escape" && isRunning) {
+              event.preventDefault();
+              event.stopPropagation();
+              void abortRunning();
+              return;
+            }
+
+            if ((event.altKey || event.metaKey) && event.key === "Enter") {
+              event.preventDefault();
+              void submitAltEnter();
+              return;
+            }
+
             if (commandQuery != null && filteredCommands.length) {
               const activeIndex = selectedIndex % filteredCommands.length;
               if (event.key === "ArrowDown") {
@@ -194,15 +249,15 @@ export function ChatInput({
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  className="inline-flex size-8 items-center justify-center text-primary transition hover:text-primary/80 disabled:cursor-not-allowed disabled:text-muted-foreground/45"
-                  aria-label={t("chat.send")}
-                  disabled={(!inputValue.trim() && !images.length) || isRunning || disabled}
-                  onClick={() => void submit()}
+                  className="inline-flex size-8 cursor-pointer items-center justify-center text-primary transition hover:text-primary/80 disabled:cursor-not-allowed disabled:text-muted-foreground/45"
+                  aria-label={isRunning ? t("chat.pause") : t("chat.send")}
+                  disabled={disabled || (!isRunning && !inputValue.trim() && !images.length)}
+                  onClick={() => isRunning ? void abortRunning() : void submit()}
                 >
-                  <ArrowUp size={17} />
+                  {isRunning ? <Pause size={16} className="fill-current" /> : <ArrowUp size={17} />}
                 </button>
               </TooltipTrigger>
-              <TooltipContent>{t("chat.send")}</TooltipContent>
+              <TooltipContent>{isRunning ? t("chat.pauseHint") : t("chat.send")}</TooltipContent>
             </Tooltip>
           </div>
         </div>

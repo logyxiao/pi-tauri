@@ -40,6 +40,22 @@ function normalizePath(path: string) {
   return path.replace(/\\/g, "/").replace(/\/$/, "");
 }
 
+function normalizeSessionKey(path: string) {
+  return normalizePath(path).toLowerCase();
+}
+
+function isDeletedSession(session: PiSessionSummary, deletedKeys: Set<string>) {
+  return Boolean(
+    (session.filePath && deletedKeys.has(normalizeSessionKey(session.filePath))) ||
+    (session.id && deletedKeys.has(normalizeSessionKey(session.id))),
+  );
+}
+
+function filterDeletedSessions(sessions: PiSessionSummary[], deletedKeys: Set<string>) {
+  if (!deletedKeys.size) return sessions;
+  return sessions.filter((session) => !isDeletedSession(session, deletedKeys));
+}
+
 function mergeSessions(...groups: PiSessionSummary[][]): PiSessionSummary[] {
   const merged = new Map<string, PiSessionSummary>();
   for (const group of groups) {
@@ -76,15 +92,19 @@ function persistWorkspacePaths(paths: string[]) {
   }
 }
 
-function loadPersistedSessions(): PiSessionSummary[] {
+function clearSessionCache() {
   try {
-    const raw = window.localStorage.getItem(SESSION_CACHE_STORAGE_KEY);
-    const value: unknown = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(value)) return [];
-    return value.filter(isSessionSummaryLike).filter((session) => !isLowQualitySessionSummary(session));
+    window.localStorage.removeItem(SESSION_CACHE_STORAGE_KEY);
+    for (const key of Object.keys(window.localStorage)) {
+      if (key.startsWith(SESSION_MESSAGES_CACHE_PREFIX)) window.localStorage.removeItem(key);
+    }
   } catch {
-    return [];
+    // Ignore storage failures.
   }
+}
+
+function loadPersistedSessions(): PiSessionSummary[] {
+  return [];
 }
 
 function persistSessions(sessions: PiSessionSummary[]) {
@@ -207,6 +227,7 @@ async function pickWorkspaceFolder(title: string, promptLabel: string): Promise<
 export function usePiSession() {
   const { t } = useI18n();
   const client = useMemo(() => createPiClient(), []);
+  useEffect(() => clearSessionCache(), []);
   const [messages, setMessages] = useState<PiMessage[]>([]);
   const [state, setState] = useState<PiState | null>(null);
   const [stats, setStats] = useState<PiSessionStats | null>(null);
@@ -228,6 +249,7 @@ export function usePiSession() {
   const [pendingSessionTarget, setPendingSessionTarget] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const activeAssistantIdRef = useRef<string | null>(null);
+  const deletedSessionKeysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     persistWorkspacePaths(workspacePaths);
@@ -265,7 +287,7 @@ export function usePiSession() {
           ),
         )
       ).flat();
-      setSessions((current) => mergeSessions(current, workspaceSessions));
+      setSessions((current) => filterDeletedSessions(mergeSessions(current, workspaceSessions), deletedSessionKeysRef.current));
       for (const session of workspaceSessions.slice(0, 20)) {
         if (session.filePath) void warmSessionCache(session.filePath);
       }
@@ -311,7 +333,7 @@ export function usePiSession() {
       persistMessagesForState(nextState, nextMessages);
       setState(nextState);
       setStats(nextStats);
-      setSessions((current) => mergeSessions(current, nextSessions));
+      setSessions((current) => filterDeletedSessions(mergeSessions(current, nextSessions), deletedSessionKeysRef.current));
       setModels(nextModels);
       setSettings(nextSettings);
       setCommands(nextCommands);
@@ -474,6 +496,28 @@ export function usePiSession() {
     }
   }
 
+  async function steer(content: string) {
+    const trimmed = content.trim();
+    if (!trimmed || state?.runState !== "running") return;
+    try {
+      await client.steer(trimmed);
+    } catch (caught) {
+      setError(errorMessage(caught, t("hook.unknownError")));
+      setStatus("error");
+    }
+  }
+
+  async function followUp(content: string) {
+    const trimmed = content.trim();
+    if (!trimmed) return;
+    try {
+      await client.followUp(trimmed);
+    } catch (caught) {
+      setError(errorMessage(caught, t("hook.unknownError")));
+      setStatus("error");
+    }
+  }
+
   async function newSession() {
     try {
       await client.newSession();
@@ -543,7 +587,7 @@ export function usePiSession() {
       persistMessagesForState(nextState, nextMessages);
       setState(nextState);
       setStats(nextStats);
-      setSessions((current) => mergeSessions(current, nextSessions));
+      setSessions((current) => filterDeletedSessions(mergeSessions(current, nextSessions), deletedSessionKeysRef.current));
       setFilePreview(null);
       setError(null);
       setStatus(nextState.runState === "running" ? "running" : "ready");
@@ -574,11 +618,19 @@ export function usePiSession() {
   async function deleteSession(sessionPath: string) {
     try {
       await client.deleteSession(sessionPath);
+      deletedSessionKeysRef.current.add(normalizeSessionKey(sessionPath));
+      setSessions((current) => current.filter((session) => !isDeletedSession(session, deletedSessionKeysRef.current)));
+      try {
+        window.localStorage.removeItem(sessionMessagesCacheKey(sessionPath));
+      } catch {
+        // Ignore storage failures.
+      }
       setError(null);
       await refresh();
     } catch (caught) {
       setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
+      throw caught;
     }
   }
 
@@ -602,7 +654,7 @@ export function usePiSession() {
       if (!folder) return;
       const nextSessions = await client.listSessions({ cwd: folder });
       setWorkspacePaths((current) => (current.some((item) => normalizePath(item) === normalizePath(folder)) ? current : [...current, folder]));
-      setSessions((current) => mergeSessions(current, nextSessions));
+      setSessions((current) => filterDeletedSessions(mergeSessions(current, nextSessions), deletedSessionKeysRef.current));
     } catch (caught) {
       setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
@@ -706,6 +758,8 @@ export function usePiSession() {
     isRunning: status === "running" || state?.runState === "running",
     prompt,
     abort,
+    steer,
+    followUp,
     newSession,
     continueRecent,
     switchSession,

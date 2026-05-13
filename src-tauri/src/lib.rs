@@ -232,6 +232,9 @@ fn pi_read_session_messages(session_path: String) -> RpcResult<Vec<serde_json::V
 #[tauri::command]
 fn pi_delete_session(session_path: String) -> RpcResult<()> {
     let path = safe_session_path(&session_path)?;
+    if !path.exists() {
+        return Ok(());
+    }
     fs::remove_file(path).map_err(|error| format!("failed to delete session: {error}"))
 }
 
@@ -633,10 +636,8 @@ fn safe_session_path(session_path: &str) -> RpcResult<PathBuf> {
         candidate
             .canonicalize()
             .map_err(|error| format!("failed to resolve session path: {error}"))?
-    } else if candidate.extension().and_then(|value| value.to_str()) == Some("jsonl") {
-        candidate
     } else {
-        return Err(format!("session file does not exist: {session_path}"));
+        candidate
     };
     let normalized_root = normalize_session_path(&sessions_root.to_string_lossy());
     let normalized_path = normalize_session_path(&path.to_string_lossy());

@@ -43,6 +43,9 @@ export function AppShell() {
     pendingSessionTarget,
     isRunning,
     prompt,
+    abort,
+    steer,
+    followUp,
     switchSession,
     deleteSession,
     openWorkspaceFolder,
@@ -101,6 +104,9 @@ export function AppShell() {
             isSwitchingSession={isSwitchingSession}
             isRunning={isRunning}
             onPrompt={prompt}
+            onAbort={abort}
+            onSteer={steer}
+            onFollowUp={followUp}
             onRefresh={refresh}
             onClearError={clearError}
             onUpdateSettings={updateSettings}

@@ -31,8 +31,10 @@
 - `src/components/status/GlobalLoadingOverlay.tsx`
   - 新增全局可复用全屏 loading overlay。
   - 使用 fixed modal 覆盖整界面、`aria-modal`、`cursor-wait`、拦截 pointer/key 事件，加载期间阻止底层操作。
-  - 动画采用可复用 `PiLogo` SVG：π 字形、旋转轨道、脉冲节点；加载卡片项目名从 `pi desktop` 改为 `π`。
+  - 动画采用可复用 `PiLogo` / `PiMark` SVG：π 字形、旋转轨道、脉冲节点；加载卡片项目名从 `pi desktop` 改为 `π`。
   - 项目图标替换为 π logo：新增 `public/pi.svg`，`index.html` favicon 指向 `/pi.svg`，覆盖 `public/tauri.svg` 兜底；重新生成 `src-tauri/icons/*` PNG/ICO/ICNS 应用图标。
+  - 新增 `src/components/brand/PiMark.tsx` 统一品牌标识；WindowTitlebar 左侧使用 π logo + π 标题 + subtitle，保留自定义标题栏。
+  - `tauri.conf.json` 设置 `decorations: false`、`transparent: false`，`AppShell` 渲染自定义 `WindowTitlebar`。
 - `src/components/layout/AppShell.tsx`
   - 程序启动 `isConnecting` 阶段挂载 `GlobalLoadingOverlay`，覆盖读取 session、文件、Git 状态、工具能力等初始化耗时阶段。
   - session 切换 `isSwitchingSession` 阶段也复用全屏 overlay，避免点击 session 后像卡住。
@@ -50,7 +52,10 @@
   - session 激活样式增强：primary 边框、左侧 inset accent、浅 primary 背景、阴影、标题加粗 primary、meta 变 primary/75。
   - session 列表时间格式化：前端将 ISO / `unix-ms:` 统一显示为今日 HH:mm、昨日 Yesterday HH:mm、其它日期 Mon Day；排序支持 `unix-ms:`。
   - 修复删除 session 路径校验：`pi_delete_session` 改用统一 `safe_session_path()`；`safe_session_path()` 支持路径存在时 canonicalize，不存在时给出明确 `session file does not exist`，并用 normalize 后的字符串校验 sessions root，兼容 Windows 前缀。
-  - session cache 持久化只保存有 filePath 且非 `Current session` / `unknown cwd` 的高质量 session，避免缓存 fallback session 导致删除不存在路径。
+  - session cache 暂时禁用持久读取，并在启动时清理 `pi-tauri.sessions.cache` 与所有 `pi-tauri.sessionMessages.*`，移除历史坏缓存。
+  - 删除 session 对不存在文件改为幂等成功，避免 stale UI item 删除时报 `failed to delete session: os error 2`。
+  - 删除确认不再使用 `window.confirm`（Tauri WebView 中被 dialog.confirm 覆盖且无权限时报 `Command not found`），改为侧边栏居中确认卡片；删除成功/失败后显示底部 toast 提示。
+  - 删除成功后立即从本地 `sessions` state 过滤对应 item，并清理对应 message cache key，再后台 refresh，避免成功提示后列表仍残留。
   - 根据计时结果确认首屏慢点为 `getSettings`（约 18.8s），而后台刷新约 1s。
   - 启动初始化改为只等待 `client.connect`，随后立即进入 ready；messages/state/stats/sessions/models/settings/commands/files/extensions 全部交给后台 refresh 补齐，最大限度缩短全屏阻塞时间。
   - `getSettings()` 中 SDK sidecar status/settings/auth 探测增加 1.2s 上限，超时直接 fallback runtime/env auth，避免 SDK sidecar/auth 探测拖慢首屏或 refresh。
@@ -85,7 +90,8 @@
   - 统一 compact model selector 模型名与 thinking 字体为 `text-[9px] leading-none`，避免模型名过大、medium 过小。
   - 文件/图片按钮改为纯 icon-only，无圆形边框/背景，并通过 tooltip 显示说明。
   - 发送按钮改为纯 icon-only，无按钮背景，并通过 tooltip 显示说明。
-  - 移除输入框内停止按钮；running 时发送按钮 disabled。
+  - running 时发送按钮变为 Pause，点击等同 pi 回复中按 Esc / stop；textarea 内按 Esc 也停止 AI 回复。
+  - `Alt/Meta+Enter` 走 pi follow-up 语义；普通 Enter 发送 prompt，Shift+Enter 换行。
   - 发送按钮旁新增数据图标 `BarChart3`。
   - 鼠标移入显示运行数据 tooltip：状态、上下文、tokens、费用、模型、thinking。
   - 数据来自 `state` / `stats` / `settings`，由 `MainArea` 从 `AppShell` 透传。
