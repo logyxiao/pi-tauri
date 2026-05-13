@@ -10,7 +10,6 @@ interface GitManagementPanelProps {
   model?: string;
   thinkingLevel?: string;
   isRunning?: boolean;
-  onRefresh: () => Promise<void> | void;
 }
 
 type GitFile = {
@@ -40,7 +39,9 @@ type GitCommit = {
   refs?: string;
 };
 
-export function GitManagementPanel({ cwd, model, thinkingLevel, isRunning = false, onRefresh }: GitManagementPanelProps) {
+const MAX_RENDERED_GIT_FILES = 300;
+
+export function GitManagementPanel({ cwd, model, thinkingLevel, isRunning = false }: GitManagementPanelProps) {
   const { t } = useI18n();
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [commits, setCommits] = useState<GitCommit[]>([]);
@@ -51,34 +52,52 @@ export function GitManagementPanel({ cwd, model, thinkingLevel, isRunning = fals
   const [changesOpen, setChangesOpen] = useState(true);
   const [graphOpen, setGraphOpen] = useState(false);
   const cwdRef = useRef(cwd);
+  const busyRef = useRef<typeof busy>(busy);
+  const graphOpenRef = useRef(graphOpen);
+  const refreshInFlightRef = useRef(false);
   const loadingCwd = t("common.loading");
+
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
 
   const stagedFiles = useMemo(() => status?.files.filter(isStaged) ?? [], [status]);
   const changedFiles = useMemo(() => status?.files.filter(isUnstaged) ?? [], [status]);
+  const visibleStagedFiles = useMemo(() => stagedFiles.slice(0, MAX_RENDERED_GIT_FILES), [stagedFiles]);
+  const visibleChangedFiles = useMemo(() => changedFiles.slice(0, MAX_RENDERED_GIT_FILES), [changedFiles]);
   const hasFileChanges = Boolean(status && status.files.length > 0);
   const shouldSync = Boolean(status && !hasFileChanges && (status.ahead > 0 || status.behind > 0));
 
   const refreshGit = useCallback(async (silent = false) => {
     const targetCwd = cwdRef.current;
     if (targetCwd === loadingCwd) return;
+    if (refreshInFlightRef.current) return;
+    if (silent && (busyRef.current === "generate" || busyRef.current === "commit")) return;
+    refreshInFlightRef.current = true;
     if (!silent) setBusy("refresh");
     try {
       const [next, nextCommits] = await Promise.all([
         invoke<GitStatus>("pi_git_status", { cwd: targetCwd }),
-        invoke<GitCommit[]>("pi_git_log", { cwd: targetCwd, limit: 40 }),
+        graphOpenRef.current ? invoke<GitCommit[]>("pi_git_log", { cwd: targetCwd, limit: 40 }) : Promise.resolve(null),
       ]);
       if (targetCwd !== cwdRef.current) return;
       setStatus((current) => (current && shallowGitEqual(current, next) ? current : next));
-      setCommits((current) => (shallowCommitsEqual(current, nextCommits) ? current : nextCommits));
+      if (nextCommits) setCommits((current) => (shallowCommitsEqual(current, nextCommits) ? current : nextCommits));
       setError(null);
     } catch (caught) {
       setStatus(null);
       setCommits([]);
       setError(errorText(caught));
     } finally {
+      refreshInFlightRef.current = false;
       if (!silent) setBusy(null);
     }
   }, [loadingCwd]);
+
+  useEffect(() => {
+    graphOpenRef.current = graphOpen;
+    if (graphOpen) void refreshGit(true);
+  }, [graphOpen, refreshGit]);
 
   useEffect(() => {
     cwdRef.current = cwd;
@@ -89,11 +108,9 @@ export function GitManagementPanel({ cwd, model, thinkingLevel, isRunning = fals
     const tick = () => {
       if (document.visibilityState === "visible") void refreshGit(true);
     };
-    const interval = window.setInterval(tick, 2500);
     window.addEventListener("focus", tick);
     document.addEventListener("visibilitychange", tick);
     return () => {
-      window.clearInterval(interval);
       window.removeEventListener("focus", tick);
       document.removeEventListener("visibilitychange", tick);
     };
@@ -105,7 +122,6 @@ export function GitManagementPanel({ cwd, model, thinkingLevel, isRunning = fals
     try {
       await invoke("pi_git_action", { cwd, action, path: path ?? null });
       await refreshGit(true);
-      void onRefresh();
     } catch (caught) {
       setError(errorText(caught));
     } finally {
@@ -119,7 +135,6 @@ export function GitManagementPanel({ cwd, model, thinkingLevel, isRunning = fals
     try {
       await invoke("pi_git_sync", { cwd });
       await refreshGit(true);
-      void onRefresh();
     } catch (caught) {
       setError(errorText(caught));
     } finally {
@@ -149,7 +164,6 @@ export function GitManagementPanel({ cwd, model, thinkingLevel, isRunning = fals
       await invoke("pi_git_commit", { cwd, message: trimmed });
       setMessage("");
       await refreshGit();
-      void onRefresh();
     } catch (caught) {
       setError(errorText(caught));
     } finally {
@@ -230,7 +244,8 @@ export function GitManagementPanel({ cwd, model, thinkingLevel, isRunning = fals
           actionTitle={t("git.unstageAll")}
           onAction={() => void runGitAction("unstage")}
         >
-          {stagedFiles.map((file) => <GitFileRow key={`staged:${file.path}`} file={file} />)}
+          {visibleStagedFiles.map((file) => <GitFileRow key={`staged:${file.path}`} file={file} />)}
+          {stagedFiles.length > visibleStagedFiles.length ? <OverflowRow hidden={stagedFiles.length - visibleStagedFiles.length} /> : null}
         </ChangeGroup>
         <ChangeGroup
           title={t("git.changesPanel")}
@@ -242,7 +257,8 @@ export function GitManagementPanel({ cwd, model, thinkingLevel, isRunning = fals
           actionTitle={t("git.stageAll")}
           onAction={() => void runGitAction("stage")}
         >
-          {changedFiles.map((file) => <GitFileRow key={`changed:${file.path}`} file={file} onStage={() => void runGitAction("stage", file.path)} onDiscard={() => void runGitAction("discard", file.path)} />)}
+          {visibleChangedFiles.map((file) => <GitFileRow key={`changed:${file.path}`} file={file} onStage={() => void runGitAction("stage", file.path)} onDiscard={() => void runGitAction("discard", file.path)} />)}
+          {changedFiles.length > visibleChangedFiles.length ? <OverflowRow hidden={changedFiles.length - visibleChangedFiles.length} /> : null}
         </ChangeGroup>
 
         <CommitGraph commits={commits} currentBranch={status?.branch} open={graphOpen} onToggle={() => setGraphOpen((value) => !value)} />
@@ -284,6 +300,10 @@ function GitFileRow({ file, onStage, onDiscard }: { file: GitFile; onStage?: () 
       <span className={cn("font-mono text-[10px]", statusLabel(file) === "D" ? "text-danger" : "text-primary")}>{statusLabel(file)}</span>
     </div>
   );
+}
+
+function OverflowRow({ hidden }: { hidden: number }) {
+  return <div className="px-6 py-1 text-[11px] text-muted-foreground">还有 {hidden} 个文件未渲染，点击刷新或缩小变更范围后查看。</div>;
 }
 
 function CommitGraph({ commits, currentBranch, open, onToggle }: { commits: GitCommit[]; currentBranch?: string; open: boolean; onToggle: () => void }) {

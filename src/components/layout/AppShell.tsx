@@ -15,7 +15,7 @@ import type { PiToolCall } from "@/shared/pi/types";
 export function AppShell() {
   const { t } = useI18n();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const {
     messages,
@@ -113,7 +113,6 @@ export function AppShell() {
                 state={state}
                 settings={settings}
                 isRunning={isRunning}
-                onRetry={refresh}
               />
             ) : null}
           </div>

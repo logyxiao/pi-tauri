@@ -7,7 +7,7 @@ use std::{
     process::{Child, ChildStdin, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use tauri::{AppHandle, Emitter, State};
@@ -758,7 +758,13 @@ fn pi_read_file(cwd: String, path: String) -> RpcResult<serde_json::Value> {
 }
 
 #[tauri::command]
-fn pi_git_status(cwd: String) -> RpcResult<serde_json::Value> {
+async fn pi_git_status(cwd: String) -> RpcResult<serde_json::Value> {
+    tauri::async_runtime::spawn_blocking(move || pi_git_status_blocking(cwd))
+        .await
+        .map_err(|error| format!("git status task failed: {error}"))?
+}
+
+fn pi_git_status_blocking(cwd: String) -> RpcResult<serde_json::Value> {
     let repo_root = git_repo_root(&cwd)?;
     let output = git_output(&repo_root, &["status", "--porcelain=v1", "-b"])?;
     let mut branch = "HEAD".to_string();
@@ -820,7 +826,13 @@ fn pi_git_status(cwd: String) -> RpcResult<serde_json::Value> {
 }
 
 #[tauri::command]
-fn pi_git_log(cwd: String, limit: Option<usize>) -> RpcResult<Vec<serde_json::Value>> {
+async fn pi_git_log(cwd: String, limit: Option<usize>) -> RpcResult<Vec<serde_json::Value>> {
+    tauri::async_runtime::spawn_blocking(move || pi_git_log_blocking(cwd, limit))
+        .await
+        .map_err(|error| format!("git log task failed: {error}"))?
+}
+
+fn pi_git_log_blocking(cwd: String, limit: Option<usize>) -> RpcResult<Vec<serde_json::Value>> {
     let repo_root = git_repo_root(&cwd)?;
     let limit_arg = format!("-n{}", limit.unwrap_or(40).clamp(1, 200));
     let output = git_output(
@@ -840,7 +852,13 @@ fn pi_git_log(cwd: String, limit: Option<usize>) -> RpcResult<Vec<serde_json::Va
 }
 
 #[tauri::command]
-fn pi_git_action(cwd: String, action: String, path: Option<String>) -> RpcResult<()> {
+async fn pi_git_action(cwd: String, action: String, path: Option<String>) -> RpcResult<()> {
+    tauri::async_runtime::spawn_blocking(move || pi_git_action_blocking(cwd, action, path))
+        .await
+        .map_err(|error| format!("git action task failed: {error}"))?
+}
+
+fn pi_git_action_blocking(cwd: String, action: String, path: Option<String>) -> RpcResult<()> {
     let repo_root = git_repo_root(&cwd)?;
     match (action.as_str(), path.as_deref()) {
         ("stage", Some(file_path)) => {
@@ -866,9 +884,15 @@ fn pi_git_action(cwd: String, action: String, path: Option<String>) -> RpcResult
 }
 
 #[tauri::command]
-fn pi_git_sync(cwd: String) -> RpcResult<()> {
+async fn pi_git_sync(cwd: String) -> RpcResult<()> {
+    tauri::async_runtime::spawn_blocking(move || pi_git_sync_blocking(cwd))
+        .await
+        .map_err(|error| format!("git sync task failed: {error}"))?
+}
+
+fn pi_git_sync_blocking(cwd: String) -> RpcResult<()> {
     let repo_root = git_repo_root(&cwd)?;
-    let status = pi_git_status(cwd)?;
+    let status = pi_git_status_blocking(cwd)?;
     let ahead = status.get("ahead").and_then(|value| value.as_u64()).unwrap_or(0);
     let behind = status.get("behind").and_then(|value| value.as_u64()).unwrap_or(0);
     if behind > 0 {
@@ -881,7 +905,13 @@ fn pi_git_sync(cwd: String) -> RpcResult<()> {
 }
 
 #[tauri::command]
-fn pi_git_commit(cwd: String, message: String) -> RpcResult<()> {
+async fn pi_git_commit(cwd: String, message: String) -> RpcResult<()> {
+    tauri::async_runtime::spawn_blocking(move || pi_git_commit_blocking(cwd, message))
+        .await
+        .map_err(|error| format!("git commit task failed: {error}"))?
+}
+
+fn pi_git_commit_blocking(cwd: String, message: String) -> RpcResult<()> {
     let repo_root = git_repo_root(&cwd)?;
     let trimmed = message.trim();
     if trimmed.is_empty() {
@@ -891,7 +921,13 @@ fn pi_git_commit(cwd: String, message: String) -> RpcResult<()> {
 }
 
 #[tauri::command]
-fn pi_git_generate_commit_message(cwd: String, model: Option<String>, thinking_level: Option<String>) -> RpcResult<String> {
+async fn pi_git_generate_commit_message(cwd: String, model: Option<String>, thinking_level: Option<String>) -> RpcResult<String> {
+    tauri::async_runtime::spawn_blocking(move || pi_git_generate_commit_message_blocking(cwd, model, thinking_level))
+        .await
+        .map_err(|error| format!("git commit message task failed: {error}"))?
+}
+
+fn pi_git_generate_commit_message_blocking(cwd: String, model: Option<String>, thinking_level: Option<String>) -> RpcResult<String> {
     let repo_root = git_repo_root(&cwd)?;
     let stat = git_output(&repo_root, &["diff", "--cached", "--stat"])?;
     let diff = git_output(&repo_root, &["diff", "--cached", "--no-ext-diff", "--"])?;
@@ -935,8 +971,7 @@ fn pi_git_generate_commit_message(cwd: String, model: Option<String>, thinking_l
             .map_err(|error| format!("failed to send diff to pi: {error}"))?;
     }
 
-    let output = child
-        .wait_with_output()
+    let output = wait_with_output_timeout(child, Duration::from_secs(90))
         .map_err(|error| format!("failed to wait for pi commit message: {error}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -949,6 +984,24 @@ fn pi_git_generate_commit_message(cwd: String, model: Option<String>, thinking_l
         return Err("pi returned an empty commit message".to_string());
     }
     Ok(message)
+}
+
+fn wait_with_output_timeout(mut child: Child, timeout: Duration) -> std::io::Result<std::process::Output> {
+    let started = Instant::now();
+    loop {
+        if child.try_wait()?.is_some() {
+            return child.wait_with_output();
+        }
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            let output = child.wait_with_output()?;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("process timed out after {}s; stderr: {}", timeout.as_secs(), String::from_utf8_lossy(&output.stderr).trim()),
+            ));
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
 }
 
 fn truncate_for_prompt(text: &str, max_chars: usize) -> String {
@@ -1389,11 +1442,15 @@ fn git_root_candidates(cwd: &str) -> Vec<PathBuf> {
 }
 
 fn git_output(cwd: &Path, args: &[&str]) -> RpcResult<String> {
-    let output = Command::new(default_git_bin())
+    let child = Command::new(default_git_bin())
         .args(args)
         .current_dir(cwd)
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|error| format!("failed to run git: {error}"))?;
+    let output = wait_with_output_timeout(child, Duration::from_secs(30))
+        .map_err(|error| format!("git command timed out or failed: {error}"))?;
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     } else {
