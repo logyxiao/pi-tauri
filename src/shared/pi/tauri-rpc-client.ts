@@ -136,24 +136,15 @@ export class TauriPiRpcClient implements PiClient {
 
   async listSessions(options: PiSessionListOptions = {}): Promise<PiSessionSummary[]> {
     const state = await this.getState();
+    const cwd = options.cwd ?? state.cwd;
+    const fallback = currentSessionFallback(state);
+    if (!isUsableCwd(cwd)) return fallback;
     try {
-      const sessions = await invoke<unknown[]>("pi_list_sessions", { cwd: options.cwd ?? state.cwd });
+      const sessions = await invoke<unknown[]>("pi_list_sessions", { cwd });
       return sessions.map(mapSessionSummary).filter((session): session is PiSessionSummary => Boolean(session));
     } catch (error) {
-      console.warn("pi session list unavailable", error);
-      return state.sessionFile
-        ? [
-            {
-              id: state.sessionId ?? state.sessionFile,
-              name: state.sessionName ?? "Current session",
-              cwd: state.cwd,
-              updatedAt: "current",
-              model: state.model,
-              status: state.runState === "running" ? "running" : "idle",
-              filePath: state.sessionFile,
-            },
-          ]
-        : [];
+      if (!isMissingCwdError(error)) console.warn("pi session list unavailable", error);
+      return fallback;
     }
   }
 
@@ -375,7 +366,7 @@ export class TauriPiRpcClient implements PiClient {
     if (action) this.safetyEvents = [createSafetyEvent(action, "allowed", "command"), ...this.safetyEvents].slice(0, 20);
 
     if (normalizedName === "compact") {
-      await this.request({ type: "compact" });
+      await this.request({ type: "compact" }, { timeoutMs: 180_000 });
       return;
     }
     if (normalizedName === "cycle-model") {
@@ -424,11 +415,12 @@ export class TauriPiRpcClient implements PiClient {
 
   async listFiles(): Promise<PiFileEntry[]> {
     const state = await this.getState();
+    if (!isUsableCwd(state.cwd)) return [];
     try {
       const entries = await invoke<unknown[]>("pi_list_files", { cwd: state.cwd });
       return entries.map(mapFileEntry).filter((entry): entry is PiFileEntry => Boolean(entry));
     } catch (error) {
-      console.warn("pi file list unavailable", error);
+      if (!isMissingCwdError(error)) console.warn("pi file list unavailable", error);
       return [];
     }
   }
@@ -474,10 +466,11 @@ export class TauriPiRpcClient implements PiClient {
     await invoke("pi_rpc_stop");
   }
 
-  private async request(command: Record<string, unknown>): Promise<RpcResponse> {
+  private async request(command: Record<string, unknown>, options: { timeoutMs?: number } = {}): Promise<RpcResponse> {
     await this.connect();
     const id = crypto.randomUUID();
     const payload = { id, ...command };
+    const timeoutMs = options.timeoutMs ?? 30_000;
 
     const response = new Promise<RpcResponse>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
@@ -485,7 +478,7 @@ export class TauriPiRpcClient implements PiClient {
         if (!this.pending.has(id)) return;
         this.pending.delete(id);
         reject(new Error(`pi rpc request timed out: ${String(command.type)}`));
-      }, 30_000);
+      }, timeoutMs);
     });
 
     await invoke("pi_rpc_send", { message: JSON.stringify(payload) });
@@ -636,6 +629,30 @@ function mergeCommands(...groups: PiCommand[][]): PiCommand[] {
     }
   }
   return Array.from(merged.values());
+}
+
+function currentSessionFallback(state: PiState): PiSessionSummary[] {
+  if (!state.sessionFile) return [];
+  return [
+    {
+      id: state.sessionId ?? state.sessionFile,
+      name: state.sessionName ?? "Current session",
+      cwd: state.cwd,
+      updatedAt: "current",
+      model: state.model,
+      status: state.runState === "running" ? "running" : "idle",
+      filePath: state.sessionFile,
+    },
+  ];
+}
+
+function isUsableCwd(cwd: string | undefined): cwd is string {
+  return Boolean(cwd && cwd.trim() && cwd !== "unknown cwd" && cwd !== "Unknown cwd");
+}
+
+function isMissingCwdError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /failed to resolve cwd|os error 2|系统找不到指定的文件/i.test(message);
 }
 
 function mapForkMessage(raw: unknown): PiForkMessage | null {
@@ -923,9 +940,18 @@ function mapToolEvent(event: Record<string, unknown>, startTimes?: Map<string, n
 function extractToolTarget(name: string, args: Record<string, unknown> | undefined): string {
   if (!args) return "";
   if (name === "bash") return String(args.command ?? "");
-  if (typeof args.path === "string") return args.path;
+  const path = pickArgString(args, ["path", "file_path", "filePath", "relativePath", "absolutePath", "target", "filename", "file"]);
+  if (path) return path;
   if (typeof args.pattern === "string") return args.pattern;
   return JSON.stringify(args);
+}
+
+function pickArgString(args: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = args[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return undefined;
 }
 
 function extractContentText(content: unknown): string {

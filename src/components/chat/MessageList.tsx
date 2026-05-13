@@ -196,10 +196,12 @@ function MessageBubble({ message, onSelectTool, isActive = false }: { message: P
   return (
     <article className={cn("flex w-full gap-2.5", isUser ? "justify-end" : "justify-start")}>
       <div className={cn("min-w-0", isUser ? "flex max-w-[min(34rem,86%)] flex-col items-end" : "max-w-[min(44rem,94%)] flex-1")}>
-        {isUser ? <UserContent message={message} /> : <AssistantContent message={message} content={displayContent} createdAt={message.createdAt} hasTools={Boolean(message.tools?.length)} isActive={isActive} />}
+        {isUser ? (
+          <UserContent message={message} />
+        ) : (
+          <AssistantContent message={message} content={displayContent} createdAt={message.createdAt} isActive={isActive} onSelectTool={onSelectTool} />
+        )}
         {getCopyText(message, displayContent) ? <CopyAction align={isUser ? "right" : "left"} copied={copied} onCopy={copyMessage} /> : null}
-
-        {message.tools?.length ? <ActivityGroup tools={message.tools} messages={[]} onSelectTool={onSelectTool} className="mt-2" live={isActive} /> : null}
       </div>
     </article>
   );
@@ -225,8 +227,8 @@ function ActivityGroup({ tools, messages, onSelectTool, className, live = false 
         <span className="shrink-0 border border-border/70 bg-background/75 px-1.5 font-mono text-[10px] leading-4 text-muted-foreground">{count}</span>
         {summaryItems.length ? (
           <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-hidden">
-            {summaryItems.map((item) => (
-              <span key={item} className="max-w-full truncate border border-border/60 bg-background/60 px-1.5 py-0 font-mono text-[10px] leading-4 text-muted-foreground/95">
+            {summaryItems.map((item, index) => (
+              <span key={`${index}:${item}`} className="max-w-full truncate border border-border/60 bg-background/60 px-1.5 py-0 font-mono text-[10px] leading-4 text-muted-foreground/95">
                 {item}
               </span>
             ))}
@@ -269,11 +271,12 @@ function compactThinkingPreview(text: string): string {
 }
 
 function summarizeTools(tools: PiToolCall[]): string[] {
-  const counts = tools.reduce<Record<string, number>>((acc, tool) => {
-    acc[tool.name] = (acc[tool.name] ?? 0) + 1;
-    return acc;
-  }, {});
-  return Object.entries(counts).map(([name, count]) => formatActivityCount(getToolActivityLabel(name), count));
+  const visible = tools.slice(-3).map((tool) => {
+    const target = compactToolTarget(tool);
+    return target ? `${getToolActivityLabel(tool.name)} ${target}` : getToolActivityLabel(tool.name);
+  });
+  if (tools.length > visible.length) visible.unshift(`工具×${tools.length - visible.length}`);
+  return visible;
 }
 
 function summarizeGroupedMessages(messages: PiMessage[]): string[] {
@@ -298,6 +301,20 @@ function getToolActivityLabel(name: string): string {
     tool: "工具",
   };
   return labels[name] ?? name;
+}
+
+function compactToolTarget(tool: PiToolCall): string {
+  const target = getToolArgString(tool, "path") || getToolArgString(tool, "file_path") || getToolArgString(tool, "filePath") || getToolArgString(tool, "command") || (tool.target && tool.target !== tool.name && tool.target !== "unknown" ? tool.target : "");
+  if (!target) return "";
+  const normalized = target.replace(/\\/g, "/");
+  const parts = normalized.split("/").filter(Boolean);
+  const compact = parts.length > 2 ? parts.slice(-2).join("/") : normalized;
+  return compact.length > 48 ? `${compact.slice(0, 45)}…` : compact;
+}
+
+function getToolArgString(tool: PiToolCall, key: string): string {
+  const value = tool.args?.[key];
+  return typeof value === "string" ? value : "";
 }
 
 function CopyAction({ align, copied, onCopy }: { align: "left" | "right"; copied: boolean; onCopy: () => Promise<void> | void }) {
@@ -329,11 +346,11 @@ function UserContent({ message }: { message: PiMessage }) {
   );
 }
 
-function AssistantContent({ message, content, createdAt, hasTools, isActive }: { message: PiMessage; content: string; createdAt: string; hasTools: boolean; isActive: boolean }) {
+function AssistantContent({ message, content, createdAt, isActive, onSelectTool }: { message: PiMessage; content: string; createdAt: string; isActive: boolean; onSelectTool?: (tool: PiToolCall) => void }) {
   const hasContent = Boolean(content.trim());
   const renderBlocks = shouldRenderAssistantBlocks(message);
-  const showWorking = isActive && !hasContent && !renderBlocks;
-  if (!showWorking && !hasContent && !renderBlocks && hasTools) return null;
+  const hasTools = Boolean(message.tools?.length);
+  const showWorking = isActive && !hasContent && !renderBlocks && !hasTools;
 
   return (
     <div>
@@ -341,8 +358,9 @@ function AssistantContent({ message, content, createdAt, hasTools, isActive }: {
       <div className="overflow-hidden border border-border bg-surface/82 text-foreground shadow-[0_10px_30px_rgb(44_54_70/0.055)]">
         <div className="space-y-3 px-3.5 py-3 text-[13px] leading-5">
           {showWorking ? <WorkingBlock /> : renderBlocks ? <AssistantBlocks message={message} fallback={content} live={isActive} /> : hasContent ? <MarkdownContent content={content} /> : null}
-          {isActive && !showWorking ? <LiveResponseTail /> : null}
+          {message.tools?.length ? <ActivityGroup tools={message.tools} messages={[]} onSelectTool={onSelectTool} live={isActive} /> : null}
           <AssistantStopState message={message} />
+          {isActive ? <LiveResponseTail /> : null}
         </div>
       </div>
     </div>

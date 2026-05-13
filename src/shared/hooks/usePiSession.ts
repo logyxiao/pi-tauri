@@ -232,6 +232,91 @@ async function timed<T>(entries: TimingEntry[], step: string, task: () => Promis
   }
 }
 
+function mergeTransientCommandMessages(current: PiMessage[], next: PiMessage[]): PiMessage[] {
+  const nextIds = new Set(next.map((message) => message.id));
+  const transient = current.filter((message) => isTransientCommandMessage(message) && !nextIds.has(message.id));
+  return transient.length ? [...next, ...transient] : next;
+}
+
+function isTransientCommandMessage(message: PiMessage): boolean {
+  return message.role === "custom" && message.id.startsWith("command-");
+}
+
+function commandFeedbackContent(commandName: string, state: "running" | "done" | "timeout" | "error", detail?: string): string {
+  const command = `/${commandName}`;
+  if (state === "running") return `已发送 ${command}，正在执行…`;
+  if (state === "done") return `${command} 执行完成。`;
+  if (state === "timeout") return `${command} 已发送，但 pi 未在预期时间内返回完成信号。压缩可能仍在后台继续；UI 保持可用，可稍后刷新查看结果。`;
+  return `${command} 执行失败：${detail ?? "未知错误"}`;
+}
+
+function isRpcTimeoutError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /pi rpc request timed out/i.test(message);
+}
+
+function mergeToolLists(existing: PiToolCall[], incoming: PiToolCall[]): PiToolCall[] {
+  const merged = new Map(existing.map((tool) => [tool.id, tool]));
+  for (const tool of incoming) {
+    const previous = merged.get(tool.id);
+    merged.set(tool.id, previous ? mergeToolCall(previous, tool) : tool);
+  }
+  return Array.from(merged.values());
+}
+
+function mergeToolCall(previous: PiToolCall, next: PiToolCall): PiToolCall {
+  return {
+    ...previous,
+    ...next,
+    target: isUsefulToolTarget(next.target, next.name) ? next.target : previous.target,
+    args: next.args && Object.keys(next.args).length ? { ...(previous.args ?? {}), ...next.args } : previous.args,
+    details: next.details && Object.keys(next.details).length ? { ...(previous.details ?? {}), ...next.details } : previous.details,
+    output: next.output ?? previous.output,
+    safety: next.safety ?? previous.safety,
+  };
+}
+
+function extractToolCallsFromMessage(message: PiMessage, existing: PiToolCall[]): PiToolCall[] {
+  if (!message.contentBlocks?.length) return existing;
+  const existingById = new Map(existing.map((tool) => [tool.id, tool]));
+  return message.contentBlocks.flatMap((block) => {
+    if (block.type !== "toolCall") return [];
+    const id = block.id ?? `${block.name}:${JSON.stringify(block.arguments ?? {})}`;
+    const previous = existingById.get(id);
+    return [
+      {
+        id,
+        name: block.name,
+        target: extractToolTargetFromArgs(block.name, block.arguments) || previous?.target || "",
+        status: previous?.status ?? "running",
+        summary: previous?.summary ?? "Tool pending",
+        output: previous?.output,
+        args: block.arguments ?? previous?.args,
+        details: previous?.details,
+        durationMs: previous?.durationMs,
+        isError: previous?.isError,
+        safety: previous?.safety,
+      },
+    ];
+  });
+}
+
+function extractToolTargetFromArgs(toolName: string, args: Record<string, unknown> | undefined): string {
+  if (!args) return "";
+  if (toolName === "bash" && typeof args.command === "string") return args.command;
+  for (const key of ["path", "file_path", "filePath", "relativePath", "absolutePath", "target", "filename", "file", "pattern"]) {
+    const value = args[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return "";
+}
+
+function isUsefulToolTarget(target: string | undefined, toolName: string) {
+  if (!target) return false;
+  const trimmed = target.trim();
+  return Boolean(trimmed && trimmed !== "unknown" && trimmed !== toolName);
+}
+
 function logTimings(scope: string, entries: TimingEntry[], totalStartedAt: number) {
   const totalMs = Math.round(performance.now() - totalStartedAt);
   const rows = [...entries, { step: "total", ms: totalMs, ok: true }];
@@ -412,7 +497,7 @@ export function usePiSession() {
         timed(timings, "listFiles", () => client.listFiles()),
       ]);
       if (!activeAssistantIdRef.current) {
-        setMessages(nextMessages);
+        setMessages((current) => mergeTransientCommandMessages(current, nextMessages));
         persistMessagesForState(nextState, nextMessages);
       }
       setState((current) => {
@@ -449,7 +534,7 @@ export function usePiSession() {
         const exists = tools.some((item) => item.id === tool.id);
         return {
           ...message,
-          tools: exists ? tools.map((item) => (item.id === tool.id ? tool : item)) : [...tools, tool],
+          tools: exists ? tools.map((item) => (item.id === tool.id ? mergeToolCall(item, tool) : item)) : [...tools, tool],
         };
       }),
     );
@@ -478,7 +563,7 @@ export function usePiSession() {
                 ...event.message,
                 id: message.id,
                 createdAt: message.createdAt,
-                tools: message.tools,
+                tools: mergeToolLists(message.tools ?? [], extractToolCallsFromMessage(event.message, message.tools ?? [])),
               };
             }),
           );
@@ -801,16 +886,40 @@ export function usePiSession() {
     }
   }
 
+  function appendCommandFeedback(id: string, commandName: string, state: "running" | "done" | "timeout" | "error", detail?: string) {
+    const content = commandFeedbackContent(commandName, state, detail);
+    setMessages((current) => {
+      const nextMessage: PiMessage = {
+        id,
+        role: "custom",
+        customType: state === "running" ? "command" : state === "done" ? "command done" : state === "timeout" ? "command pending" : "command error",
+        content,
+        createdAt: new Date().toISOString(),
+      };
+      return current.some((message) => message.id === id) ? current.map((message) => (message.id === id ? { ...message, ...nextMessage, createdAt: message.createdAt } : message)) : [...current, nextMessage];
+    });
+  }
+
   async function executeCommand(commandName: string, safetyEvent?: PiSafetyEvent) {
+    const normalizedName = commandName.replace(/^\//, "");
+    const feedbackId = `command-${normalizedName}-${Date.now()}`;
+    appendCommandFeedback(feedbackId, normalizedName, "running");
     try {
       setError(null);
       if (safetyEvent) {
         await client.recordSafetyEvent(safetyEvent);
         setSafetyEvents((current) => [safetyEvent, ...current.filter((item) => item.id !== safetyEvent.id)].slice(0, 20));
       }
-      await client.executeCommand(commandName);
+      await client.executeCommand(normalizedName);
+      appendCommandFeedback(feedbackId, normalizedName, "done");
       await refresh();
     } catch (caught) {
+      if (normalizedName === "compact" && isRpcTimeoutError(caught)) {
+        appendCommandFeedback(feedbackId, normalizedName, "timeout");
+        void refresh();
+        return;
+      }
+      appendCommandFeedback(feedbackId, normalizedName, "error", errorMessage(caught, t("hook.unknownError")));
       setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }

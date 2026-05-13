@@ -39,7 +39,7 @@ export function ToolCallItem({ tool, onSelect, defaultExpanded = false }: ToolCa
       >
         <span className="flex size-4 shrink-0 items-center justify-center rounded-none bg-surface">{icon}</span>
         <ToolKindIcon name={tool.name} />
-        <span className="w-10 shrink-0 truncate font-semibold text-foreground">{tool.name}</span>
+        <span className="w-14 shrink-0 truncate font-semibold text-foreground">{toolActionLabel(tool.name)}</span>
         {tool.safety ? <ShieldAlert size={12} className="shrink-0 text-danger" /> : null}
         <span className="min-w-0 flex-1 truncate text-muted-foreground">
           <span>{summary.prefix}</span>
@@ -88,6 +88,17 @@ function ToolKindIcon({ name }: { name: string }) {
   return <FileText size={12} className="shrink-0 text-primary" />;
 }
 
+function toolActionLabel(name: string): string {
+  if (name === "read") return "读取";
+  if (name === "edit") return "修改";
+  if (name === "write") return "写入";
+  if (name === "bash") return "执行";
+  if (name === "grep") return "搜索";
+  if (name === "find") return "查找";
+  if (name === "ls") return "列出";
+  return name;
+}
+
 function ExpandedToolContent({ tool, summary }: { tool: PiToolCall; summary: ToolSummary }) {
   if (tool.name === "read") return <CodePreview tool={tool} title="read" path={summary.path} range={summary.range} content={tool.output} />;
   if (tool.name === "edit") return summary.diff ? <DiffPreview diff={summary.diff} /> : <ToolMetadata tool={tool} summary={summary} label="edited" />;
@@ -115,7 +126,7 @@ function CodePreview({ title, path, range, content }: { tool: PiToolCall; title:
       <div className="mb-1 text-[11px]">
         <span className="font-semibold text-white">{title}</span>{" "}
         {path ? <span className="text-[#7fc7bb]">{path}</span> : <span className="text-[#8b9589]">unknown</span>}
-        {range ? <span className="text-[#f2d46b]">:{range}</span> : null}
+        {path && range ? <span className="text-[#f2d46b]">:{range}</span> : null}
       </div>
       {displayLines.length ? (
         <pre className="overflow-x-auto whitespace-pre-wrap break-words text-[11px] leading-5">{displayLines.join("\n")}</pre>
@@ -137,29 +148,29 @@ interface ToolSummary {
 
 function buildToolSummary(tool: PiToolCall): ToolSummary {
   if (tool.name === "read") {
-    const path = getStringArg(tool, "path") ?? getStringArg(tool, "file_path") ?? tool.target;
+    const path = getToolPath(tool);
     const { start, end } = getReadRange(tool);
     const range = start ? `${start}${end && end !== start ? `-${end}` : ""}` : undefined;
-    return { prefix: "", path, range, suffix: range ? `:${range}` : "" };
+    return { prefix: "读取 ", path, range, suffix: path && range ? `:${range}` : "" };
   }
 
   if (tool.name === "edit") {
-    const path = getStringArg(tool, "path") ?? getStringArg(tool, "file_path") ?? tool.target;
+    const path = getToolPath(tool);
     const diff = getStringDetail(tool, "diff") ?? buildDiffFromArgs(tool);
-    return { prefix: "AI edited ", path, suffix: diff ? "" : ` · ${tool.summary}`, diff };
+    return { prefix: "修改 ", path, suffix: diff ? "" : ` · ${tool.summary}`, diff };
   }
 
   if (tool.name === "write") {
-    const path = getStringArg(tool, "path") ?? getStringArg(tool, "file_path") ?? parseWritePath(tool.output) ?? tool.target;
-    return { prefix: "AI wrote ", path };
+    const path = getToolPath(tool) ?? parseWritePath(tool.output);
+    return { prefix: "写入 ", path };
   }
 
   if (tool.name === "bash") {
     const command = getStringArg(tool, "command") ?? tool.target;
-    return { prefix: "AI ran ", path: command };
+    return { prefix: "执行 ", path: command };
   }
 
-  return { prefix: "AI used ", path: tool.target || tool.name, suffix: tool.summary ? ` · ${tool.summary}` : "" };
+  return { prefix: `${toolActionLabel(tool.name)} `, path: getToolPath(tool) || tool.target || tool.name, suffix: tool.summary ? ` · ${tool.summary}` : "" };
 }
 
 function getReadRange(tool: PiToolCall): { start?: number; end?: number } {
@@ -225,6 +236,26 @@ function stripReadContinuation(lines: string[]): string[] {
 function parseWritePath(output?: string): string | undefined {
   const match = output?.match(/Successfully wrote \d+ bytes to (.+)$/m);
   return match?.[1]?.trim();
+}
+
+function getToolPath(tool: PiToolCall): string | undefined {
+  return (
+    getStringArg(tool, "path") ??
+    getStringArg(tool, "file_path") ??
+    getStringArg(tool, "filePath") ??
+    getStringArg(tool, "relativePath") ??
+    getStringArg(tool, "absolutePath") ??
+    getStringArg(tool, "target") ??
+    getStringArg(tool, "filename") ??
+    getStringArg(tool, "file") ??
+    (isUsefulToolTarget(tool.target, tool.name) ? tool.target : undefined)
+  );
+}
+
+function isUsefulToolTarget(target: string | undefined, toolName: string): target is string {
+  if (!target) return false;
+  const trimmed = target.trim();
+  return Boolean(trimmed && trimmed !== "unknown" && trimmed !== toolName);
 }
 
 function getStringArg(tool: PiToolCall, key: string): string | undefined {

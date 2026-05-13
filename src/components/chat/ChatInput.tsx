@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
+import { memo, useDeferredValue, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
 import { ArrowUp, AtSign, BarChart3, Image, Pause, X } from "lucide-react";
 import { CommandPalette } from "@/components/chat/CommandPalette";
 import { ModelSelector } from "@/components/model/ModelSelector";
@@ -28,7 +28,7 @@ interface ChatInputProps {
   onConsumePrefill: () => void;
 }
 
-export const ChatInput = memo(function ChatInput({
+function ChatInputComponent({
   isRunning,
   commands,
   state,
@@ -53,6 +53,7 @@ export const ChatInput = memo(function ChatInput({
   const canSubmitRef = useRef(false);
   const commandQueryRef = useRef<string | null>(null);
   const [commandQuery, setCommandQuery] = useState<string | null>(null);
+  const deferredCommandQuery = useDeferredValue(commandQuery);
   const [canSubmit, setCanSubmit] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [pendingDangerousCommand, setPendingDangerousCommand] = useState<PiCommand | null>(null);
@@ -61,8 +62,13 @@ export const ChatInput = memo(function ChatInput({
 
   useEffect(() => {
     if (!prefillValue) return;
+    if (draftRef.current.trim()) {
+      onConsumePrefill();
+      return;
+    }
     setDraftValue(prefillValue);
-  }, [prefillValue]);
+    onConsumePrefill();
+  }, [onConsumePrefill, prefillValue]);
 
   useEffect(() => {
     if (!isRunning || disabled) return;
@@ -76,13 +82,16 @@ export const ChatInput = memo(function ChatInput({
   }, [disabled, isRunning, onAbort]);
 
   const filteredCommands = useMemo(() => {
-    if (commandQuery == null) return [];
-    const search = commandQuery.toLowerCase();
-    return commands.filter((command) => {
+    if (deferredCommandQuery == null) return [];
+    const search = deferredCommandQuery.toLowerCase();
+    const exact = commands.find((command) => command.name.toLowerCase() === search);
+    const matches = commands.filter((command) => {
       if (!search) return true;
       return [command.name, command.description, command.source, command.location, command.path].filter(Boolean).join(" ").toLowerCase().includes(search);
     });
-  }, [commandQuery, commands]);
+    const ordered = exact ? [exact, ...matches.filter((command) => command !== exact)] : matches;
+    return ordered.slice(0, 80);
+  }, [deferredCommandQuery, commands]);
 
   function setDraftValue(next: string) {
     draftRef.current = next;
@@ -100,7 +109,13 @@ export const ChatInput = memo(function ChatInput({
   }
 
   async function submit() {
-    const message = buildMessage(draftRef.current.trim(), images);
+    const text = draftRef.current.trim();
+    const command = findExactSlashCommand(text, commands);
+    if (command) {
+      await runCommand(command);
+      return;
+    }
+    const message = buildMessage(text, images);
     if (!message || isRunning || disabled) return;
     clearInput();
     await onSubmit(message);
@@ -122,7 +137,6 @@ export const ChatInput = memo(function ChatInput({
     setDraftValue("");
     setSelectedIndex(0);
     setImages([]);
-    onConsumePrefill();
   }
 
   async function addImages(files: FileList | File[] | null) {
@@ -146,9 +160,8 @@ export const ChatInput = memo(function ChatInput({
       return;
     }
 
-    setDraftValue(`/${command.name}`);
+    clearInput();
     await onExecuteCommand(command.name);
-    setDraftValue("");
   }
 
   function applyCommand(command: PiCommand) {
@@ -186,10 +199,9 @@ export const ChatInput = memo(function ChatInput({
           className="max-h-36 min-h-20 w-full resize-none bg-transparent px-2.5 py-2 font-mono text-[13px] leading-5 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
           placeholder={disabled ? t("chat.connecting") : t("chat.placeholder")}
           ref={textareaRef}
-          defaultValue={prefillValue ?? ""}
+          defaultValue=""
           disabled={disabled}
           onChange={(event) => {
-            if (prefillValue) onConsumePrefill();
             if (selectedIndex !== 0) setSelectedIndex(0);
             setDraftValue(event.currentTarget.value);
           }}
@@ -227,7 +239,8 @@ export const ChatInput = memo(function ChatInput({
                 return;
               }
               if (event.key === "Enter" && !event.shiftKey) {
-                const selected = filteredCommands[activeIndex];
+                const exact = findExactSlashCommand(draftRef.current.trim(), commands);
+                const selected = exact ?? filteredCommands[activeIndex];
                 if (selected) {
                   event.preventDefault();
                   applyCommand(selected);
@@ -307,14 +320,34 @@ export const ChatInput = memo(function ChatInput({
           if (!command) return;
           const action = command.safety ?? detectDangerousCommand(command);
           const event = action ? createSafetyEvent(action, "allowed", "command") : undefined;
+          clearInput();
           void onExecuteCommand(command.name, event);
-          setDraftValue("");
         }}
       />
     </div>
   );
-});
+}
 
+export const ChatInput = memo(ChatInputComponent, areChatInputPropsEqual);
+
+function areChatInputPropsEqual(previous: ChatInputProps, next: ChatInputProps) {
+  return (
+    previous.isRunning === next.isRunning &&
+    previous.disabled === next.disabled &&
+    previous.prefillValue === next.prefillValue &&
+    previous.commands === next.commands &&
+    previous.models === next.models &&
+    previous.settings === next.settings &&
+    previous.onSubmit === next.onSubmit &&
+    previous.onAbort === next.onAbort &&
+    previous.onSteer === next.onSteer &&
+    previous.onFollowUp === next.onFollowUp &&
+    previous.onModelChange === next.onModelChange &&
+    previous.onExecuteCommand === next.onExecuteCommand &&
+    previous.onRecordSafetyEvent === next.onRecordSafetyEvent &&
+    previous.onConsumePrefill === next.onConsumePrefill
+  );
+}
 
 function IconHint({ label, disabled, onClick, children }: { label: string; disabled?: boolean; onClick?: () => void; children: ReactNode }) {
   return (
@@ -333,6 +366,18 @@ function IconHint({ label, disabled, onClick, children }: { label: string; disab
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
   );
+}
+
+const BUILTIN_COMMAND_NAMES = new Set(["compact", "cycle-model", "cycle-thinking", "abort-retry", "abort-bash", "export-html", "help", "models", "sessions", "extensions"]);
+
+function findExactSlashCommand(text: string, commands: PiCommand[]): PiCommand | null {
+  const match = text.match(/^\/([\w.-]+)$/);
+  if (!match) return null;
+  const name = match[1].toLowerCase();
+  const command = commands.find((item) => item.name.toLowerCase() === name);
+  if (command) return command;
+  if (BUILTIN_COMMAND_NAMES.has(name)) return { name, source: "builtin", description: `/${name}` };
+  return null;
 }
 
 function buildMessage(text: string, images: Array<{ name: string; dataUrl: string }>) {
