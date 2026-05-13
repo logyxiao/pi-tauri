@@ -64,6 +64,8 @@
   - 新增 session messages localStorage cache（每个 session 最多 200 条）：点击 session 时若有缓存，立即展示缓存消息并只显示 refreshing 状态，不再阻塞全屏 overlay；RPC 完成后用真实消息替换。
   - refresh / switchSession 拿到真实 messages 后立即按当前 sessionFile/sessionId 写入本地缓存；sessions cache 写入时为每条 session 预建 message cache key，后续可增量补齐。
   - 新增后台 session cache warmer：Tauri `pi_read_session_messages(sessionPath)` 直接解析 JSONL text 消息，不切换 RPC runtime；workspace sessions 刷新后后台预热前 20 条 session 消息缓存。
+  - 新增 `pi_open_project_with(path, target)` command，支持以 Windows Terminal/PowerShell、VS Code、Cursor 打开当前项目；文件管理器使用 Tauri opener `openPath()`。
+  - VS Code / Cursor 打开逻辑增强：先尝试 CLI（`code` / `cursor`），失败后读取 Windows 右键菜单注册表命令（Directory shell / Background shell），再 fallback 到常见安装路径。
   - `listSessions.workspaces` 从主 refresh 拆出为 `workspaceSessions.refresh` 后台任务，并限制为 startup 后触发；session 切换不再刷新整个 workspace sessions 列表，避免侧栏列表抖动/重载。
   - 修复 session 列表被 current fallback 覆盖问题：refresh / switchSession 只 merge 当前 sessions，不替换整体列表；merge 时避免 `Current session` / `unknown cwd` / `updatedAt=current` 低质量 fallback 覆盖已有真实 session。
   - 新增性能计时日志：`startup.critical`、`startup.backgroundRefresh`、`switchSession.total`、`switchSession.refresh`，用 `console.info` 输出 slowest summary，并用 `console.table` 直接展开每一步耗时。
@@ -80,6 +82,8 @@
   - 去除 header 中 fork/compact 文字按钮。
   - 去除 header 中 ModelSelector；仅保留 title/status/cwd 和 Inspector icon。
   - Inspector toggle 改为纯 icon，无按钮背景/边框。
+  - Git 管理按钮左侧新增“用系统软件打开项目”控件：默认快捷目标为终端；右侧下拉 icon 展开选择文件管理器、终端、VS Code、Cursor；用户选择后持久化到 `pi-tauri.projectOpenTarget`，左侧显示上次使用软件并支持一键快捷打开。
+  - 打开项目路径不再直接使用 `state.cwd === "unknown cwd"`；`MainArea` 接收 `workspacePaths`，优先用有效 `state.cwd`，否则 fallback 到第一个已打开 workspace，并在无有效路径时禁用按钮。
 - `src/components/model/ModelSelector.tsx`
   - 增加 `compact` 模式。
   - compact 模式去除 Brain icon、边框、背景和大写按钮感，只显示模型文本、thinking 和 chevron。

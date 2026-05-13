@@ -42,6 +42,234 @@ fn app_info() -> serde_json::Value {
 }
 
 #[tauri::command]
+fn pi_models_json_read() -> RpcResult<serde_json::Value> {
+    let path = pi_models_json_path()?;
+    let content = if path.exists() {
+        fs::read_to_string(&path).map_err(|error| format!("failed to read models.json: {error}"))?
+    } else {
+        default_models_json()
+    };
+    Ok(serde_json::json!({
+        "path": display_path(&path),
+        "exists": path.exists(),
+        "content": content,
+    }))
+}
+
+#[tauri::command]
+async fn pi_fetch_provider_models(base_url: String, api_key: Option<String>) -> RpcResult<Vec<String>> {
+    let client = reqwest::Client::new();
+    let key = api_key.and_then(resolve_api_key_value).filter(|value| !value.trim().is_empty());
+    let urls = model_list_urls(&base_url);
+    let mut last_error = String::new();
+
+    for url in urls {
+        let mut request = client.get(&url).header("accept", "application/json");
+        if let Some(key) = key.as_ref() {
+            request = request.bearer_auth(key);
+        }
+        let response = match request.send().await {
+            Ok(response) => response,
+            Err(error) => {
+                last_error = format!("{url}: request failed: {error}");
+                continue;
+            }
+        };
+        let status = response.status();
+        let body = match response.text().await {
+            Ok(body) => body,
+            Err(error) => {
+                last_error = format!("{url}: failed to read response: {error}");
+                continue;
+            }
+        };
+        if !status.is_success() {
+            last_error = format!("{url}: request failed: {status}: {}", body.chars().take(240).collect::<String>());
+            continue;
+        }
+        let value = match serde_json::from_str::<serde_json::Value>(&body) {
+            Ok(value) => value,
+            Err(error) => {
+                let starts = body.chars().take(240).collect::<String>();
+                last_error = format!("{url}: response is not JSON: {error}; starts with: {starts}");
+                continue;
+            }
+        };
+        let mut models = Vec::<String>::new();
+        collect_model_ids(value.get("data"), &mut models);
+        collect_model_ids(value.get("models"), &mut models);
+        if models.is_empty() {
+            last_error = format!("{url}: JSON parsed but no models found");
+            continue;
+        }
+        models.sort();
+        models.dedup();
+        return Ok(models);
+    }
+
+    Err(format!("failed to fetch models. Tried /models, /v1/models, /api/v1/models. Last error: {last_error}"))
+}
+
+#[tauri::command]
+fn pi_settings_enable_models(models: Vec<String>) -> RpcResult<serde_json::Value> {
+    let path = pi_settings_json_path()?;
+    let mut settings = if path.exists() {
+        let content = fs::read_to_string(&path).map_err(|error| format!("failed to read settings.json: {error}"))?;
+        serde_json::from_str::<serde_json::Value>(&content).map_err(|error| format!("settings.json is invalid JSON: {error}"))?
+    } else {
+        serde_json::json!({})
+    };
+
+    if !settings.is_object() {
+        settings = serde_json::json!({});
+    }
+
+    let object = settings.as_object_mut().ok_or("settings.json root must be object")?;
+    let mut enabled = object
+        .get("enabledModels")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let mut added = 0usize;
+    for model in models {
+        let model = model.trim();
+        if model.is_empty() || enabled.iter().any(|item| item == model) {
+            continue;
+        }
+        enabled.push(model.to_string());
+        added += 1;
+    }
+
+    object.insert(
+        "enabledModels".to_string(),
+        serde_json::Value::Array(enabled.iter().map(|item| serde_json::Value::String(item.clone())).collect()),
+    );
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| format!("failed to create settings.json directory: {error}"))?;
+    }
+    let content = serde_json::to_string_pretty(&settings).map_err(|error| format!("failed to serialize settings.json: {error}"))?;
+    fs::write(&path, format!("{}\n", content)).map_err(|error| format!("failed to write settings.json: {error}"))?;
+
+    Ok(serde_json::json!({
+        "path": display_path(&path),
+        "enabledModels": enabled,
+        "added": added,
+    }))
+}
+
+#[tauri::command]
+fn pi_models_json_write(content: String) -> RpcResult<serde_json::Value> {
+    let trimmed = content.trim();
+    serde_json::from_str::<serde_json::Value>(trimmed).map_err(|error| format!("models.json is invalid JSON: {error}"))?;
+    let path = pi_models_json_path()?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| format!("failed to create models.json directory: {error}"))?;
+    }
+    fs::write(&path, format!("{}\n", trimmed)).map_err(|error| format!("failed to write models.json: {error}"))?;
+    Ok(serde_json::json!({
+        "path": display_path(&path),
+        "exists": true,
+        "content": format!("{}\n", trimmed),
+    }))
+}
+
+fn pi_models_json_path() -> RpcResult<PathBuf> {
+    Ok(pi_agent_dir()?.join("models.json"))
+}
+
+fn pi_settings_json_path() -> RpcResult<PathBuf> {
+    Ok(pi_agent_dir()?.join("settings.json"))
+}
+
+fn pi_agent_dir() -> RpcResult<PathBuf> {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("USERPROFILE").map(PathBuf::from))
+        .ok_or("failed to resolve home directory for pi settings")?;
+    Ok(home.join(".pi").join("agent"))
+}
+
+fn model_list_urls(base_url: &str) -> Vec<String> {
+    let trimmed = base_url.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    let mut urls = vec![format!("{trimmed}/models")];
+    if !trimmed.ends_with("/v1") {
+        urls.push(format!("{trimmed}/v1/models"));
+    }
+    if !trimmed.ends_with("/api/v1") {
+        urls.push(format!("{trimmed}/api/v1/models"));
+    }
+    urls.sort();
+    urls.dedup();
+    urls
+}
+
+fn resolve_api_key_value(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.starts_with('!') {
+        return None;
+    }
+    std::env::var(trimmed).ok().or_else(|| Some(trimmed.to_string()))
+}
+
+fn collect_model_ids(value: Option<&serde_json::Value>, output: &mut Vec<String>) {
+    let Some(serde_json::Value::Array(items)) = value else {
+        return;
+    };
+    for item in items {
+        if let Some(id) = item.as_str() {
+            output.push(id.to_string());
+            continue;
+        }
+        let id = item
+            .get("id")
+            .or_else(|| item.get("name"))
+            .or_else(|| item.get("model"))
+            .and_then(|value| value.as_str());
+        if let Some(id) = id.filter(|id| !id.trim().is_empty()) {
+            output.push(id.trim().to_string());
+        }
+    }
+}
+
+fn default_models_json() -> String {
+    r#"{
+  "providers": {
+    "ollama": {
+      "baseUrl": "http://localhost:11434/v1",
+      "api": "openai-completions",
+      "apiKey": "ollama",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "models": [
+        {
+          "id": "qwen2.5-coder:7b",
+          "name": "Qwen 2.5 Coder 7B (Local)",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 128000,
+          "maxTokens": 32000
+        }
+      ]
+    }
+  }
+}
+"#
+    .to_string()
+}
+
+#[tauri::command]
 fn pi_rpc_start(app: AppHandle, state: State<'_, RpcState>) -> RpcResult<()> {
     let mut slot = state.process.lock().map_err(|error| error.to_string())?;
     if slot.is_some() {
@@ -227,6 +455,17 @@ fn pi_read_session_messages(session_path: String) -> RpcResult<Vec<serde_json::V
     }
 
     Ok(messages)
+}
+
+#[tauri::command]
+fn pi_open_project_with(path: String, target: String) -> RpcResult<()> {
+    let project_path = safe_root(&path)?;
+    match target.as_str() {
+        "terminal" => open_terminal(&project_path),
+        "vscode" => open_editor(&project_path, "vscode", "code", "Code.exe"),
+        "cursor" => open_editor(&project_path, "cursor", "cursor", "Cursor.exe"),
+        _ => Err(format!("unsupported open target: {target}")),
+    }
 }
 
 #[tauri::command]
@@ -1050,6 +1289,110 @@ fn display_path(path: &Path) -> String {
         .to_string()
 }
 
+fn open_editor(path: &Path, target: &str, cli_name: &str, exe_name: &str) -> RpcResult<()> {
+    let path_arg = path.to_string_lossy().to_string();
+    spawn_app(cli_name, std::slice::from_ref(&path_arg))
+        .or_else(|_| open_editor_from_registry(path, target))
+        .or_else(|_| open_editor_from_common_paths(path, exe_name))
+}
+
+#[cfg(windows)]
+fn open_editor_from_registry(path: &Path, target: &str) -> RpcResult<()> {
+    let needle = if target == "cursor" { "cursor" } else { "code" };
+    let keys = [
+        r"HKCU\Software\Classes\Directory\shell",
+        r"HKCR\Directory\shell",
+        r"HKCU\Software\Classes\Directory\Background\shell",
+        r"HKCR\Directory\Background\shell",
+    ];
+    for root in keys {
+        let output = Command::new("reg.exe")
+            .args(["query", root, "/s"])
+            .output()
+            .map_err(|error| format!("failed to query registry: {error}"))?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        if !text.to_lowercase().contains(needle) {
+            continue;
+        }
+        for line in text.lines() {
+            let lower = line.to_lowercase();
+            if !lower.contains("reg_sz") || !lower.contains(needle) || !(lower.contains("%1") || lower.contains("%v")) {
+                continue;
+            }
+            let command = line.split_once("REG_SZ").map(|(_, value)| value.trim()).unwrap_or(line.trim());
+            return run_shell_command(command, path);
+        }
+    }
+    Err(format!("failed to find {target} registry open command"))
+}
+
+#[cfg(not(windows))]
+fn open_editor_from_registry(_path: &Path, target: &str) -> RpcResult<()> {
+    Err(format!("registry open command unsupported for {target}"))
+}
+
+#[cfg(windows)]
+fn open_editor_from_common_paths(path: &Path, exe_name: &str) -> RpcResult<()> {
+    let mut candidates = Vec::new();
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        candidates.push(PathBuf::from(&local_app_data).join("Programs").join("Microsoft VS Code").join("Code.exe"));
+        candidates.push(PathBuf::from(&local_app_data).join("Programs").join("Cursor").join("Cursor.exe"));
+    }
+    if let Ok(program_files) = std::env::var("ProgramFiles") {
+        candidates.push(PathBuf::from(&program_files).join("Microsoft VS Code").join("Code.exe"));
+        candidates.push(PathBuf::from(&program_files).join("Cursor").join("Cursor.exe"));
+    }
+    for candidate in candidates.into_iter().filter(|candidate| candidate.file_name().and_then(|name| name.to_str()) == Some(exe_name)) {
+        if candidate.exists() {
+            return Command::new(candidate)
+                .arg(path)
+                .spawn()
+                .map(|_| ())
+                .map_err(|error| format!("failed to open {exe_name}: {error}"));
+        }
+    }
+    Err(format!("failed to find {exe_name}"))
+}
+
+#[cfg(not(windows))]
+fn open_editor_from_common_paths(_path: &Path, exe_name: &str) -> RpcResult<()> {
+    Err(format!("failed to find {exe_name}"))
+}
+
+#[cfg(windows)]
+fn run_shell_command(command: &str, path: &Path) -> RpcResult<()> {
+    let path_value = path.to_string_lossy();
+    let replaced = command.replace("%1", &path_value).replace("%V", &path_value).replace("%v", &path_value);
+    Command::new("cmd.exe")
+        .args(["/C", "start", "", &replaced])
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("failed to run registry command: {error}"))
+}
+
+fn open_terminal(path: &Path) -> RpcResult<()> {
+    if cfg!(windows) {
+        let args = vec!["-NoExit".to_string(), "-Command".to_string(), format!("Set-Location -LiteralPath '{}'", path.to_string_lossy().replace("'", "''''"))];
+        spawn_app("wt.exe", &["-d".to_string(), path.to_string_lossy().to_string()])
+            .or_else(|_| spawn_app("powershell.exe", &args))
+    } else if cfg!(target_os = "macos") {
+        let script = format!("tell application \"Terminal\" to do script \"cd '{}'\"", path.to_string_lossy().replace("'", "'\\''"));
+        spawn_app("osascript", &["-e".to_string(), script])
+    } else {
+        spawn_app("xdg-terminal-exec", &[path.to_string_lossy().to_string()])
+            .or_else(|_| spawn_app("gnome-terminal", &["--working-directory".to_string(), path.to_string_lossy().to_string()]))
+            .or_else(|_| spawn_app("konsole", &["--workdir".to_string(), path.to_string_lossy().to_string()]))
+    }
+}
+
+fn spawn_app(program: &str, args: &[String]) -> RpcResult<()> {
+    Command::new(program)
+        .args(args)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("failed to open {program}: {error}"))
+}
+
 fn default_git_bin() -> String {
     if cfg!(windows) {
         "git.exe".to_string()
@@ -1083,6 +1426,10 @@ pub fn run() {
         .manage(SdkSidecarState::default())
         .invoke_handler(tauri::generate_handler![
             app_info,
+            pi_models_json_read,
+            pi_models_json_write,
+            pi_fetch_provider_models,
+            pi_settings_enable_models,
             pi_rpc_start,
             pi_rpc_send,
             pi_rpc_stop,
@@ -1091,6 +1438,7 @@ pub fn run() {
             pi_sdk_sidecar_stop,
             pi_list_sessions,
             pi_read_session_messages,
+            pi_open_project_with,
             pi_delete_session,
             pi_session_tree,
             pi_set_session_label,

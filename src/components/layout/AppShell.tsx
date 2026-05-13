@@ -96,6 +96,7 @@ export function AppShell() {
             settings={settings}
             models={models}
             commands={commands}
+            workspacePaths={workspacePaths}
             prefillInput={prefillInput}
             status={status}
             error={error}
@@ -147,6 +148,7 @@ export function AppShell() {
         settings={settings}
         models={models}
         onUpdateSettings={updateSettings}
+        onRefresh={refresh}
       />
       <GlobalLoadingOverlay
         open={isConnecting || isSwitchingSession}
