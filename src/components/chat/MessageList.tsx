@@ -101,7 +101,7 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
   }
 
   return (
-    <div className="relative z-30 min-h-0 flex-1">
+    <div className="relative z-10 min-h-0 flex-1">
       <div
         ref={scrollRef}
         className="message-list-scrollbar h-full overflow-y-auto overflow-x-hidden px-3 py-4 pr-9 sm:px-5 sm:py-6 sm:pr-12"
@@ -151,7 +151,7 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
       {showScrollToBottom ? (
         <button
           type="button"
-          className="absolute bottom-5 right-10 z-40 flex size-9 cursor-pointer items-center justify-center border border-border bg-surface/90 text-muted-foreground shadow-[0_10px_30px_rgb(44_54_70/0.14)] backdrop-blur transition hover:border-primary/30 hover:bg-muted hover:text-primary sm:right-14"
+          className="absolute bottom-5 right-10 z-20 flex size-9 cursor-pointer items-center justify-center border border-border bg-surface/90 text-muted-foreground shadow-[0_10px_30px_rgb(44_54_70/0.14)] backdrop-blur transition hover:border-primary/30 hover:bg-muted hover:text-primary sm:right-14"
           aria-label="返回底部"
           title="返回底部"
           onClick={scrollToBottom}
@@ -333,6 +333,7 @@ function AssistantContent({ message, content, createdAt, hasTools, isActive }: {
       <div className="overflow-hidden border border-border bg-surface/82 text-foreground shadow-[0_10px_30px_rgb(44_54_70/0.055)]">
         <div className="space-y-3 px-3.5 py-3 text-[13px] leading-5">
           {showWorking ? <WorkingBlock /> : renderBlocks ? <AssistantBlocks message={message} fallback={content} live={isActive} /> : hasContent ? <MarkdownContent content={content} /> : null}
+          {isActive && !showWorking ? <LiveResponseTail /> : null}
           <AssistantStopState message={message} />
         </div>
       </div>
@@ -369,6 +370,15 @@ function WorkingBlock() {
     <div className="flex items-center gap-2 border border-border bg-background/60 px-2.5 py-2 font-mono text-[11px] leading-5 text-muted-foreground">
       <Loader2 size={13} className="animate-spin text-primary" />
       <span>working…</span>
+    </div>
+  );
+}
+
+function LiveResponseTail() {
+  return (
+    <div className="mt-1 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+      <Loader2 size={11} className="animate-spin text-primary" />
+      <span>working</span>
     </div>
   );
 }
@@ -563,7 +573,7 @@ function MessageTimeline({ items, activeId, onJump }: { items: TimelineItem[]; a
               />
             </button>
             <div
-              className="absolute right-0 top-1/2 z-[200] hidden w-80 pr-5 text-left group-hover:block"
+              className="absolute right-0 top-1/2 z-30 hidden w-80 pr-5 text-left group-hover:block"
               style={{ transform: `translateY(-${hoveredNearbyIndex * 32 + 16}px)` }}
             >
               <div className="border border-border bg-popover/96 p-1.5 shadow-[0_16px_45px_rgb(44_54_70/0.16)] backdrop-blur">
@@ -704,10 +714,6 @@ function buildRenderItems(messages: PiMessage[]): RenderItem[] {
 
     if (isGroupableActivityMessage(message)) {
       addPendingMessage(message);
-      continue;
-    }
-
-    if (isHiddenAssistantMessage(message)) {
       continue;
     }
 

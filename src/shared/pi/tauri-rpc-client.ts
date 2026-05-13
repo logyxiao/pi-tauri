@@ -610,11 +610,13 @@ function mapSessionSummary(raw: unknown): PiSessionSummary | null {
   const name = session.name;
   const cwd = session.cwd;
   if (typeof id !== "string" || typeof name !== "string" || typeof cwd !== "string") return null;
+  const updatedAtMs = parseSessionTimestampMs(session.updatedAt);
   return {
     id,
     name,
     cwd,
     updatedAt: formatSessionTimestamp(session.updatedAt),
+    updatedAtMs,
     model: typeof session.model === "string" ? session.model : "unknown",
     status: session.status === "running" ? "running" : "idle",
     filePath: typeof session.filePath === "string" ? session.filePath : undefined,
@@ -985,10 +987,16 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback?: T): P
   });
 }
 
+function parseSessionTimestampMs(value: unknown): number | undefined {
+  if (typeof value !== "string" || !value || value === "unknown" || value === "current") return undefined;
+  const normalized = value.startsWith("unix-ms:") ? Number(value.slice("unix-ms:".length)) : Date.parse(value);
+  return Number.isFinite(normalized) ? normalized : undefined;
+}
+
 function formatSessionTimestamp(value: unknown): string {
   if (typeof value !== "string" || !value || value === "unknown" || value === "current") return typeof value === "string" ? value : "unknown";
-  const normalized = value.startsWith("unix-ms:") ? Number(value.slice("unix-ms:".length)) : Date.parse(value);
-  if (!Number.isFinite(normalized)) return value;
+  const normalized = parseSessionTimestampMs(value);
+  if (normalized === undefined) return value;
   const date = new Date(normalized);
   const now = new Date();
   const sameDay = date.toDateString() === now.toDateString();

@@ -209,7 +209,7 @@ export function MainArea({
 
       <MessageList messages={messages} isConnecting={isConnecting} isRefreshing={isRefreshing} isSwitchingSession={isSwitchingSession} isRunning={isRunning} onSelectTool={onSelectTool} />
 
-      <div className="shrink-0 bg-gradient-to-t from-background via-background/95 to-background/0 px-3 pb-3 pt-3 sm:px-5 sm:pb-4">
+      <div className="relative z-40 shrink-0 bg-gradient-to-t from-background via-background/95 to-background/0 px-3 pb-3 pt-3 sm:px-5 sm:pb-4">
         <div className="mx-auto w-full max-w-4xl">
           <ChatInput
             isRunning={isRunning}

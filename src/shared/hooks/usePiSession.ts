@@ -277,6 +277,48 @@ export function usePiSession() {
   const activeAssistantIdRef = useRef<string | null>(null);
   const activeSessionOverrideRef = useRef<PiSessionSummary | null>(null);
   const deletedSessionKeysRef = useRef<Set<string>>(new Set());
+  const typewriterQueueRef = useRef("");
+  const typewriterTimerRef = useRef<number | null>(null);
+
+  const stopTypewriter = useCallback(() => {
+    if (typewriterTimerRef.current !== null) {
+      window.clearTimeout(typewriterTimerRef.current);
+      typewriterTimerRef.current = null;
+    }
+    typewriterQueueRef.current = "";
+  }, []);
+
+  const scheduleTypewriter = useCallback(() => {
+    if (typewriterTimerRef.current !== null) return;
+    typewriterTimerRef.current = window.setTimeout(() => {
+      typewriterTimerRef.current = null;
+      const assistantId = activeAssistantIdRef.current;
+      if (!assistantId || !typewriterQueueRef.current) return;
+      const chunkSize = typewriterQueueRef.current.length > 240 ? 8 : 3;
+      const chunk = typewriterQueueRef.current.slice(0, chunkSize);
+      typewriterQueueRef.current = typewriterQueueRef.current.slice(chunk.length);
+      setMessages((current) =>
+        current.map((message) => (message.id === assistantId ? { ...message, content: `${message.content}${chunk}` } : message)),
+      );
+      if (typewriterQueueRef.current) scheduleTypewriter();
+    }, 18);
+  }, []);
+
+  const enqueueTypewriterDelta = useCallback((delta: string) => {
+    if (!delta) return;
+    typewriterQueueRef.current += delta;
+    scheduleTypewriter();
+  }, [scheduleTypewriter]);
+
+  const flushTypewriter = useCallback(() => {
+    const assistantId = activeAssistantIdRef.current;
+    const queued = typewriterQueueRef.current;
+    stopTypewriter();
+    if (!assistantId || !queued) return;
+    setMessages((current) => current.map((message) => (message.id === assistantId ? { ...message, content: `${message.content}${queued}` } : message)));
+  }, [stopTypewriter]);
+
+  useEffect(() => () => stopTypewriter(), [stopTypewriter]);
 
   useEffect(() => {
     persistWorkspacePaths(workspacePaths);
@@ -295,6 +337,19 @@ export function usePiSession() {
     if (!sessionPath || !messages.length) return;
     persistSessionMessages(sessionPath, messages);
   }, [messages, state?.sessionFile, state?.sessionId]);
+
+  const ensureLiveAssistantMessage = useCallback(() => {
+    const existingId = activeAssistantIdRef.current;
+    if (existingId) {
+      setMessages((current) => current.some((message) => message.id === existingId) ? current : [...current, { id: existingId, role: "assistant", content: "", createdAt: nowLabel(), tools: [] }]);
+      return existingId;
+    }
+
+    const assistantId = crypto.randomUUID();
+    activeAssistantIdRef.current = assistantId;
+    setMessages((current) => [...current, { id: assistantId, role: "assistant", content: "", createdAt: nowLabel(), tools: [] }]);
+    return assistantId;
+  }, []);
 
   const refreshWorkspaceSessions = useCallback(async () => {
     if (!workspacePaths.length) return;
@@ -356,9 +411,14 @@ export function usePiSession() {
         timed(timings, "listSafetyEvents", () => client.listSafetyEvents()),
         timed(timings, "listFiles", () => client.listFiles()),
       ]);
-      setMessages(nextMessages);
-      persistMessagesForState(nextState, nextMessages);
-      setState(applySessionOverride(nextState, activeSessionOverrideRef.current));
+      if (!activeAssistantIdRef.current) {
+        setMessages(nextMessages);
+        persistMessagesForState(nextState, nextMessages);
+      }
+      setState((current) => {
+        const mergedState = applySessionOverride(nextState, activeSessionOverrideRef.current);
+        return activeAssistantIdRef.current ? { ...(current ?? mergedState), ...mergedState, runState: "running" } : mergedState;
+      });
       setStats(nextStats);
       setSessions((current) => filterDeletedSessions(mergeSessions(current, nextSessions), deletedSessionKeysRef.current));
       setModels(nextModels);
@@ -370,7 +430,7 @@ export function usePiSession() {
       setSafetyEvents(nextSafetyEvents);
       setFiles(nextFiles);
       setError(null);
-      setStatus(nextState.runState === "running" ? "running" : "ready");
+      setStatus(activeAssistantIdRef.current || nextState.runState === "running" ? "running" : "ready");
       logTimings(scope, timings, totalStartedAt);
       if (scope.startsWith("startup")) void refreshWorkspaceSessions();
     } catch (caught) {
@@ -378,10 +438,10 @@ export function usePiSession() {
       setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }
-  }, [client, t, workspacePaths]);
+  }, [client, refreshWorkspaceSessions, t]);
 
   const upsertTool = useCallback((tool: PiToolCall) => {
-    const assistantId = activeAssistantIdRef.current;
+    const assistantId = ensureLiveAssistantMessage();
     setMessages((current) =>
       current.map((message) => {
         if (message.id !== assistantId) return message;
@@ -393,25 +453,26 @@ export function usePiSession() {
         };
       }),
     );
-  }, []);
+  }, [ensureLiveAssistantMessage]);
 
   const handleEvent = useCallback(
     (event: PiClientEvent) => {
       if (event.type === "agent_start") {
-        const assistantId = crypto.randomUUID();
-        activeAssistantIdRef.current = assistantId;
+        stopTypewriter();
+        ensureLiveAssistantMessage();
         setStatus("running");
         setError(null);
         setState((current) => (current ? { ...current, runState: "running" } : current));
-        setMessages((current) => [
-          ...current,
-          { id: assistantId, role: "assistant", content: "", createdAt: nowLabel(), tools: [] },
-        ]);
         return;
       }
 
       if (event.type === "message_update") {
-        const assistantId = activeAssistantIdRef.current;
+        const assistantId = ensureLiveAssistantMessage();
+        if (event.delta) {
+          enqueueTypewriterDelta(event.delta);
+          return;
+        }
+        stopTypewriter();
         setMessages((current) =>
           current.map((message) => {
             if (message.id !== assistantId) return message;
@@ -421,11 +482,11 @@ export function usePiSession() {
                 ...event.message,
                 id: message.id,
                 createdAt: message.createdAt,
-                content: event.delta ? `${message.content}${event.delta}` : event.message.content,
+                content: event.message.content,
                 tools: message.tools,
               };
             }
-            return { ...message, content: `${message.content}${event.delta ?? ""}` };
+            return message;
           }),
         );
         return;
@@ -462,13 +523,14 @@ export function usePiSession() {
       }
 
       if (event.type === "agent_end" || event.type === "aborted") {
+        flushTypewriter();
         setStatus("ready");
         setState((current) => (current ? { ...current, runState: "idle" } : current));
         activeAssistantIdRef.current = null;
         void refresh();
       }
     },
-    [refresh, upsertTool],
+    [enqueueTypewriterDelta, ensureLiveAssistantMessage, flushTypewriter, refresh, stopTypewriter, upsertTool],
   );
 
   useEffect(() => {
@@ -514,14 +576,23 @@ export function usePiSession() {
       content: trimmed,
       createdAt: nowLabel(),
     };
-    setMessages((current) => [...current, userMessage]);
+    stopTypewriter();
+    const assistantId = crypto.randomUUID();
+    activeAssistantIdRef.current = assistantId;
+    setMessages((current) => [...current, userMessage, { id: assistantId, role: "assistant", content: "", createdAt: nowLabel(), tools: [] }]);
+    setStatus("running");
+    setState((current) => (current ? { ...current, runState: "running" } : current));
     setError(null);
 
     try {
       await client.prompt(trimmed);
     } catch (caught) {
+      activeAssistantIdRef.current = null;
+      stopTypewriter();
+      setMessages((current) => current.filter((message) => message.id !== assistantId));
       setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
+      setState((current) => (current ? { ...current, runState: "error" } : current));
     }
   }
 

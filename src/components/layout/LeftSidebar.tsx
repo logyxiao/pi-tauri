@@ -35,6 +35,7 @@ interface ProjectSessionGroup {
   label: string;
   sessions: PiSessionSummary[];
   latestUpdatedAt: string;
+  latestUpdatedAtMs?: number;
 }
 
 export function LeftSidebar({
@@ -374,15 +375,19 @@ function groupSessionsByProject(sessions: PiSessionSummary[], openedWorkspacePat
 
   return Array.from(map.entries())
     .map(([cwd, projectSessions]) => {
-      const sorted = [...projectSessions].sort((left, right) => compareUpdatedAt(right.updatedAt, left.updatedAt));
+      const sorted = [...projectSessions].sort(compareSessionUpdatedDesc);
       return {
         cwd,
         label: projectLabel(cwd),
         sessions: sorted,
         latestUpdatedAt: sorted[0]?.updatedAt ?? "unknown",
+        latestUpdatedAtMs: sorted[0] ? getSessionSortTime(sorted[0]) : undefined,
       };
     })
-    .sort((left, right) => compareUpdatedAt(right.latestUpdatedAt, left.latestUpdatedAt));
+    .sort((left, right) => {
+      if (Number.isFinite(left.latestUpdatedAtMs) && Number.isFinite(right.latestUpdatedAtMs)) return (right.latestUpdatedAtMs ?? 0) - (left.latestUpdatedAtMs ?? 0);
+      return compareUpdatedAt(right.latestUpdatedAt, left.latestUpdatedAt);
+    });
 }
 
 function isSelectedSession(session: PiSessionSummary, currentSessionId?: string): boolean {
@@ -400,14 +405,55 @@ function projectLabel(cwd: string): string {
   return parts[parts.length - 1] ?? normalized;
 }
 
+function compareSessionUpdatedDesc(left: PiSessionSummary, right: PiSessionSummary): number {
+  const leftTime = getSessionSortTime(left);
+  const rightTime = getSessionSortTime(right);
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) return rightTime - leftTime;
+  if (Number.isFinite(leftTime)) return -1;
+  if (Number.isFinite(rightTime)) return 1;
+  return right.updatedAt.localeCompare(left.updatedAt);
+}
+
 function compareUpdatedAt(left: string, right: string): number {
-  const leftTime = parseUpdatedAt(left);
-  const rightTime = parseUpdatedAt(right);
+  const leftTime = parseDisplayedUpdatedAt(left);
+  const rightTime = parseDisplayedUpdatedAt(right);
   if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) return leftTime - rightTime;
   return left.localeCompare(right);
 }
 
-function parseUpdatedAt(value: string): number {
+function getSessionSortTime(session: PiSessionSummary): number {
+  if (typeof session.updatedAtMs === "number") return session.updatedAtMs;
+  return parseDisplayedUpdatedAt(session.updatedAt);
+}
+
+function parseDisplayedUpdatedAt(value: string): number {
+  if (value === "current") return Date.now();
   if (value.startsWith("unix-ms:")) return Number(value.slice("unix-ms:".length));
-  return Date.parse(value);
+  const parsed = Date.parse(value);
+  if (Number.isFinite(parsed)) return parsed;
+
+  const todayTime = parseClockTime(value);
+  if (todayTime !== null) return todayTime;
+
+  const yesterdayPrefix = "Yesterday ";
+  if (value.startsWith(yesterdayPrefix)) {
+    const yesterdayTime = parseClockTime(value.slice(yesterdayPrefix.length));
+    if (yesterdayTime !== null) return yesterdayTime - 24 * 60 * 60 * 1000;
+  }
+
+  return Number.NaN;
+}
+
+function parseClockTime(value: string): number | null {
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})(?:\s*([AP]M))?$/i);
+  if (!match) return null;
+  let hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const period = match[3]?.toUpperCase();
+  if (period === "PM" && hours < 12) hours += 12;
+  if (period === "AM" && hours === 12) hours = 0;
+  if (hours > 23 || minutes > 59) return null;
+  const date = new Date();
+  date.setHours(hours, minutes, 0, 0);
+  return date.getTime();
 }

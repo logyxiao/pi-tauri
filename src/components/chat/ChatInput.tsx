@@ -137,9 +137,9 @@ export function ChatInput({
   }
 
   return (
-    <div className="relative z-10">
+    <div className="relative z-50">
       {commandQuery != null ? (
-        <div className="absolute bottom-full left-0 right-0 z-20 mb-3 max-h-[min(20rem,45vh)] overflow-hidden">
+        <div className="absolute bottom-full left-0 right-0 z-50 mb-3 max-h-[min(20rem,45vh)] overflow-hidden">
           <CommandPalette commands={commands} query={commandQuery} selectedIndex={selectedIndex} onSelect={applyCommand} />
         </div>
       ) : null}

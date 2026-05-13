@@ -81,6 +81,7 @@ export interface PiSessionSummary {
   name: string;
   cwd: string;
   updatedAt: string;
+  updatedAtMs?: number;
   model: string;
   status: "idle" | "running";
   filePath?: string;
