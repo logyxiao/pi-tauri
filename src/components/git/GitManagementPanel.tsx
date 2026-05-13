@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Check, ChevronDown, Cloud, GitBranch, GitCommitHorizontal, Minus, MoreHorizontal, Plus, RefreshCw, RotateCcw, Rows3, SplitSquareVertical } from "lucide-react";
+import { Check, ChevronDown, Cloud, GitBranch, GitCommitHorizontal, Loader2, Minus, MoreHorizontal, Plus, RefreshCw, RotateCcw, Rows3, Sparkles, SplitSquareVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/lib/cn";
 
 interface GitManagementPanelProps {
   cwd: string;
+  model?: string;
+  thinkingLevel?: string;
+  sessionFile?: string;
+  isRunning?: boolean;
   onRefresh: () => Promise<void> | void;
 }
 
@@ -37,12 +41,12 @@ type GitCommit = {
   refs?: string;
 };
 
-export function GitManagementPanel({ cwd, onRefresh }: GitManagementPanelProps) {
+export function GitManagementPanel({ cwd, model, thinkingLevel, sessionFile, isRunning = false, onRefresh }: GitManagementPanelProps) {
   const { t } = useI18n();
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [commits, setCommits] = useState<GitCommit[]>([]);
   const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState<"refresh" | "commit" | null>(null);
+  const [busy, setBusy] = useState<"refresh" | "commit" | "generate" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stagedOpen, setStagedOpen] = useState(true);
   const [changesOpen, setChangesOpen] = useState(true);
@@ -124,6 +128,20 @@ export function GitManagementPanel({ cwd, onRefresh }: GitManagementPanelProps) 
     }
   }
 
+  async function generateCommitMessage() {
+    if (isRunning || !status?.staged) return;
+    setBusy("generate");
+    try {
+      const nextMessage = await invoke<string>("pi_git_generate_commit_message", { cwd, model: model ?? null, thinkingLevel: thinkingLevel ?? null, sessionFile: sessionFile ?? null });
+      setMessage(nextMessage.trim());
+      setError(null);
+    } catch (caught) {
+      setError(errorText(caught));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function commit() {
     const trimmed = message.trim();
     if (!trimmed) return;
@@ -153,7 +171,7 @@ export function GitManagementPanel({ cwd, onRefresh }: GitManagementPanelProps) 
           <ToolbarButton
             title={shouldSync ? t("git.sync") : t("git.commit")}
             onClick={() => shouldSync ? void sync() : void commit()}
-            disabled={shouldSync ? !status?.upstream || busy === "refresh" : !message.trim() || !status?.staged || busy === "commit"}
+            disabled={shouldSync ? !status?.upstream || busy === "refresh" : !message.trim() || !status?.staged || busy === "commit" || busy === "generate"}
           >
             {shouldSync ? <Cloud size={13} /> : <Check size={13} />}
           </ToolbarButton>
@@ -164,19 +182,31 @@ export function GitManagementPanel({ cwd, onRefresh }: GitManagementPanelProps) 
 
       <div className="space-y-2 p-2">
         <div className="truncate font-mono text-[10px] text-muted-foreground" title={status?.repoRoot ?? cwd}>{status?.repoRoot ?? cwd}</div>
-        <input
-          value={message}
-          onChange={(event) => setMessage(event.target.value)}
-          onKeyDown={(event) => {
-            if ((event.ctrlKey || event.metaKey) && event.key === "Enter") void commit();
-          }}
-          placeholder={t("git.commitPlaceholder", { branch: status?.branch ?? "master" })}
-          className="h-7 w-full border border-border bg-surface px-2 text-xs outline-none transition placeholder:text-muted-foreground focus:border-primary/40"
-        />
+        <div className="relative">
+          <input
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+            onKeyDown={(event) => {
+              if ((event.ctrlKey || event.metaKey) && event.key === "Enter") void commit();
+            }}
+            placeholder={t("git.commitPlaceholder", { branch: status?.branch ?? "master" })}
+            className="h-7 w-full border border-border bg-surface py-0 pl-2 pr-8 text-xs outline-none transition placeholder:text-muted-foreground focus:border-primary/40"
+          />
+          <button
+            type="button"
+            className="absolute right-1 top-1/2 inline-flex size-5 -translate-y-1/2 cursor-pointer items-center justify-center text-muted-foreground transition hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+            title={isRunning ? t("git.generateCommitBusySession") : t("git.generateCommit")}
+            aria-label={t("git.generateCommit")}
+            disabled={Boolean(busy) || isRunning || !status?.staged}
+            onClick={() => void generateCommitMessage()}
+          >
+            {busy === "generate" ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+          </button>
+        </div>
         <Button
           className="h-7 w-full cursor-pointer bg-primary/70 text-primary-foreground hover:bg-primary/80 disabled:cursor-default"
           onClick={() => shouldSync ? void sync() : void commit()}
-          disabled={shouldSync ? !status?.upstream || busy === "refresh" : !message.trim() || !status?.staged || busy === "commit"}
+          disabled={shouldSync ? !status?.upstream || busy === "refresh" : !message.trim() || !status?.staged || busy === "commit" || busy === "generate"}
         >
           {shouldSync ? <Cloud size={13} /> : <Check size={13} />}
           {shouldSync ? t("git.syncChanges", { ahead: status?.ahead ?? 0, behind: status?.behind ?? 0 }) : busy === "commit" ? t("git.committing") : t("git.commit")}

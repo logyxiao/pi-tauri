@@ -111,6 +111,7 @@ export function AppShell() {
               <RightInspector
                 state={state}
                 settings={settings}
+                isRunning={isRunning}
                 onRetry={refresh}
               />
             ) : null}

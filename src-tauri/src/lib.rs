@@ -797,6 +797,95 @@ fn pi_git_commit(cwd: String, message: String) -> RpcResult<()> {
     git_status(&repo_root, &["commit", "-m", trimmed])
 }
 
+#[tauri::command]
+fn pi_git_generate_commit_message(cwd: String, model: Option<String>, thinking_level: Option<String>, session_file: Option<String>) -> RpcResult<String> {
+    let repo_root = git_repo_root(&cwd)?;
+    let stat = git_output(&repo_root, &["diff", "--cached", "--stat"])?;
+    let diff = git_output(&repo_root, &["diff", "--cached", "--no-ext-diff", "--"])?;
+    if stat.trim().is_empty() && diff.trim().is_empty() {
+        return Err("stage changes before generating a commit message".to_string());
+    }
+
+    let mut context = String::new();
+    context.push_str("Staged git diff for commit message generation.\n\n");
+    context.push_str("STAT:\n");
+    context.push_str(&stat);
+    context.push_str("\n\nDIFF:\n");
+    context.push_str(&truncate_for_prompt(&diff, 80_000));
+
+    let prompt = "Generate a git commit message for the staged diff from stdin. Use current session context if useful. Output only one concise commit subject line, imperative mood, <=72 characters. Prefer Conventional Commits when obvious. No markdown, no quotes, no explanation.";
+    let pi_bin = std::env::var("PI_BIN").unwrap_or_else(|_| default_pi_bin());
+    let mut args = vec!["--no-tools".to_string()];
+    if let Some(session_file) = session_file.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        args.push("--session".to_string());
+        args.push(session_file.to_string());
+    } else {
+        args.push("--no-session".to_string());
+    }
+    if let Some(model) = model.as_deref().map(str::trim).filter(|value| !value.is_empty() && *value != "no model") {
+        args.push("--model".to_string());
+        args.push(model.to_string());
+    }
+    if let Some(level) = thinking_level.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        args.push("--thinking".to_string());
+        args.push(level.to_string());
+    }
+    args.push("-p".to_string());
+    args.push(prompt.to_string());
+
+    let mut child = Command::new(pi_bin)
+        .args(args)
+        .current_dir(&repo_root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("failed to start pi for commit message: {error}"))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(context.as_bytes())
+            .map_err(|error| format!("failed to send diff to pi: {error}"))?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("failed to wait for pi commit message: {error}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() { "pi failed to generate commit message".to_string() } else { stderr });
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let message = clean_commit_message(&stdout);
+    if message.is_empty() {
+        return Err("pi returned an empty commit message".to_string());
+    }
+    Ok(message)
+}
+
+fn truncate_for_prompt(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    let mut truncated = text.chars().take(max_chars).collect::<String>();
+    truncated.push_str("\n\n[diff truncated]\n");
+    truncated
+}
+
+fn clean_commit_message(output: &str) -> String {
+    output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with("```") && !line.starts_with("["))
+        .next()
+        .unwrap_or("")
+        .trim_matches(|ch| ch == '"' || ch == '\'' || ch == '`')
+        .chars()
+        .take(120)
+        .collect::<String>()
+}
+
 fn spawn_stdout_reader(app: AppHandle, stdout: std::process::ChildStdout) {
     spawn_named_stdout_reader(app, "pi-rpc-message", "pi-rpc-error", stdout);
 }
@@ -1448,7 +1537,8 @@ pub fn run() {
             pi_git_log,
             pi_git_action,
             pi_git_sync,
-            pi_git_commit
+            pi_git_commit,
+            pi_git_generate_commit_message
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
