@@ -213,9 +213,14 @@ src/
 
 ## 当前阶段目标
 
-当前仓库已完成基础壳、RPC PoC、工具可视化、会话管理、workspace sessions、session tree/fork/clone、模型/设置基础能力。当前优先顺序：
+当前仓库已完成基础壳、RPC PoC、工具可视化、会话管理、workspace sessions、session tree/fork/clone、模型/设置基础能力。SDK sidecar 已进入混合架构落地：RPC 继续负责 streaming/tool events，SDK sidecar 补 session tree cursor、label、settings、auth。
 
-1. 完成阶段 7+ extension UI response 闭环与真实 extension 手工验证
-2. 打磨 session tree active cursor、filter、fork/clone 反馈
-3. 评估 SDK sidecar + SettingsManager，用于设置持久化、auth 状态、精准 session tree
-4. 同步 README / design / plan，保持 pi 能力不被简化成普通聊天 UI
+当前状态：
+
+1. extension UI response 基础闭环已完成；真实手工验证步骤见 `docs/extension-ui-validation.md`。
+2. session tree 已区分 `sdk` 与 `jsonl-inferred` 来源；running 时 UI 禁用 label 写入。
+3. SDK sidecar skeleton、smoke、Tauri bridge、前端 client 已完成；tree/label/settings read/update/auth 均有 SDK 优先 + fallback。
+4. SettingsDialog 可显示 sidecar 状态、persisted settings 来源、settings persistence warning。
+5. Tauri sidecar 生产打包方案见 `docs/tauri-sidecar-packaging.md`。
+
+剩余需真实校准：SDK `SessionManager` / `SettingsManager` / `AuthStorage` 具体 API、packaged sidecar 启动、真实 extension UI response。

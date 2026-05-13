@@ -37,9 +37,11 @@ export type PiDeliveryMode = "all" | "one-at-a-time";
 
 export interface PiAuthStatus {
   provider: string;
-  status: "unknown" | "configured" | "missing";
+  status: "unknown" | "configured" | "missing" | "expired";
   detail?: string;
 }
+
+export type PiSettingsFieldSource = "runtime" | "persisted" | "fallback" | "unknown";
 
 export interface PiSettings {
   model?: string;
@@ -52,6 +54,9 @@ export interface PiSettings {
     version?: string;
     error?: string;
   };
+  persistedSettings?: Record<string, unknown>;
+  settingsWarning?: string;
+  settingsSources?: Partial<Record<"model" | "thinkingLevel" | "sessionDir" | "autoCompaction" | "autoRetry" | "steeringMode" | "followUpMode", PiSettingsFieldSource>>;
   sessionFile?: string;
   sessionDir?: string;
   autoCompaction?: boolean;

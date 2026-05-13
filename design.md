@@ -651,18 +651,38 @@ Extensions 是 TypeScript 模块。能力：
 10. extension UI request/response dialog 基础闭环
 11. 文件树与代码预览
 
-### 8.2 下一阶段
+### 8.2 当前 SDK sidecar / 验证设计
 
-1. extension UI response 真实 extension 手工验证
-2. session tree active cursor 精准化与过滤
-3. SDK sidecar + SettingsManager 评估
-4. auth/API key 真实状态探测
-5. settings 持久化
-5. HTML/Markdown/image artifact preview
-6. 权限确认 extension
-7. 会话搜索与索引
+当前采用混合架构：
 
-### 8.3 关键设计原则
+```txt
+React UI
+  ├─ RPC bridge: streaming、tools、extension_ui_response
+  └─ SDK sidecar: session tree cursor、label、settings、auth
+```
+
+已落地：
+
+1. `src-sidecar/pi-sdk-sidecar.mjs`：stdio JSONL sidecar skeleton
+2. Tauri commands：`pi_sdk_sidecar_start/send/stop`
+3. `src/shared/pi/sdk-sidecar-client.ts`：request correlation、cached status、错误分类
+4. `SessionTreePanel`：显示 SDK / JSONL inferred 来源，running 时禁用 label 写入
+5. `SettingsDialog`：显示 sidecar 状态、persisted settings 来源、persistence warning
+6. `docs/extension-ui-validation.md`：真实 extension UI response 手工验证计划
+7. `docs/tauri-sidecar-packaging.md`：生产打包方案
+
+### 8.3 下一阶段
+
+1. 真实校准 SDK `SessionManager` / `SettingsManager` / `AuthStorage` API
+2. extension UI response 真实 extension 手工验证
+3. Tauri sidecar binary 打包落地
+4. auth/API key 真实状态探测完善
+5. settings 持久化写入按真实 SDK API 修正
+6. HTML/Markdown/image artifact preview
+7. 权限确认 extension
+8. 会话搜索与索引
+
+### 8.4 关键设计原则
 
 - 布局可参考 WorkAny，但品牌主色跟随 pi.dev violet/indigo，交互必须体现 pi 原生能力
 - 不是 Claude Desktop：不要只做聊天窗口

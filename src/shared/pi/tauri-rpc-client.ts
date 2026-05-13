@@ -11,6 +11,7 @@ import type {
   PiFileEntry,
   PiFilePreview,
   PiForkMessage,
+  PiDeliveryMode,
   PiMessage,
   PiModel,
   PiSafetyEvent,
@@ -62,6 +63,7 @@ export class TauriPiRpcClient implements PiClient {
   private extensionErrors: PiExtensionError[] = [];
   private extensionStatuses = new Map<string, PiExtensionStatus>();
   private safetyEvents: PiSafetyEvent[] = [];
+  private settingsWarning: string | undefined;
 
   async connect(): Promise<void> {
     if (this.connected) return;
@@ -248,27 +250,68 @@ export class TauriPiRpcClient implements PiClient {
     const state = await this.getState();
     const [provider, model] = splitModelKey(state.model);
     const sdkSidecar = await this.getSdkSidecarStatus();
+    const persistedSettings = sdkSidecar.available
+      ? await sdkSidecarClient.request<Record<string, unknown>>("sdk_get_settings", { cwd: state.cwd }).catch((error) => {
+          console.warn("pi sdk sidecar settings unavailable", error);
+          return undefined;
+        })
+      : undefined;
+    const persistedModel = pickString(persistedSettings, ["model", "defaultModel"]);
+    const persistedProvider = pickString(persistedSettings, ["provider", "defaultProvider"]);
+    const persistedThinkingLevel = normalizeOptionalThinkingLevel(pickString(persistedSettings, ["thinkingLevel", "defaultThinkingLevel"]));
+    const persistedSessionDir = pickString(persistedSettings, ["sessionDir", "sessionDirectory"]);
+    const persistedAutoCompaction = pickBoolean(persistedSettings, ["autoCompaction", "compactionEnabled"]);
+    const persistedAutoRetry = pickBoolean(persistedSettings, ["autoRetry", "retryEnabled"]);
+    const persistedSteeringMode = normalizeDeliveryMode(pickString(persistedSettings, ["steeringMode"]));
+    const persistedFollowUpMode = normalizeDeliveryMode(pickString(persistedSettings, ["followUpMode"]));
     const auth = sdkSidecar.available
       ? await sdkSidecarClient.request<PiSettings["auth"]>("sdk_auth_status").catch(() => inferAuthStatus(state.model))
       : inferAuthStatus(state.model);
     return {
-      model,
-      provider,
-      thinkingLevel: state.thinkingLevel,
+      model: persistedModel ?? model,
+      provider: persistedProvider ?? provider,
+      thinkingLevel: persistedThinkingLevel ?? state.thinkingLevel,
       cwd: state.cwd,
       clientMode: "tauri-rpc",
       sdkSidecar,
+      persistedSettings: persistedSettings ?? {},
+      settingsWarning: this.settingsWarning,
+      settingsSources: {
+        model: persistedModel || persistedProvider ? "persisted" : "runtime",
+        thinkingLevel: persistedThinkingLevel ? "persisted" : "runtime",
+        sessionDir: persistedSessionDir ? "persisted" : state.sessionFile ? "runtime" : "fallback",
+        autoCompaction: typeof persistedAutoCompaction === "boolean" ? "persisted" : "fallback",
+        autoRetry: typeof persistedAutoRetry === "boolean" ? "persisted" : "fallback",
+        steeringMode: persistedSteeringMode ? "persisted" : "fallback",
+        followUpMode: persistedFollowUpMode ? "persisted" : "fallback",
+      },
       sessionFile: state.sessionFile,
-      sessionDir: state.sessionFile ? dirname(state.sessionFile) : undefined,
-      autoCompaction: true,
-      autoRetry: true,
-      steeringMode: "one-at-a-time",
-      followUpMode: "one-at-a-time",
+      sessionDir: persistedSessionDir ?? (state.sessionFile ? dirname(state.sessionFile) : undefined),
+      autoCompaction: persistedAutoCompaction ?? true,
+      autoRetry: persistedAutoRetry ?? true,
+      steeringMode: persistedSteeringMode ?? "one-at-a-time",
+      followUpMode: persistedFollowUpMode ?? "one-at-a-time",
       auth,
     };
   }
 
   async updateSettings(update: PiSettingsUpdate): Promise<PiSettings> {
+    const state = await this.getState();
+    const sdkSidecar = await this.getSdkSidecarStatus();
+    if (sdkSidecar.available) {
+      await sdkSidecarClient
+        .request("sdk_update_settings", { cwd: state.cwd, update })
+        .then(() => {
+          this.settingsWarning = undefined;
+        })
+        .catch((error) => {
+          this.settingsWarning = `Persisted settings update failed; runtime settings were still applied. ${error instanceof Error ? error.message : String(error)}`;
+          console.warn("pi sdk sidecar persisted settings update unavailable", error);
+        });
+    } else if (sdkSidecar.error) {
+      this.settingsWarning = `Persisted settings unavailable; runtime settings only. ${sdkSidecar.error}`;
+    }
+
     if (update.model) {
       const provider = update.provider ?? splitModelKey(update.model)[0];
       const modelId = splitModelKey(update.model)[1] ?? update.model;
@@ -533,12 +576,7 @@ export class TauriPiRpcClient implements PiClient {
   }
 
   private async getSdkSidecarStatus(): Promise<{ available: boolean; version?: string; error?: string }> {
-    try {
-      const result = await sdkSidecarClient.ping();
-      return { available: result.sdkAvailable, version: result.version, error: result.sdkAvailable ? undefined : "SDK package unavailable" };
-    } catch (error) {
-      return { available: false, error: error instanceof Error ? error.message : String(error) };
-    }
+    return sdkSidecarClient.getStatus();
   }
 
   private emit(event: PiClientEvent) {
@@ -682,6 +720,32 @@ function splitModelKey(value: string | undefined): [string | undefined, string |
 function nullableNumber(value: unknown): number | null | undefined {
   if (value === null) return null;
   if (typeof value === "number") return value;
+  return undefined;
+}
+
+function pickString(settings: Record<string, unknown> | undefined, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = settings?.[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return undefined;
+}
+
+function pickBoolean(settings: Record<string, unknown> | undefined, keys: string[]): boolean | undefined {
+  for (const key of keys) {
+    const value = settings?.[key];
+    if (typeof value === "boolean") return value;
+  }
+  return undefined;
+}
+
+function normalizeOptionalThinkingLevel(value: unknown): PiState["thinkingLevel"] | undefined {
+  if (value === "off" || value === "minimal" || value === "low" || value === "medium" || value === "high" || value === "xhigh") return value;
+  return undefined;
+}
+
+function normalizeDeliveryMode(value: unknown): PiDeliveryMode | undefined {
+  if (value === "all" || value === "one-at-a-time") return value;
   return undefined;
 }
 

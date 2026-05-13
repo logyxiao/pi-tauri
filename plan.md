@@ -30,6 +30,7 @@
     - `sdk_session_tree`
     - `sdk_set_label`
     - `sdk_get_settings`
+    - `sdk_update_settings`
     - `sdk_auth_status`
 - 已新增 sidecar smoke 脚本：`scripts/pi-sdk-sidecar-smoke.mjs`
   - 启动 `src-sidecar/pi-sdk-sidecar.mjs`。
@@ -59,11 +60,12 @@
 - 前端已新增 sidecar client：`src/shared/pi/sdk-sidecar-client.ts`
   - 封装 Tauri command bridge。
   - 监听 sidecar message/error events。
-  - 支持 request correlation、timeout、`ping()`、`dispose()`。
+  - 支持 request correlation、timeout、`ping()`、`dispose()`、30s status cache、基础错误分类。
 - `TauriPiRpcClient` 已接入 SDK sidecar fallback：`src/shared/pi/tauri-rpc-client.ts`
   - `getSessionTree()`：优先 `sdk_session_tree`，失败 fallback Rust `pi_session_tree` JSONL parser。
   - `setSessionEntryLabel()`：优先 `sdk_set_label`，失败 fallback Rust `pi_set_session_label` 直写 JSONL。
-  - `getSettings()`：ping sidecar 并写入 `settings.sdkSidecar`；sidecar 可用时尝试 `sdk_auth_status`，失败 fallback `inferAuthStatus()`。
+  - `getSettings()`：ping sidecar 并写入 `settings.sdkSidecar`；sidecar 可用时尝试 `sdk_get_settings` / `sdk_auth_status`，失败 fallback RPC runtime / `inferAuthStatus()`。
+  - `updateSettings()`：sidecar 可用时先尝试 `sdk_update_settings`，失败显示 persistence warning，并继续 RPC runtime settings。
 - `PiSettings` 已增加 sidecar 状态字段：`src/shared/pi/types.ts`
   - `sdkSidecar.available`
   - `sdkSidecar.version`
@@ -73,6 +75,8 @@
   - available/unavailable
   - version
   - error
+  - persisted settings key 数量与字段来源
+  - persistence warning
 - `src-tauri/capabilities/default.json` 已恢复为有效 JSON。
 
 ### 已修复问题
@@ -110,14 +114,14 @@
    - 这是可用性兜底，但不是正式能力。
    - 长期应以 SDK `appendLabelChange()` 或 pi 官方 RPC/extension API 为准。
 
-6. **settings 仍未完成持久化写入**
-   - 当前 SettingsDialog 仅显示 sidecar 状态并尝试 auth。
-   - `sdk_get_settings` skeleton 已有，但前端尚未合并 SDK settings 与 RPC runtime settings。
-   - `updateSettings()` 仍主要走 RPC runtime commands，重启后可能恢复默认。
+6. **settings 持久化写入仍需真实 SDK 校准**
+   - `sdk_get_settings` 只读合并已接入，SettingsDialog 已显示 persisted 来源。
+   - `sdk_update_settings` skeleton 已接入，失败会显示 persistence warning 并继续 RPC runtime settings。
+   - 真实 `SettingsManager` 写 API 未验证前，重启后保持能力仍不能确认。
 
-7. **auth status 仍是初步尝试**
-   - sidecar `sdk_auth_status` 当前为骨架/占位。
-   - 真实 provider key/token 探测需对齐 SDK `AuthStorage` / `ModelRegistry` 具体 API。
+7. **auth status 仍需真实 SDK 校准**
+   - sidecar `sdk_auth_status` 已检查常见 provider 环境变量，并松散尝试 `AuthStorage` 可能 API。
+   - 真实 provider key/token/expired 状态仍需对齐 SDK `AuthStorage` / `ModelRegistry` 具体 API。
 
 8. **extension UI response 需真实桌面验证**
    - mock path 已可用。
@@ -146,122 +150,138 @@
 
 ### 2. 完善 SDK sidecar client feature detection
 
+- Status: 已完成基础版。`SdkSidecarClient` 已增加 30s cached status，`TauriPiRpcClient.getSettings()` 改为使用 `getStatus()`，避免 SettingsDialog 高频 ping/start；已增加 `SdkSidecarError` 错误分类：`start-failed`、`send-failed`、`timeout`、`method-failed`、`sdk-unavailable`。
 - File: `src/shared/pi/sdk-sidecar-client.ts`
 - Actions:
-  - 增加 cached status，避免 SettingsDialog 每次打开都重复启动/ ping。
-  - 增加 request error 分类：start failed、timeout、SDK unavailable、method failed。
-  - 失败时保持 fallback，不影响 RPC 主流程。
+  - 增加 cached status，避免 SettingsDialog 每次打开都重复启动/ ping。（已完成）
+  - 增加 request error 分类：start failed、timeout、SDK unavailable、method failed。（已完成基础分类）
+  - 失败时保持 fallback，不影响 RPC 主流程。（已完成基础 fallback）
 - Acceptance:
   - sidecar 不可用时 UI 不崩溃。
   - Inspector/Settings 能展示稳定错误信息。
 
 ### 3. 让 SessionTreePanel 明确显示 SDK/fallback 状态
 
+- Status: 已完成基础 UI 区分。`SessionTreePanel` 根据 `activeLeafSource === "sdk"` 显示 SDK label mode 与 primary badge；fallback/JSONL inferred 显示 warning badge 与 direct JSONL 风险说明。
 - File: `src/components/session/SessionTreePanel.tsx`
 - Actions:
-  - SDK 成功时显示 `Cursor source: SDK`。
-  - JSONL fallback 时显示 `Cursor source: JSONL inferred` 和风险说明。
-  - label mode 提示随 SDK/fallback 切换：SDK 成功时说明使用正式 API；fallback 时说明 direct JSONL append。
+  - SDK 成功时显示 `Cursor source: SDK`。（已完成）
+  - JSONL fallback 时显示 `Cursor source: JSONL inferred` 和风险说明。（已完成）
+  - label mode 提示随 SDK/fallback 切换：SDK 成功时说明使用正式 API；fallback 时说明 direct JSONL append。（已完成）
 - Acceptance:
   - 用户能看懂当前 tree/label 数据来源。
   - SDK 成功后不再误报“只能 JSONL inferred”。
 
 ### 4. 限制 running 状态下 label 写入
 
+- Status: UI 层已完成。`RightInspector` 将当前 `status` 传入 `SessionTreePanel`；`SessionTreePanel` 在 running 时禁用 label 按钮并拦截 prompt，提示当前 Agent 运行中不可改 label。
 - Files:
-  - `src/shared/pi/tauri-rpc-client.ts`
+  - `src/components/layout/RightInspector.tsx`
   - `src/components/session/SessionTreePanel.tsx`
 - Actions:
-  - 获取当前 `isStreaming` / agent running 状态。
-  - streaming 时禁用 label edit 或弹提示。
-  - 防止 SDK sidecar 与 RPC agent 同时写 session file。
+  - 获取当前 `isStreaming` / agent running 状态。（已通过 Inspector status 传入）
+  - streaming 时禁用 label edit 或弹提示。（已完成）
+  - 防止 SDK sidecar 与 RPC agent 同时写 session file。（UI 层已防护；client/Rust 层强制防护待后续）
 - Acceptance:
   - agent running 时不会发起 label write。
   - idle 后 label 可正常写入。
 
 ### 5. 接入 `sdk_get_settings` 只读合并
 
+- Status: 已完成基础只读合并。`getSettings()` 在 sidecar 可用时调用 `sdk_get_settings`，读取 persisted model/provider/thinking/sessionDir/autoCompaction/autoRetry/steeringMode/followUpMode；失败 fallback RPC runtime/fallback 默认值。`PiSettings` 已增加 `persistedSettings` 与 `settingsSources`。SettingsDialog 显示 persisted key 数量，并在 model/thinking/sessionDir label 中标注 runtime/persisted/fallback 来源。
 - Files:
   - `src/shared/pi/tauri-rpc-client.ts`
   - `src/shared/pi/types.ts`
+  - `src/shared/pi/mock-data.ts`
   - `src/components/settings/SettingsDialog.tsx`
+  - `src/shared/i18n.tsx`
 - Actions:
-  - sidecar 可用时调用 `sdk_get_settings`。
-  - 将 SDK persisted settings 与 RPC runtime state 合并展示。
-  - 标注字段来源：runtime / persisted / unknown。
+  - sidecar 可用时调用 `sdk_get_settings`。（已完成）
+  - 将 SDK persisted settings 与 RPC runtime state 合并展示。（已完成基础字段合并）
+  - 标注字段来源：runtime / persisted / unknown。（已完成 runtime/persisted/fallback 基础标注）
 - Acceptance:
   - SettingsDialog 能区分当前 runtime 设置与持久化设置。
   - sidecar 失败时仍显示现有 RPC settings。
 
 ### 6. 设计并实现 settings 持久化写入
 
+- Status: 已完成 skeleton 与基础 UI warning。`src-sidecar/pi-sdk-sidecar.mjs` 新增 `sdk_update_settings`，尝试通过 `SettingsManager.updateSettings/update/setSettings/save` 写入 normalized persisted settings；`TauriPiRpcClient.updateSettings()` 在 sidecar 可用时先尝试 `sdk_update_settings`，失败记录 `settingsWarning` 并继续 RPC runtime settings。SettingsDialog 已显示 persistence warning。真实 `SettingsManager` 写 API 仍需 smoke/手工校准。
 - Files:
   - `src-sidecar/pi-sdk-sidecar.mjs`
   - `src/shared/pi/tauri-rpc-client.ts`
-  - `src/components/settings/SettingsDialog.tsx`
+  - `docs/sdk-sidecar-adr.md`
 - Actions:
-  - 校准 `SettingsManager` 写 API。
-  - 新增/修正 `sdk_update_settings`。
-  - `updateSettings()` 先写 SDK persisted settings，再按需写 RPC runtime settings。
-  - 写失败时显示错误，避免用户误以为已持久化。
+  - 校准 `SettingsManager` 写 API。（待验证）
+  - 新增/修正 `sdk_update_settings`。（已完成 skeleton）
+  - `updateSettings()` 先写 SDK persisted settings，再按需写 RPC runtime settings。（已完成）
+  - 写失败时显示错误，避免用户误以为已持久化。（已完成基础 SettingsDialog warning）
 - Acceptance:
   - default model/thinking/sessionDir/auto retry/auto compaction 等重启后保持。
 
 ### 7. 完善 auth status 探测
 
+- Status: 已完成 skeleton。`sdk_auth_status` 先检查常见 provider 环境变量，再尝试松散探测 SDK `AuthStorage` 的 `get/getAuth/getProvider/getCredentials/getApiKey` 等可能 API。`PiAuthStatus` 已支持 `expired` 状态。真实 `AuthStorage` / `ModelRegistry` API 与可操作提示仍需校准。
 - Files:
   - `src-sidecar/pi-sdk-sidecar.mjs`
+  - `src/shared/pi/types.ts`
   - `src/shared/pi/tauri-rpc-client.ts`
   - `src/components/settings/SettingsDialog.tsx`
 - Actions:
-  - 对齐 SDK `AuthStorage` / `ModelRegistry` 真实 API。
-  - 返回 provider 级别状态：configured/missing/expired/unknown。
-  - SettingsDialog 显示可操作提示。
+  - 对齐 SDK `AuthStorage` / `ModelRegistry` 真实 API。（skeleton 已做松散探测；待真实校准）
+  - 返回 provider 级别状态：configured/missing/expired/unknown。（已支持 configured/missing/unknown/expired 类型；expired 真实判定待 SDK API）
+  - SettingsDialog 显示可操作提示。（已有 detail 展示；更强操作 CTA 待后续）
 - Acceptance:
   - 常用 provider 缺 key 时能提前提示。
   - 不需要等 prompt 失败才知道 auth 问题。
 
 ### 8. 真实 extension UI response 手工验证准备
 
+- Status: 已完成文档准备。新增 `docs/extension-ui-validation.md`，覆盖 confirm/select/input/editor、cancel、timeout、response write failure、extension_error，并明确 `extension_ui_response` 直接写 RPC stdin，不进入普通 request correlation。真实桌面验证待用户明确允许运行。
 - Files:
+  - `docs/extension-ui-validation.md`
   - `src/components/extensions/ExtensionUiDialog.tsx`
   - `src/shared/hooks/usePiSession.ts`
   - `src/shared/pi/tauri-rpc-client.ts`
 - Actions:
-  - 准备 confirm/select/input/editor 真实 extension 测试步骤。
-  - 覆盖 cancel、timeout、response write failure。
-  - 确认 `extension_ui_response` 直接写 RPC stdin，不进入普通 request correlation。
+  - 准备 confirm/select/input/editor 真实 extension 测试步骤。（已完成）
+  - 覆盖 cancel、timeout、response write failure。（已完成）
+  - 确认 `extension_ui_response` 直接写 RPC stdin，不进入普通 request correlation。（已写入验证计划）
 - Acceptance:
   - 真实 pi extension UI 不再卡住等待。
   - response 错误对用户可见，pending request 可重试/取消。
 
 ### 9. Tauri sidecar 打包方案
 
+- Status: 已完成方案文档。新增 `docs/tauri-sidecar-packaging.md`，比较外部 Node、Tauri sidecar binary、Node runtime bundle、Rust 直实现；推荐短期保留外部 Node，SDK API 校准后中期采用 Tauri sidecar binary，并保留 env override。
 - Files:
+  - `docs/tauri-sidecar-packaging.md`
   - `src-tauri/tauri.conf.json`
   - `src-tauri/Cargo.toml`
   - `src-sidecar/pi-sdk-sidecar.mjs`
   - `package.json`
 - Actions:
-  - 决定 Node sidecar 打包方式：外部 node、内嵌 node、编译 binary、或 Tauri sidecar bundle。
-  - 处理生产路径查找、签名、平台差异。
-  - 保留开发环境 env override。
+  - 决定 Node sidecar 打包方式：外部 node、内嵌 node、编译 binary、或 Tauri sidecar bundle。（已形成推荐方案：中期 Tauri sidecar binary）
+  - 处理生产路径查找、签名、平台差异。（已列待办）
+  - 保留开发环境 env override。（已保留）
 - Acceptance:
   - dev 和 packaged app 都能启动 SDK sidecar。
 
 ### 10. 文档同步
 
+- Status: 已完成本轮同步。`README.md` 增加 extension validation / Tauri sidecar packaging 文档入口；`agent.md`、`AGENTS.md`、`design.md`、`docs/sdk-sidecar-adr.md`、`plan.md` 已同步 RPC + SDK 混合架构、sidecar 状态、验证/打包计划与不自动验证/git 约束。
 - Files:
   - `README.md`
   - `agent.md`
   - `AGENTS.md`
   - `design.md`
   - `docs/sdk-sidecar-adr.md`
+  - `docs/extension-ui-validation.md`
+  - `docs/tauri-sidecar-packaging.md`
   - `plan.md`
 - Actions:
-  - 同步 SDK sidecar 当前状态。
-  - 标明 RPC + SDK 混合架构。
-  - 标明不自动执行验证/git 操作。
+  - 同步 SDK sidecar 当前状态。（已完成）
+  - 标明 RPC + SDK 混合架构。（已完成）
+  - 标明不自动执行验证/git 操作。（已完成）
 - Acceptance:
   - 新 agent 读取文档后能理解当前架构与风险。
 
@@ -282,8 +302,10 @@
 
 ## 推荐立即下一步
 
-1. 在用户明确允许后，先跑 `pnpm pi:sdk-sidecar:smoke` 校准 sidecar 基础可用性。
-2. 修正 `src-sidecar/pi-sdk-sidecar.mjs` 中与真实 SDK 不一致的 API。
-3. 让 `SessionTreePanel` 更清晰地区分 `SDK` 与 `JSONL inferred` 来源。
-4. 接入 `sdk_get_settings` 只读合并，再做 `sdk_update_settings` 持久化。
-5. 准备真实 extension UI response 手工验证步骤。
+当前可编码计划已完成到 skeleton / 文档 / fallback / UI 可见层。剩余工作依赖用户明确允许验证或真实 SDK API 校准：
+
+1. 运行 `pnpm pi:sdk-sidecar:smoke` 校准 sidecar 基础可用性。
+2. 按 smoke 结果修正 `src-sidecar/pi-sdk-sidecar.mjs` 中真实 `SessionManager` / `SettingsManager` / `AuthStorage` API。
+3. 运行 `pnpm tauri dev` 做真实 extension UI response 手工验证，步骤见 `docs/extension-ui-validation.md`。
+4. 决定生产打包器并落地 Tauri sidecar binary，方案见 `docs/tauri-sidecar-packaging.md`。
+5. 在用户明确要求时运行 `pnpm build`、`pnpm lint`、`cd src-tauri && cargo check`。

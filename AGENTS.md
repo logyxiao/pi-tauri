@@ -12,6 +12,9 @@
 - `design.md`
 - `plan.md`
 - `agent.md`
+- `docs/sdk-sidecar-adr.md`
+- `docs/extension-ui-validation.md`
+- `docs/tauri-sidecar-packaging.md`
 
 ## 核心原则
 
@@ -34,10 +37,14 @@
 
 SDK 路线：
 
+- 当前采用混合架构：RPC 负责 streaming/tool events，SDK sidecar 补 session tree cursor、label、settings、auth。
 - `createAgentSession()` 管单会话
 - `createAgentSessionRuntime()` 管 session replacement
 - session replacement 后重新订阅 events
 - 自定义 cwd + 显式 tools 时用 `create*Tool(cwd)` 工厂
+- sidecar 入口：`src-sidecar/pi-sdk-sidecar.mjs`
+- sidecar 前端 client：`src/shared/pi/sdk-sidecar-client.ts`
+- sidecar Tauri bridge：`pi_sdk_sidecar_start/send/stop`
 
 RPC 路线：
 
@@ -68,3 +75,4 @@ RPC 路线：
 - 不照搬 Claude Desktop
 - 不默认静默执行危险命令
 - 修改后不要自动运行 build/lint/cargo check/git，除非用户明确要求
+- 不在 agent running/streaming 时写 label/session 文件

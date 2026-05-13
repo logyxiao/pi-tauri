@@ -11,13 +11,14 @@ interface SessionTreePanelProps {
   onForkSession: (entryId: string) => Promise<void> | void;
   onCloneSession: () => Promise<void> | void;
   onSetLabel: (entryId: string, label?: string) => Promise<void> | void;
+  runState?: string;
 }
 
 type TreeFilterMode = "default" | "no-tools" | "user-only" | "labeled-only" | "all";
 
 const filterModes: TreeFilterMode[] = ["default", "no-tools", "user-only", "labeled-only", "all"];
 
-export function SessionTreePanel({ tree, forkMessages, onForkSession, onCloneSession, onSetLabel }: SessionTreePanelProps) {
+export function SessionTreePanel({ tree, forkMessages, onForkSession, onCloneSession, onSetLabel, runState }: SessionTreePanelProps) {
   const { t } = useI18n();
   const nodes = tree?.nodes ?? [];
   const [filterMode, setFilterMode] = useState<TreeFilterMode>("default");
@@ -30,6 +31,10 @@ export function SessionTreePanel({ tree, forkMessages, onForkSession, onCloneSes
   const visibleNodes = useMemo(() => filterVisibleNodes(nodes, filterMode, collapsedIds), [nodes, filterMode, collapsedIds]);
 
   async function editLabel(node: PiSessionTreeNode) {
+    if (runState === "running") {
+      window.alert(t("sessionTree.labelBusy"));
+      return;
+    }
     const label = window.prompt(t("sessionTree.entryLabel"), node.label ?? "");
     if (label == null) return;
     await onSetLabel(node.id, label.trim() || undefined);
@@ -68,7 +73,9 @@ export function SessionTreePanel({ tree, forkMessages, onForkSession, onCloneSes
     }
   }
 
-  const directLabelWrite = tree?.activeLeafSource === "jsonl-inferred";
+  const sdkBackedTree = tree?.activeLeafSource === "sdk";
+  const labelModeTitle = sdkBackedTree ? t("sessionTree.labelModeSdk") : t("sessionTree.labelMode");
+  const labelModeText = sdkBackedTree ? t("sessionTree.labelModeSdkText") : t("sessionTree.labelModeText");
 
   return (
     <section className="rounded-2xl border border-border bg-background/60 p-3">
@@ -106,14 +113,12 @@ export function SessionTreePanel({ tree, forkMessages, onForkSession, onCloneSes
         </div>
       ) : null}
 
-      {directLabelWrite ? (
-        <div className="mb-3 rounded-xl border border-warning/20 bg-warning/10 p-2 text-xs text-muted-foreground">
-          <div className="mb-1 flex items-center gap-1.5 font-semibold uppercase tracking-[0.14em] text-warning">
-            <Info size={12} /> {t("sessionTree.labelMode")}
+      {tree?.activeLeafSource ? (
+        <div className={cn("mb-3 rounded-xl border p-2 text-xs text-muted-foreground", sdkBackedTree ? "border-primary/20 bg-primary/5" : "border-warning/20 bg-warning/10")}>
+          <div className={cn("mb-1 flex items-center gap-1.5 font-semibold uppercase tracking-[0.14em]", sdkBackedTree ? "text-primary" : "text-warning")}>
+            <Info size={12} /> {labelModeTitle}
           </div>
-          <div className="leading-5">
-            {t("sessionTree.labelModeText")}
-          </div>
+          <div className="leading-5">{labelModeText}</div>
         </div>
       ) : null}
 
@@ -121,7 +126,7 @@ export function SessionTreePanel({ tree, forkMessages, onForkSession, onCloneSes
         <div className="mb-3 rounded-xl border border-border bg-surface p-2 text-xs text-muted-foreground">
           <div className="flex items-center justify-between gap-2">
             <span className="font-semibold uppercase tracking-[0.14em]">{t("sessionTree.cursor")}</span>
-            <span className="rounded-full border border-border px-2 py-0.5 font-mono text-[10px] text-foreground">{tree.activeLeafSource}</span>
+            <span className={cn("rounded-full border px-2 py-0.5 font-mono text-[10px]", sdkBackedTree ? "border-primary/30 text-primary" : "border-warning/30 text-warning")}>{tree.activeLeafSource}</span>
           </div>
           {tree.activeLeafNote ? <div className="mt-1 leading-5">{tree.activeLeafNote}</div> : null}
         </div>
@@ -194,7 +199,7 @@ export function SessionTreePanel({ tree, forkMessages, onForkSession, onCloneSes
                         <GitFork size={11} />
                       </Button>
                     ) : null}
-                    <Button size="icon" variant="ghost" aria-label={t("sessionTree.setLabel")} disabled={Boolean(busyAction)} onClick={() => void editLabel(node)}>
+                    <Button size="icon" variant="ghost" aria-label={t("sessionTree.setLabel")} disabled={Boolean(busyAction) || runState === "running"} onClick={() => void editLabel(node)}>
                       <Tag size={11} />
                     </Button>
                   </div>

@@ -213,6 +213,7 @@ export function RightInspector({
           onForkSession={onForkSession}
           onCloneSession={onCloneSession}
           onSetLabel={onSetSessionEntryLabel}
+          runState={status}
         />
       </div>
     </aside>

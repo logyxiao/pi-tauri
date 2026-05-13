@@ -27,6 +27,7 @@ export function SettingsDialog({
   const [modelQuery, setModelQuery] = useState("");
   const currentModelKey = modelKey(settings?.provider, settings?.model) ?? modelKeyFromState(state?.model);
   const currentThinking = settings?.thinkingLevel ?? state?.thinkingLevel ?? "off";
+  const persistedKeys = settings?.persistedSettings ? Object.keys(settings.persistedSettings).length : 0;
   const groupedModels = useMemo(() => groupModels(filterModels(models, modelQuery)), [models, modelQuery]);
 
   return (
@@ -129,16 +130,26 @@ export function SettingsDialog({
 
           <section className="grid gap-3 sm:grid-cols-2">
             <InfoCard icon={<Folder size={14} />} label="cwd" value={settings?.cwd ?? state?.cwd ?? "loading..."} />
+            <InfoCard icon={<Settings size={14} />} label={`${t("settings.activeModel")} · ${settings?.settingsSources?.model ?? "runtime"}`} value={currentModelKey ?? t("common.loading")} />
+            <InfoCard icon={<Settings size={14} />} label={`${t("settings.thinkingLevel")} · ${settings?.settingsSources?.thinkingLevel ?? "runtime"}`} value={currentThinking} />
             <InfoCard icon={<Settings size={14} />} label={t("settings.clientMode")} value={settings?.clientMode ?? t("common.loading")} />
             <InfoCard
               icon={<Settings size={14} />}
               label={t("settings.sdkSidecar")}
               value={settings?.sdkSidecar ? `${settings.sdkSidecar.available ? t("settings.available") : t("settings.unavailable")}${settings.sdkSidecar.version ? ` · ${settings.sdkSidecar.version}` : ""}${settings.sdkSidecar.error ? ` · ${settings.sdkSidecar.error}` : ""}` : t("common.loading")}
             />
-            <InfoCard icon={<HardDrive size={14} />} label={t("settings.sessionDir")} value={settings?.sessionDir ?? t("settings.defaultSessionDir")} wide />
+            <InfoCard icon={<HardDrive size={14} />} label={t("settings.persistedSettings")} value={settings?.sdkSidecar?.available ? `${persistedKeys} ${t("settings.persistedKeys")}` : t("settings.unavailable")} />
+            <InfoCard icon={<HardDrive size={14} />} label={`${t("settings.sessionDir")} · ${settings?.settingsSources?.sessionDir ?? "fallback"}`} value={settings?.sessionDir ?? t("settings.defaultSessionDir")} wide />
             <InfoCard icon={<HardDrive size={14} />} label={t("settings.sessionFile")} value={settings?.sessionFile ?? state?.sessionFile ?? t("settings.noSessionFile")} wide />
             <LocaleCard locale={locale} onChange={setLocale} />
           </section>
+
+          {settings?.settingsWarning ? (
+            <section className="rounded-2xl border border-warning/25 bg-warning/10 p-3 text-xs leading-5 text-muted-foreground">
+              <div className="mb-1 font-semibold uppercase tracking-[0.14em] text-warning">{t("settings.persistenceWarning")}</div>
+              {settings.settingsWarning}
+            </section>
+          ) : null}
 
           <section className="rounded-2xl border border-border bg-background/60 p-4">
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">

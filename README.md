@@ -181,6 +181,8 @@ src/
 - [`agent.md`](./agent.md)：给 coding agent 的开发约束
 - [`plan.md`](./plan.md)：开发计划
 - [`docs/sdk-sidecar-adr.md`](./docs/sdk-sidecar-adr.md)：SDK sidecar ADR 草案
+- [`docs/extension-ui-validation.md`](./docs/extension-ui-validation.md)：真实 extension UI response 手工验证计划
+- [`docs/tauri-sidecar-packaging.md`](./docs/tauri-sidecar-packaging.md)：Tauri SDK sidecar 打包方案
 
 ## 开发约定
 
