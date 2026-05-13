@@ -6,6 +6,7 @@ import type {
   PiExtensionError,
   PiExtensionMessage,
   PiExtensionPanel,
+  PiExtensionUiResponse,
   PiFileEntry,
   PiFilePreview,
   PiMessage,
@@ -68,6 +69,7 @@ export function usePiSession() {
   const [commands, setCommands] = useState<PiCommand[]>([]);
   const [extensionPanels, setExtensionPanels] = useState<PiExtensionPanel[]>([]);
   const [extensionMessages, setExtensionMessages] = useState<PiExtensionMessage[]>([]);
+  const [pendingExtensionUi, setPendingExtensionUi] = useState<PiExtensionMessage[]>([]);
   const [extensionErrors, setExtensionErrors] = useState<PiExtensionError[]>([]);
   const [safetyEvents, setSafetyEvents] = useState<PiSafetyEvent[]>([]);
   const [files, setFiles] = useState<PiFileEntry[]>([]);
@@ -193,6 +195,9 @@ export function usePiSession() {
 
       if (event.type === "extension_ui_request") {
         setExtensionMessages((current) => [event.message, ...current.filter((item) => item.id !== event.message.id)].slice(0, 40));
+        if (event.message.expectsResponse) {
+          setPendingExtensionUi((current) => [...current.filter((item) => item.id !== event.message.id), event.message]);
+        }
         if (event.panel) {
           setExtensionPanels((current) => {
             const next = current.filter((item) => item.key !== event.panel?.key);
@@ -431,6 +436,19 @@ export function usePiSession() {
     }
   }
 
+  async function respondExtensionUi(response: PiExtensionUiResponse) {
+    try {
+      await client.respondExtensionUi(response);
+      setPendingExtensionUi((current) => current.filter((item) => item.id !== response.id));
+      setError(null);
+    } catch (caught) {
+      const message = errorMessage(caught);
+      setError(message);
+      setStatus("error");
+      throw new Error(message);
+    }
+  }
+
   async function previewFile(path: string) {
     try {
       setError(null);
@@ -464,6 +482,7 @@ export function usePiSession() {
     commands,
     extensionPanels,
     extensionMessages,
+    pendingExtensionUi,
     extensionErrors,
     safetyEvents,
     files,
@@ -489,6 +508,7 @@ export function usePiSession() {
     updateSettings,
     executeCommand,
     recordSafetyEvent,
+    respondExtensionUi,
     previewFile,
     clearPrefillInput,
     clearError,

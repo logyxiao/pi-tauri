@@ -1,544 +1,593 @@
-# 开发计划
+# 后续开发计划更新
 
-本文记录 `pi-tauri` 后续开发计划。目标是构建一个基于 pi 的桌面 AI 编程 Agent 应用，参考 WorkAny 的页面风格和技术栈，但产品核心围绕 pi。
+## 当前已完成概览
 
-## 阶段 0：项目初始化
+### 阶段 0-3：基础工程、布局、pi RPC、工具可视化
 
-目标：搭建可运行基础工程。
+- Tauri 2 + React + TypeScript + Vite 基础工程已完成。
+- Tailwind CSS 4、Radix UI、lucide-react、基础 UI 封装已接入。
+- `PiClient` 抽象、Mock client、Tauri RPC client 已建立。
+- Rust bridge 已支持 `pi --mode rpc` 启动、JSONL stdout/stderr 事件转发。
+- 中央对话流已支持 prompt、abort、streaming message、tool execution event。
+- 工具调用可见：`ToolCallItem`、`ToolResultPanel`、Inspector selected tool 联动。
 
-任务：
+### 阶段 4：会话管理
 
-- [x] 初始化 Tauri 2 + React + TypeScript + Vite 项目
-- [x] 接入 Tailwind CSS 4
-- [x] 配置路径别名 `@/*`
-- [x] 添加 ESLint / Prettier
-- [x] 添加基础目录结构
-- [x] 添加基础主题 token
-- [x] 添加 shadcn/ui 基础配置
-- [x] 添加 Radix UI 基础依赖
-- [x] 添加 lucide-react
+- 已支持：
+  - session list
+  - switch session
+  - new session
+  - continue recent
+  - set session name
+  - delete session
+  - export html
+  - session stats
+  - session file path
+- LeftSidebar 已改为 workspace folder tree。
+- 默认只加载当前 workspace。
+- `Open folder` 使用系统目录选择器，用户选择目录后只加载该 workspace sessions。
+- session item 已压缩为紧凑样式。
+- 已移除 LeftSidebar 无用入口：
+  - Pi Desktop 品牌文案
+  - New session
+  - Recent
+  - Name
+  - HTML
+  - Session tree
+  - search placeholder
 
-建议目录：
+### 阶段 5：会话树、fork、clone 基础版
 
-```txt
-src/
-├── app/
-├── components/
-├── shared/
-└── config/
-src-tauri/
-src-sidecar/ 或 src-api/
-```
+- 已新增：
+  - `PiSessionTree`
+  - `PiSessionTreeNode`
+  - `PiForkMessage`
+- Tauri command：
+  - `pi_session_tree`
+  - `pi_set_session_label`
+- RPC client：
+  - `get_fork_messages`
+  - `fork`
+  - `clone`
+- Inspector 已接入 `SessionTreePanel`。
+- 支持 active branch path、branch summary 展示、fork、clone、label/bookmark。
+- 当前 active leaf 仍为本地推断，后续需打磨。
 
-验收标准：
+### 阶段 6：模型与设置
 
-- [x] `pnpm build` 前端构建通过
-- [x] `cargo check` Tauri Rust 编译检查通过
-- [ ] `pnpm tauri dev` 可启动桌面窗口
-- [x] 首页显示基础 AppShell
+- 模型列表、模型切换、thinking level 已完成。
+- `ModelSelector` 支持搜索和 provider 分组。
+- `SettingsDialog` 支持：
+  - 模型搜索
+  - provider 分组
+  - thinking level
+  - auto compaction
+  - auto retry
+  - steering mode
+  - follow-up mode
+  - auth status 展示
+  - sessionDir 展示
+- RPC 已接入：
+  - `set_model`
+  - `set_thinking_level`
+  - `set_auto_compaction`
+  - `set_auto_retry`
+  - `set_steering_mode`
+  - `set_follow_up_mode`
+- auth probe、SettingsManager 持久化仍待后续。
 
----
+### 阶段 7：extension UI 与命令系统基础
 
-## 阶段 1：视觉基础与布局
+- 已完成：
+  - `extension_error`
+  - `extension_ui_request` 映射
+  - extension messages/status/widget 展示
+  - command palette
+  - dangerous command confirm
+  - `set_editor_text` 预填输入框
+- 未完成：
+  - `extension_ui_response` 回写闭环
 
-目标：实现克制生产力风格桌面壳，布局参考 WorkAny，视觉跟随 pi.dev 纸感网格背景与按钮风格。
+### 阶段 8-10：已完成项保持
 
-任务：
-
-- [x] 建立 shadcn/ui 兼容 CSS variables：background、foreground、card、popover、sidebar、primary、secondary、accent、border、input、muted
-- [x] 支持 light / dark token（暂未做切换 UI）
-- [x] 实现 `AppShell`
-- [x] 实现 `LeftSidebar`
-- [x] 实现 `RightInspector`
-- [x] 实现中央空状态首页
-- [x] 实现大输入框 `ChatInput`
-- [x] 实现基础按钮组件
-- [x] 实现 Dialog、Dropdown、Tooltip 业务封装
-
-页面结构：
-
-```txt
-LeftSidebar + MainArea + RightInspector
-```
-
-验收标准：
-
-- [x] 页面布局稳定
-- [x] 侧栏可折叠
-- [x] 右侧检查器可隐藏/显示
-- [x] 视觉接近 pi.dev 配色体系：`#ECE7E4` 纸感背景、细网格、低饱和蓝灰主色、细边框、轻阴影
-
----
-
-## 阶段 2：pi 集成 PoC
-
-目标：打通最小 pi 调用链路。
-
-优先方案：Node sidecar + pi SDK。
-
-备选方案：Tauri/Rust 或 Node sidecar spawn `pi --mode rpc`。
-
-任务：
-
-- [x] 选定 PoC 集成路线：Tauri/Rust spawn `pi --mode rpc`（长期 SDK sidecar 仍可后续评估）
-- [x] 实现 pi client 接口抽象
-- [x] 支持发送 prompt（mock + Tauri RPC client）
-- [x] 支持 abort（mock + Tauri RPC client）
-- [x] 支持获取 state（mock + RPC smoke + Tauri RPC client）
-- [x] 支持获取 messages（mock + Tauri RPC client）
-- [x] 订阅/接收事件流（mock + Tauri RPC client）
-- [x] 将 `message_update` 映射到 UI（mock + Tauri RPC client）
-- [x] 将 `agent_start/end` 映射到运行状态（mock + Tauri RPC client）
-
-建议抽象：
-
-```ts
-interface PiClient {
-  connect(): Promise<void>;
-  prompt(message: string, options?: PromptOptions): Promise<void>;
-  steer(message: string): Promise<void>;
-  followUp(message: string): Promise<void>;
-  abort(): Promise<void>;
-  getState(): Promise<PiState>;
-  getMessages(): Promise<PiMessage[]>;
-  subscribe(listener: (event: PiEvent) => void): () => void;
-}
-```
-
-验收标准：
-
-- [x] 用户在输入框输入 prompt 后，mock pi client 返回流式文本
-- [x] UI 显示运行状态
-- [x] 停止按钮可 abort 当前任务
-- [x] `pi --mode rpc --no-session --offline` 的 `get_state` smoke test 通过
-- [x] 真实 pi RPC prompt 流接入 UI（Tauri 环境使用 `TauriPiRpcClient`）
-- [ ] 在桌面窗口中手工验证真实模型 prompt（需要有效模型/auth）
+- 阶段 8 文件树与预览已完成。
+- 阶段 9 安全与权限基础已完成。
+- 阶段 10 体验打磨与验证已完成。
+- 后续避免回退这些能力：
+  - 文件预览路径限制
+  - 危险操作显式确认
+  - tool call 透明可见
+  - Inspector 状态、安全、扩展、文件面板
 
 ---
 
-## 阶段 3：工具调用可视化
+## 剩余风险
 
-目标：把 pi 工具执行做成一级 UI。
+0. 优先加入国际化适配，默认中文，英文。
 
-任务：
+1. **extension UI response 协议未闭环**
+   - confirm/select/input/editor 当前能展示但不能回传用户选择。
+   - extension 可能卡住等待 response。
 
-- [x] 处理 `tool_execution_start`（mock event stream）
-- [x] 处理 `tool_execution_update`（mock event stream）
-- [x] 处理 `tool_execution_end`（mock event stream）
-- [x] 实现 `ToolCallItem`（demo + RPC event 数据版）
-- [x] 实现 `ToolResultPanel`
-- [x] 实现 bash 输出展示（通用 output 面板）
-- [x] 实现 read/write/edit 文件展示（通用 output 面板）
-- [x] 实现 grep/find/ls 结果展示（通用 output 面板）
-- [x] 支持工具行折叠/展开
-- [x] 点击工具行在右侧检查器显示详情
+2. **Session tree active cursor 不够准确**
+   - 当前 active leaf 由本地解析推断。
+   - 若 session JSONL 存在多分支、tree navigation、branch summary，可能与 pi 实际 cursor 不一致。
 
-工具行样式：
+3. **fork/clone 后 session replacement 事件订阅需重点验证**
+   - RPC fork/clone 会替换 session。
+   - 前端必须确认消息、state、stats、tree、sessions 全部刷新。
+   - 事件订阅不能重复注册或丢失。
 
-```txt
-✓ bash  pnpm test                 2.3s
-✓ read  src/app.tsx               120 lines
-✕ edit  src/config.ts             oldText not found
-```
+4. **label/bookmark 当前直接 append JSONL**
+   - 绕过 pi SDK/extension API。
+   - 格式虽符合 session-format，但可能与未来 pi 内部实现有差异。
+   - 后续优先切换 SDK/SettingsManager 或正式 RPC 能力。
 
-验收标准：
+5. **Settings 当前多为运行时设置**
+   - auto compaction/retry/steering/follow-up 只通过 RPC 修改 runtime。
+   - sessionDir、auth、default model 持久化仍未接入 SettingsManager。
+   - 重启后可能恢复默认。
 
-- 每个 tool call 都可见
-- 成功/失败/运行中状态明确
-- 输出可展开
-- 长输出有截断提示和完整路径
+6. **auth status 只是静态/推断展示**
+   - RPC 未暴露真实 auth probe。
+   - 真实 provider key/token 状态只能通过 prompt 错误间接发现。
 
----
+7. **真实桌面端手工验证不足**
+   - `pnpm tauri dev` 与真实模型 prompt 尚需人工验证。
+   - 文件选择器、RPC bridge、fork/clone、extension UI 需真实桌面流程验证。
 
-## 阶段 4：会话管理
-
-目标：支持 pi 原生 session 能力。
-
-任务：
-
-- [x] 列出当前项目 sessions（Rust 扫描 `~/.pi/agent/sessions` 并解析 JSONL）
-- [x] 新建 session（`PiClient.newSession` + RPC `new_session` + UI 按钮）
-- [x] 切换 session（RPC `switch_session` + 左侧列表点击）
-- [x] 继续最近 session（最近 session 优先，否则新建）
-- [x] 设置 session name（RPC `set_session_name`）
-- [x] 删除 session（确认后只删除 sessions dir 内 `.jsonl`）
-- [x] 显示 session stats（`get_session_stats` + Inspector State）
-- [x] 显示 session file path（State 区块）
-- [x] 支持 export html（RPC `export_html`）
-
-SDK 重点：
-
-- `SessionManager.create()`
-- `SessionManager.continueRecent()`
-- `SessionManager.open()`
-- `SessionManager.list()`
-- `createAgentSessionRuntime()`
-
-RPC 重点：
-
-- `new_session`
-- `switch_session`
-- `get_state`
-- `get_session_stats`
-- `export_html`
-- `set_session_name`
-
-验收标准：
-
-- [x] 左侧可切换历史会话
-- [x] 新建 session 后主区域清空/刷新 messages
-- [x] 切换后主区域更新消息
-- [x] session replacement 后事件订阅仍由统一 client/hook 保持
+8. **不要默认运行验证命令**
+   - 用户偏好：修改后不自动 build/lint/cargo check。
+   - 后续计划中只列验证命令，执行需用户明确要求。
 
 ---
 
-## 阶段 5：会话树、fork、clone
+## 下一阶段任务清单
 
-目标：体现 pi 区别于普通聊天应用的核心能力。
+## 阶段 7+：extension_ui_response 闭环
 
-任务：
+目标：让 extension confirm/select/input/editor UI 能展示、交互、回传 response，避免 extension 等待卡死。
 
-- [x] 解析 session JSONL tree（Tauri `pi_session_tree` 解析 message / branch_summary / compaction / label 等 entry）
-- [x] 实现 `SessionTree`（Inspector `SessionTreePanel`）
-- [x] 支持 branch path 展示（active leaf 回溯 path）
-- [x] 支持 fork 指定 user message（RPC `fork`）
-- [x] 支持 clone 当前分支（RPC `clone`）
-- [x] 支持 label/bookmark（Tauri `pi_set_session_label` 追加 label entry）
-- [x] 支持 branch summary 展示
+### 1. 扩展 extension UI 类型
 
-RPC 重点：
+- Status: 已完成基础类型。
+- File: `src/shared/pi/types.ts`
+- Changes:
+  - 扩展 `PiExtensionMessage`，保留原始 request id。
+  - 增加 method payload：
+    - `confirm`
+    - `select`
+    - `input`
+    - `editor`
+  - 新增 response 类型：
+    - `PiExtensionUiResponse`
+    - fields: `id`, `method`, `value`, `confirmed`, `cancelled`
+- Acceptance:
+  - TypeScript 能表达每类 extension UI request。
+  - UI 不再只能显示 message 文本。
 
-- `get_fork_messages`
-- `fork`
-- `clone`
+### 2. 完善 RPC event mapping
 
-SDK 重点：
+- Status: 已完成基础 mapping；`extension_ui_response` 直接写入 RPC stdin（该响应无普通 request/response id），避免误用 request correlation。
+- File: `src/shared/pi/tauri-rpc-client.ts`
+- Changes:
+  - 在 `extension_ui_request` event 中保留 request id / method / params。
+  - 新增 `respondExtensionUi(response)`。
+  - 通过 RPC 发送：
+    - `extension_ui_response`
+- Acceptance:
+  - confirm/select/input/editor response 能带 request id 回到 pi。
+  - RPC response success/failure 可捕获并显示错误。
 
-- `runtime.fork(entryId)`
-- `session.navigateTree()`
-- `SessionManager.getTree()`
-- `SessionManager.getBranch()`
+### 3. Mock client 支持 extension UI response
 
-验收标准：
+- Status: 已完成基础 response 记录；已增加 `ui-confirm` / `ui-select` / `ui-input` / `ui-editor` mock commands 用于浏览器侧手测。
+- File: `src/shared/pi/mock-client.ts`
+- Changes:
+  - 增加 mock extension UI pending requests。
+  - 实现 `respondExtensionUi()`。
+  - 模拟 confirm/select/input/editor 完成状态。
+- Acceptance:
+  - 浏览器环境可测试 UI 闭环。
+  - 不依赖真实 pi extension。
 
-- [x] 用户可以看到会话树
-- [x] 可以从历史节点 fork
-- [x] 可以 clone 当前分支
-- [x] fork/clone 后 UI 正常进入新 session
+### 4. 新增 Extension UI Dialog
 
----
+- Status: 已完成；已增加 busy/error 状态，response 失败时 dialog 内显示错误。
+- New File: `src/components/extensions/ExtensionUiDialog.tsx`
+- Changes:
+  - 根据 request method 渲染：
+    - confirm: confirm/cancel
+    - select: options list
+    - input: text input
+    - editor: textarea/code-like editor
+  - 支持 cancel。
+  - submit 后调用 `onRespondExtensionUi()`。
+- Acceptance:
+  - 每种 method 都能完成一次交互。
+  - cancel 可回传 cancelled。
 
-## 阶段 6：模型与设置
+### 5. hook 管理 pending extension UI
 
-目标：实现 pi 配置管理 UI。
+- Status: 已完成基础队列；response 失败会向 dialog 抛错并保留 pending request，便于用户重试/取消；Inspector Extension UI 面板显示 pending request 数量与等待项；已修复 pending UI 区块重复 `<div>` 导致 JSX closing tag 错误。
+- File: `src/shared/hooks/usePiSession.ts`
+- Changes:
+  - 增加 `pendingExtensionUi` state。
+  - event 到达时入队。
+  - response 成功后出队。
+  - 暴露 `respondExtensionUi()`。
+- Acceptance:
+  - 多个 pending request 可顺序处理。
+  - response 后不残留过期 dialog。
 
-任务：
+### 6. AppShell 接入 dialog
 
-- [x] 模型选择器 UI 骨架（demo 数据版）
-- [x] 模型列表（mock + RPC `get_available_models`，失败 graceful fallback）
-- [x] 模型切换（Dropdown 列表 + RPC `set_model`）
-- [x] 模型搜索/provider 分组（ModelSelector 与 SettingsDialog 均支持搜索和 provider 分组）
-- [x] thinking level 切换（Settings dialog + RPC `set_thinking_level`）
-- [x] 默认 provider/model 配置（PiClient settings 抽象，mock 可交互，RPC 同步当前 state）
-- [x] API key / auth 状态展示（RPC 当前无 auth probe，展示 provider unknown/configured 状态与说明）
-- [x] sessionDir 配置（展示当前 session dir；写入配置待后续 SettingsManager/SDK）
-- [x] compaction 配置（运行时 `set_auto_compaction`）
-- [x] retry 配置（运行时 `set_auto_retry`）
-- [x] steering/followUp mode 配置（运行时 `set_steering_mode` / `set_follow_up_mode`）
-- [x] extensions/skills/prompts 配置入口（右侧 Inspector 命令/扩展面板；themes 待后续）
+- Status: 已完成。
+- File: `src/components/layout/AppShell.tsx`
+- Changes:
+  - 渲染 `ExtensionUiDialog`。
+  - 传入 pending request 与 respond handler。
+- Acceptance:
+  - 真实 extension UI request 能弹出桌面 dialog。
+  - 完成后 pi 不再卡住等待。
 
-RPC 重点：
+### 阶段 7+ 验收标准
 
-- `get_available_models`
-- `set_model`
-- `cycle_model`
-- `set_thinking_level`
-- `cycle_thinking_level`
-- `set_auto_compaction`
-- `set_auto_retry`
-
-SDK 重点：
-
-- `ModelRegistry`
-- `AuthStorage`
-- `SettingsManager`
-
-验收标准：
-
-- [x] 用户能切换模型（mock 完整；RPC 使用 `set_model`；模型选择支持搜索/provider 分组）
-- [x] 用户能切换 thinking level（mock 完整；RPC 使用 `set_thinking_level`）
-- [x] 用户能配置运行时 compaction/retry/steering/follow-up 行为
-- [x] 设置持久化或同步到 pi settings（当前为运行时同步；长期持久化待 SDK/SettingsManager）
-
----
-
-## 阶段 7：extension UI 与命令系统
-
-目标：支持 pi extension 生态。
-
-任务：
-
-- [x] 支持 extension notify（RPC event 映射为 UI messages，Inspector 可见）
-- [ ] 支持 extension confirm dialog（协议已识别，response 回写待实现）
-- [ ] 支持 extension select dialog（协议已识别，response 回写待实现）
-- [ ] 支持 extension input dialog（协议已识别，response 回写待实现）
-- [ ] 支持 extension editor dialog（协议已识别，response 回写待实现）
-- [x] 支持 setStatus 显示（作为 extension UI message/status 记录）
-- [x] 支持 setWidget 显示（Inspector Extension UI 面板）
-- [x] 支持 setTitle（作为 extension UI message 记录）
-- [x] 支持 set_editor_text（预填 ChatInput）
-- [x] 命令面板显示 extension commands / prompts / skills（`get_commands` + mock fallback）
-- [x] 命令执行危险确认（dangerous command confirm dialog）
-- [x] `extension_error` 可见（Inspector banner + errors 列表）
-
-RPC 重点：
-
-- `extension_ui_request`
-- `extension_ui_response`
-- `get_commands`
-
-验收标准：
-
-- [ ] extension 需要用户确认时，桌面 app 能弹窗响应并回写 `extension_ui_response`
-- [x] extension notify 能显示在 Inspector UI messages
-- [x] commands 可通过命令面板执行
+- extension confirm/select/input/editor 能显示。
+- 用户操作能通过 `extension_ui_response` 回写。
+- cancel 能回写 cancelled。
+- Mock 与 Tauri RPC 路径都可用。
+- response 失败时 Inspector 或 error banner 可见。
 
 ---
 
-## 阶段 8：文件树与预览
+## 阶段 8+：已完成项保持与回归检查
 
-目标：提供右侧工作区能力。
+目标：保护文件预览、安全策略、体验打磨，不因后续改动回退。
 
-任务：
+### 1. 文件预览保持只读与路径限制
 
-- [x] 显示 cwd
-- [x] 文件树（最小只读列表）
-- [x] 打开文件预览（文本/Markdown/HTML 内容预览，图片/二进制占位）
-- [x] Markdown 预览（源码级 markdown 预览）
-- [ ] 代码高亮
-- [x] 图片预览（安全占位，不读取二进制内容）
-- [x] HTML 预览（源码级预览，不执行）
-- [ ] diff 展示
-- [x] 从 tool call 跳转文件（点击工具选中 previewable target）
+- File: `src-tauri/src/lib.rs`
+- Check:
+  - `pi_list_files`
+  - `pi_read_file`
+  - `safe_join`
+- Acceptance:
+  - 绝对路径、`..` escape 仍被拒绝。
+  - 大文本仍截断。
+  - binary/image 不误读为文本。
 
-验收标准：
+### 2. 安全确认保持显式
 
-- [x] 右侧检查器能作为工作目录/产物浏览器
-- [x] 工具调用产生/读取的文件能快速查看（只读预览）
+- Files:
+  - `src/components/safety/SafetyConfirmDialog.tsx`
+  - `src/shared/pi/safety.ts`
+  - `src/components/chat/ChatInput.tsx`
+- Acceptance:
+  - dangerous command 仍弹确认。
+  - blocked/allowed 仍进入 SafetyPanel。
+  - 不新增静默危险执行路径。
 
----
+### 3. tool call 保持透明
 
-## 阶段 9：安全与权限
-
-目标：桌面端安全默认。
-
-任务：
-
-- [x] bash 危险命令确认（命令面板层阻断/确认；RPC 工具事件层标记，预执行阻断需 SDK/extension）
-- [x] 写入敏感路径确认（检测模型与 Safety Inspector 标记；预执行阻断待 SDK/extension）
-- [ ] 删除会话确认
-- [x] 删除文件确认（命令/工具检测模型与 UI 标记；真实删除工具预执行阻断待 SDK/extension）
-- [x] 权限设置页（RightInspector Safety 区块显示当前策略/限制）
-- [x] 可配置安全策略（最小默认策略模型；持久化配置待后续）
-- [x] 显示当前 cwd 和即将执行命令（State 显示 cwd；danger confirm 显示 target/reason/severity）
-
-可用方式：
-
-- SDK extension 拦截 `tool_call`
-- RPC extension UI confirm
-- 自定义 pi extension 包
-
-验收标准：
-
-- [x] 危险命令不会静默执行（slash command 先弹确认）
-- [x] 用户能明确允许或拒绝（SafetyConfirmDialog 记录 allowed/blocked）
-- [x] RPC 工具层限制在 UI 可见（Safety 区块说明需要 SDK/extension preflight）
+- Files:
+  - `src/components/tools/ToolCallItem.tsx`
+  - `src/components/tools/ToolResultPanel.tsx`
+  - `src/components/layout/RightInspector.tsx`
+- Acceptance:
+  - `tool_execution_*` 仍显示。
+  - 点击 tool 仍联动 Inspector。
+  - 文件 target 仍联动 preview。
 
 ---
 
-## 阶段 10：体验打磨与验证
+## 阶段 11+：会话树 / fork / clone 后续打磨
 
-目标：让当前桌面工作台在 pi RPC 连接失败、空 session、小屏窗口等常见状态下保持可用。
+目标：把阶段 5 基础版提升为可用的 pi session tree 工作流。
 
-任务：
+### 1. active cursor 准确化
 
-- [x] 增加空状态（中央 pi workbench 空状态 cards）
-- [x] 增加 loading 状态（connecting / refreshing 状态）
-- [x] 增加错误状态（PiClient connect/refresh/action 失败非阻塞 banner）
-- [x] usePiSession 错误捕获，暴露 `status` / `error`
-- [x] MainArea 显示非阻塞错误 banner，并支持 retry/dismiss
-- [x] Inspector 显示 PiClient 错误与当前 status
-- [x] 改善小屏布局：header 换行、输入区按钮换行、Inspector 从 `xl` 改为 `lg` 响应隐藏
-- [x] command palette 改为输入框上方绝对定位，限制高度和 overflow
-- [x] 文案清理：强调 pi sessions/tools/models/extensions，不是普通聊天
-- [x] 验证 `pnpm build` / `pnpm lint` / `pnpm pi:rpc:smoke`
+- Status: 已完成 RPC 能力边界标注；精准 cursor 仍待 SDK `SessionManager.getLeafEntry()`。
+- Files:
+  - `src-tauri/src/lib.rs`
+  - `src/shared/pi/tauri-rpc-client.ts`
+  - `src/shared/pi/types.ts`
+  - `src/components/session/SessionTreePanel.tsx`
+- Changes:
+  - 调研 pi RPC/SDK 是否暴露 current tree cursor / current branch leaf。
+  - 若 RPC 无能力，评估用 SDK sidecar 的 `SessionManager.getTree()` / `getBranch()`。
+  - 替换当前“最后 leaf 推断”。
+  - 当前实现返回 `activeLeafSource: jsonl-inferred` 与说明文案，UI 显示 cursor 来源，避免误认为精准 cursor。
+- Acceptance:
+  - 多分支 session 中 active leaf 与 pi 实际一致。
 
-验收标准：
+### 2. SessionTreePanel 交互优化
 
-- [x] PiClient refresh/connect 失败时 UI 不崩，用户可继续查看已有状态并 retry
-- [x] 空 session 有明确 pi 能力导向
-- [x] 小屏下主区域和 command palette 不明显溢出
-- [x] 阶段 2-9 现有功能接口保持兼容
+- Status: 已完成基础交互优化。
+- File: `src/components/session/SessionTreePanel.tsx`
+- Changes:
+  - 增加过滤：
+    - default
+    - no-tools
+    - user-only
+    - labeled-only
+    - all
+  - 增加 collapse/expand branch。
+  - 标记 current branch path。
+  - label 显示更明显。
+- Acceptance:
+  - 大型 session tree 可读。
+  - labeled-only 可用于 bookmark 导航。
+
+### 3. fork 前确认与 prompt preview
+
+- Status: 已完成基础确认。
+- File: `src/components/session/SessionTreePanel.tsx`
+- Changes:
+  - 点击 fork 前展示源 user message preview。
+  - 用户确认后执行 fork。
+- Acceptance:
+  - 避免误 fork。
+  - fork 来源明确。
+
+### 4. clone 当前分支状态反馈
+
+- Status: 已完成 UI loading 基础反馈；cancelled 原因沿用 hook error。
+- Files:
+  - `src/components/session/SessionTreePanel.tsx`
+  - `src/shared/hooks/usePiSession.ts`
+- Changes:
+  - clone 执行中显示 loading。
+  - clone cancelled 时显示明确原因。
+  - clone success 后刷新 messages/tree/session list。
+- Acceptance:
+  - clone 后 UI 自动进入新 session。
+  - 不需要手动 refresh。
+
+### 5. label/bookmark 改为正式能力
+
+- Status: 已完成能力边界调研与 UI 风险提示；正式迁移待 SDK sidecar。
+- Files:
+  - `src-tauri/src/lib.rs`
+  - `src/shared/pi/tauri-rpc-client.ts`
+  - `src/components/session/SessionTreePanel.tsx`
+- Changes:
+  - 调研 RPC/SDK 是否支持 `setLabel`。
+  - RPC docs 暂未暴露 setLabel command；extension API 有 `pi.setLabel(entryId, label)`；SDK `SessionManager` 提供 `appendLabelChange(id, label)` / `getLabel(id)`。
+  - 当前 UI 在 `jsonl-inferred` 模式展示 Label mode 提示，说明 labels 仍为直接 append JSONL entry。
+  - 若 SDK 支持，迁移 away from direct JSONL append。
+- Acceptance:
+  - label 写入与 pi 官方行为一致。
+  - `/tree` 与桌面 UI 标签一致。
+
+### 6. parent session / fork lineage 展示
+
+- Status: 已完成基础展示。
+- Files:
+  - `src-tauri/src/lib.rs`
+  - `src/components/session/SessionTreePanel.tsx`
+  - `src/shared/pi/types.ts`
+- Changes:
+  - 解析 session entry 的 `parentSession`。
+  - 在 UI 显示 fork/clone 来源。
+- Acceptance:
+  - 用户能看出当前 session 来自哪个 session file。
+
+### 阶段 11+ 验收标准
+
+- 大型多分支 session tree 可阅读、可过滤。
+- active branch 显示准确。
+- fork/clone 来源清晰。
+- fork/clone 后 UI 自动进入新 session。
+- label/bookmark 与 pi 官方 tree 行为一致。
 
 ---
 
-## 技术风险
+## SDK / SettingsManager 后续路线
 
-### Node sidecar 打包
+目标：补齐 RPC 不擅长的设置持久化、session tree 精准状态、auth 状态。
 
-Tauri 默认不内置 Node。若使用 pi SDK，需要规划 Node sidecar 或打包为独立二进制。
+### 1. 评估 SDK sidecar 架构
 
-处理方向：
+- Status: 已形成 ADR 草案：`docs/sdk-sidecar-adr.md`；已新增最小 stdio sidecar skeleton：`src-sidecar/pi-sdk-sidecar.mjs`；已新增 smoke 脚本：`scripts/pi-sdk-sidecar-smoke.mjs`；Tauri 已预留 sidecar start/send/stop bridge commands；前端 `SdkSidecarClient` 已接入 session tree/label fallback；SettingsDialog 已显示 SDK sidecar 状态并尝试 `sdk_auth_status`。
+- Decision: 短期保留 Rust RPC bridge，新增 Node SDK sidecar 作为能力补强层；优先补 session tree cursor、label、settings、auth，不一次性替换 streaming/tool event pipeline。
+- New Files:
+  - `docs/sdk-sidecar-adr.md`
+  - `src-sidecar/pi-sdk-sidecar.mjs`
+- Changes:
+  - 调研 `@earendil-works/pi-coding-agent` SDK：
+    - `createAgentSessionRuntime()`
+    - `SessionManager`
+    - `SettingsManager`
+    - auth storage
+  - 设计 Tauri 与 Node sidecar 通信协议。
+- Acceptance:
+  - 形成 SDK sidecar ADR。
+  - 明确继续 RPC 还是混合 SDK/RPC。
+  - sidecar skeleton 支持 JSONL stdin/stdout、`ping`、`sdk_session_tree`、`sdk_set_label`、`sdk_get_settings`、`sdk_auth_status` 协议入口。
+  - `pnpm pi:sdk-sidecar:smoke` 可验证 sidecar ping（仅在用户明确要求时运行）。
+  - Tauri commands `pi_sdk_sidecar_start` / `pi_sdk_sidecar_send` / `pi_sdk_sidecar_stop` 已预留，事件为 `pi-sdk-sidecar-message` / `pi-sdk-sidecar-error` / `pi-sdk-sidecar-stderr`。
+  - `src/shared/pi/sdk-sidecar-client.ts` 支持 request correlation；`TauriPiRpcClient.getSessionTree()` 优先 `sdk_session_tree`，失败 fallback `pi_session_tree`；label 优先 `sdk_set_label`，失败 fallback `pi_set_session_label`；settings 显示 sidecar ping 状态并在可用时尝试 `sdk_auth_status`。
 
-- Node sidecar + pkg/esbuild
-- 或使用 RPC 模式调用全局 pi
-- 或调研嵌入 Node runtime
+### 2. SettingsManager 持久化
 
-### session replacement
+- Files:
+  - `src/shared/pi/client.ts`
+  - `src/shared/pi/tauri-rpc-client.ts`
+  - future SDK sidecar files
+- Changes:
+  - 持久化：
+    - defaultProvider
+    - defaultModel
+    - defaultThinkingLevel
+    - sessionDir
+    - compaction settings
+    - retry settings
+    - steering/followUp mode
+- Acceptance:
+  - 重启应用后设置保持。
+  - 项目级 `.pi/settings.json` 与全局 settings 行为明确。
 
-切换/new/fork/clone 后，旧 session 失效。
+### 3. auth/API key 状态
 
-处理方向：
+- Changes:
+  - 读取 provider auth 状态。
+  - 展示 configured/missing/expired。
+  - 提供跳转配置入口。
+- Acceptance:
+  - 用户能在桌面 UI 看出模型不可用原因。
+  - prompt 前可提前发现缺 key/auth。
 
-- 中央 PiClient 管 runtime
-- replacement 后统一重订阅
-- UI store 清理旧状态
+---
 
-### extension UI
+## 真实桌面手工验证计划
 
-RPC/SDK 下 extension UI 与桌面 UI 需要桥接。
+目标：验证浏览器 mock 之外的真实桌面能力。
 
-处理方向：
+### 手工验证清单
 
-- 统一 `ExtensionUiRequest` store
-- Dialog resolve 后回写 SDK/RPC
+1. 启动桌面
+   - Command: `pnpm tauri dev`
+   - Check:
+     - 窗口正常启动
+     - Rust RPC bridge 正常启动
+     - `pi-rpc-message` 无异常刷屏
 
-### 工具输出大文本
+2. Open folder
+   - Check:
+     - 系统目录选择器打开
+     - 选择 folder 后 LeftSidebar 显示 workspace 节点
+     - 无 session folder 也显示空状态
+     - Windows 路径匹配正常
 
-长输出会影响性能。
+3. 真实 session switch
+   - Check:
+     - 点击 session 后 messages/state/stats/tree 刷新
+     - Inspector session file 正确
 
-处理方向：
+4. 真实 prompt
+   - Check:
+     - 有效 provider/model 下可发 prompt
+     - message_update streaming 正常
+     - tool_execution_* 正常
+     - abort 正常
 
-- 虚拟列表
-- 默认折叠
-- 截断展示
-- 完整输出按需读取
+5. fork/clone
+   - Check:
+     - fork user message 成功进入新 session
+     - clone 当前分支成功进入新 session
+     - fork/clone cancelled 能显示错误或取消状态
 
-## 当前进度记录
+6. extension UI
+   - Check:
+     - confirm/select/input/editor request 能弹窗
+     - response 后 extension 继续执行
 
-### 2026-05-13
+7. Settings
+   - Check:
+     - model 切换生效
+     - thinking level 生效
+     - auto compaction/retry RPC 不报错
+     - steering/follow-up mode RPC 不报错
 
-阶段 10 体验打磨完成：
+---
 
-- `usePiSession` 增加 `status` / `error` / `clearError`，connect、refresh、prompt、abort、newSession、settings、command 执行均捕获错误
-- 新增 `ErrorBanner` 和 `LoadingPanel`，PiClient 连接/刷新失败时显示非阻塞错误，不导致 UI 崩溃
-- `MainArea` header 支持小屏换行，显示 runtime status 和 refreshing 指示
-- `MessageList` 增加空状态 cards，强调 pi sessions/tools/models/extensions 工作台定位
-- `RightInspector` 显示 PiClient error/status，Inspector 在 `lg` 以上显示以改善中小屏
-- `ChatInput` command palette 改为输入框上方绝对定位并限制高度，输入底部按钮支持换行
-- 已验证 `pnpm build`、`pnpm lint`、`pnpm pi:rpc:smoke`
+## 文档同步计划
 
-### 2026-05-12
+### 1. README 更新
 
-已完成：
+- Status: 已部分同步当前能力概览、后续重点、extension UI response 映射与开发约定。
+- File: `README.md`
+- Add:
+  - 当前能力概览
+  - 桌面运行方式
+  - pi RPC requirement
+  - Open folder/session 管理说明
+  - extension UI 支持状态
+- Acceptance:
+  - 新开发者能按 README 启动桌面并理解当前功能范围。
 
-- 初始化 Tauri 2 + React + TypeScript + Vite 项目
-- 接入 Tailwind CSS 4、Radix 依赖、lucide-react
-- 配置 `@/*` 路径别名
-- 添加 ESLint / Prettier
-- 建立 `src/app`、`src/components`、`src/shared`、`src/config` 目录
-- 建立 pi.dev 式 `#ECE7E4` 纸感网格 CSS token 和 light/dark token
-- 新增 `components.json`，接入 shadcn/ui 组件生成约定
-- `Button` 调整为 shadcn/ui + CVA + Radix Slot 风格，保留现有 `primary/secondary/ghost/danger` 兼容 variant
-- 实现基础 `AppShell`、`LeftSidebar`、`MainArea`、`RightInspector`
-- 实现 demo 版 `ChatInput`、`MessageList`、`ToolCallItem`、`ModelSelector`
-- 更新 Tauri app 名称、窗口尺寸、Rust command 占位
-- `pnpm build` 通过
-- `pnpm lint` 通过
-- `cargo check` 通过（修正 Rust lib crate 名称引用）
-- 完成侧栏折叠、右侧检查器开关
-- 添加 Dialog、Dropdown、Tooltip UI 封装
-- 实现 `PiClient` 接口抽象和 `MockPiClient`
-- 输入框接入 `usePiSession`，支持 prompt / abort / streaming text
-- UI 已映射 mock `agent_start`、`message_update`、`tool_execution_*`、`agent_end`
-- 添加 `scripts/pi-rpc-smoke.mjs`，验证 `pi --mode rpc --no-session --offline` JSONL `get_state`
-- 添加 `pnpm pi:rpc:smoke` 脚本
-- 添加 Tauri Rust RPC bridge：`pi_rpc_start`、`pi_rpc_send`、`pi_rpc_stop`
-- Rust bridge spawn `pi --mode rpc --no-session --offline`，读取 stdout JSONL 并 emit `pi-rpc-message`
-- 添加 `TauriPiRpcClient`，支持 request/response correlation 和 event mapping
-- 添加 `createPiClient()`，Tauri 环境自动使用真实 RPC，浏览器环境回退 mock
-- 实现 `ToolResultPanel`，工具行支持展开/折叠查看 output
-- `ToolCallItem` 支持 demo/RPC tool event 通用展示
-- 实现 selected tool 状态上提：`AppShell` 管理选中工具
-- 点击工具行自动打开右侧 Inspector，并在 Selected tool 区块显示详情
-- 开始阶段 4：新增 `PiClient.newSession()`
-- Mock client 支持清空 messages/state
-- Tauri RPC client 支持发送 `new_session`
-- `usePiSession` 增加 `refresh()` 和 `newSession()`
-- `AppShell` 上提 pi session 状态，LeftSidebar 的 New session 按钮已接入
-- 新增 `PiSessionStats` 类型和 `PiClient.getSessionStats()`
-- Mock/RPC client 支持 `get_session_stats`
-- `usePiSession.refresh()` 同步 messages/state/stats
-- RightInspector State 区块改为真实 state/stats，显示 tokens/cost/messages/tools/context/sessionFile
-- 阶段 6：新增 `PiModel` / `PiSettings` / `PiSettingsUpdate` / `PiThinkingLevel` 类型
-- `PiClient` 新增 `listModels()`、`getSettings()`、`updateSettings()`
-- Mock client 返回 demo models/settings，并支持 model/thinking 交互更新
-- Tauri RPC client 接入 `get_available_models`、`set_model`、`set_thinking_level`，失败时回退当前 state
-- `usePiSession.refresh()` 同步 models/settings
-- `ModelSelector` 改为真实模型下拉列表，不再硬编码单模型
-- 新增 `SettingsDialog`，展示 cwd/model/thinking/clientMode/sessionFile，并允许切换模型/thinking
-- LeftSidebar 设置按钮接入 Settings dialog；RightInspector 显示 client/model
-- 阶段 7：新增 `PiCommand`、`PiExtensionPanel`、`PiExtensionMessage`、`PiExtensionError` 类型
-- `PiClient` 新增 `listCommands()`、`executeCommand()`、`listExtensionPanels()`、`listExtensionMessages()`、`listExtensionErrors()`
-- Mock client 提供 demo slash commands、extension widgets/messages/errors，并支持 mock command execution
-- Tauri RPC client 接入 `get_commands`，支持 extension_error 和 extension_ui_request 映射；缺失时 graceful fallback 到内置命令
-- 新增 `CommandPalette`，ChatInput 输入 `/` 显示 commands，Tab 填入，Enter 执行
-- ChatInput 对 dangerous command 弹确认 Dialog，避免静默执行 delete/reset/shell/batch 类命令
-- 新增 `ExtensionsPanel`，RightInspector 显示 commands、extension panels、UI messages、extension errors
-- `set_editor_text` 可预填 ChatInput；`extension_error` 在 Inspector 顶部可见
-- 阶段 8：新增 `PiFileEntry` / `PiFilePreview` 类型和 `PiClient.listFiles()` / `readFile()` 只读抽象
-- Mock client 提供 demo 文件树和 README/design/tsx/svg/html 预览数据
-- Tauri/Rust 新增只读 `pi_list_files` / `pi_read_file` commands，限制路径必须在 cwd 内，文本截断到 64KB，图片/二进制只返回占位元数据
-- 新增 `FilesPreviewPanel`，RightInspector 显示 cwd、文件列表、文本/Markdown/HTML 源码预览和图片占位
-- 点击 tool call 时若 target 像文件路径，自动联动右侧文件预览
-- 阶段 8 验证：`pnpm build` / `pnpm lint` / `pnpm pi:rpc:smoke` / `cargo check` 通过
-- Diff cleanup：检查阶段 6/7 worker 改动，未发现编译级冲突；移除 RightInspector 对 demoTools 的固定依赖，Active tools 改为从真实 messages 派生
-- Diff cleanup：修复 mock prompt 持久化，agent_end refresh 后保留 assistant 内容和工具结果
-- Diff cleanup：更新 MessageList 过期 mock-only 文案为 Tauri RPC + mock fallback
-- 阶段 9：新增 `DangerousAction` / `PiSafetyEvent` 类型与 `shared/pi/safety.ts` 检测工具
-- 阶段 9：复用 `SafetyConfirmDialog` 增强 dangerous command 确认，记录 allowed/blocked
-- 阶段 9：ToolCall/Command 支持 safety 标记，RightInspector 新增 Safety 策略和最近事件
-- 阶段 9：Mock 增加危险命令/危险 bash 示例，RPC client 标记危险工具并说明预执行阻断限制
-- 阶段 4：新增 `PiClient.listSessions()` / `switchSession()` / `continueRecent()` / `setSessionName()` / `deleteSession()` / `exportHtml()`
-- 阶段 4：Tauri Rust 增加 `pi_list_sessions`，扫描 `~/.pi/agent/sessions` 并解析 session JSONL metadata/session_info/message/model_change
-- 阶段 4：Tauri Rust 增加 `pi_delete_session`，确认后仅允许删除 sessions dir 内 `.jsonl`
-- 阶段 4：LeftSidebar 改用真实 session list，支持点击切换、继续最近、命名、导出 HTML、删除确认
-- 阶段 4：Sessions UI 改为 project folder tree，按 `cwd` 分组，项目节点可折叠，项目下展示 session 列表
-- 阶段 4：`pi_list_sessions` 支持空 cwd 返回全部项目 session，前端据此构建项目树
-- 阶段 4：默认只加载当前 workspace sessions，不主动扫描全部项目；用户点击 `Open folder` 选择文件夹后只加载该 workspace sessions
-- 阶段 4：`Open folder` 改为真正选择目录并展示所选 workspace 节点；即使该目录暂无 session 也显示空状态
-- 阶段 4：修复 Windows canonical path `\\?\` 前缀/大小写导致所选 workspace session 匹配失败的问题
-- 阶段 4：接入 Tauri dialog plugin，使用系统目录选择器打开 workspace folder
-- 阶段 4：压缩 session item 卡片高度，改为单行标题 + 精简 metadata + hover 删除按钮
-- 阶段 4：LeftSidebar 清理无用入口，移除品牌文案、新建/最近/命名/HTML/Session tree 按钮，保留打开文件夹、设置、折叠与 session 切换/删除
-- 阶段 5：新增 `PiSessionTree` / `PiSessionTreeNode` / `PiForkMessage` 类型，PiClient 增加 tree/fork/clone/label 方法
-- 阶段 5：Tauri 新增 `pi_session_tree` 解析当前 session JSONL，生成 depth/leaf/children/label 信息
-- 阶段 5：Tauri 新增 `pi_set_session_label` 追加 label entry，支持 bookmark/label
-- 阶段 5：Tauri RPC client 接入 `get_fork_messages` / `fork` / `clone`，fork/clone 后统一 refresh session UI
-- 阶段 5：Inspector 新增 `SessionTreePanel`，显示 active branch、tree nodes、branch summary，并提供 fork/clone/label 操作
-- 阶段 6：ModelSelector 增加模型搜索、provider 分组、空结果提示
-- 阶段 6：SettingsDialog 模型选择增加搜索框与 provider optgroup，使用 provider/model key 避免跨 provider model id 冲突
-- 阶段 6：SettingsDialog 增加 auto compaction、auto retry、steering mode、follow-up mode 运行时配置
-- 阶段 6：SettingsDialog 增加 auth status 与 sessionDir 展示；RPC auth probe/持久化写入待后续 SDK/SettingsManager
-- 阶段 4 验证：`pnpm build` / `pnpm lint` / `pnpm pi:rpc:smoke` / `cargo check` 通过
-- `pnpm build` / `pnpm lint` / `pnpm pi:rpc:smoke` / `cargo check` 再次通过
+### 2. agent.md 更新
 
-## 当前下一步
+- Status: 已同步当前阶段目标、extension UI response 约定、pending queue、默认不自动验证/git 偏好。
+- File: `agent.md`
+- Add:
+  - 当前 PiClient 能力边界
+  - RPC vs future SDK sidecar 决策状态
+  - session tree/fork/clone 注意点
+- Acceptance:
+  - 后续 agent 不会把 pi 当普通 chat API。
 
-建议立即执行：
+### 3. design.md 更新
 
-1. 运行/验证 `pnpm tauri dev`，手工检查真实 RPC 模型切换和 thinking level
-2. 增强模型搜索、provider 分组、不可用模型提示
-3. 接入 auth/API key 状态展示
-4. 接入 auto compaction / auto retry / steering / followUp 设置
-5. 评估长期 SDK sidecar + `SettingsManager` 持久化路线
+- Status: 已同步当前落地范围与 extension UI dialog/response 交互规范。
+- File: `design.md`
+- Add:
+  - LeftSidebar workspace tree 设计
+  - Inspector SessionTreePanel 设计
+  - extension UI dialog 交互规范
+- Acceptance:
+  - UI 后续调整有设计依据。
+
+### 4. AGENTS.md 更新
+
+- Status: 已同步默认不自动 build/lint/cargo check/git、extension_ui_response 优先项与事件映射。
+- File: `AGENTS.md`
+- Add:
+  - 修改后默认不自动 build/lint/cargo check，除非用户明确要求
+  - 危险操作必须确认
+  - extension_ui_response 是阶段 7+ 优先项
+- Acceptance:
+  - 后续 coding agent 行为符合用户偏好。
+
+---
+
+## 验证策略
+
+### 默认策略
+
+- 修改代码后不自动运行验证命令。
+- 只在用户明确要求时运行：
+  - `pnpm build`
+  - `pnpm lint`
+  - `pnpm pi:rpc:smoke`
+  - `cd src-tauri && cargo check`
+  - `git diff --check`
+
+### 建议验证矩阵
+
+1. TypeScript/UI 层改动
+   - Suggested:
+     - `pnpm build`
+     - `pnpm lint`
+
+2. Rust/Tauri command 改动
+   - Suggested:
+     - `cd src-tauri && cargo check`
+     - `pnpm tauri dev` 手工验证
+
+3. RPC protocol 改动
+   - Suggested:
+     - `pnpm pi:rpc:smoke`
+     - 桌面真实 RPC 手工验证
+
+4. Session JSONL 解析/写入改动
+   - Suggested:
+     - 使用真实 session file 手工验证
+     - 备份 session 文件后测试 label/fork/clone
+
+5. extension UI response 改动
+   - Suggested:
+     - mock extension request
+     - 真实 extension confirm/select/input/editor 流程
+
+---
+
+## 推荐下一步执行顺序
+
+1. 阶段 7+：实现 `extension_ui_response` 闭环。（已开始：类型/client/hook/Dialog/RPC response 基础接入；Inspector Extension UI 已显示 pending dialogs）
+2. 手工运行 `pnpm tauri dev`，验证真实 RPC 与 Open folder/session switch。
+3. 阶段 11+：打磨 SessionTreePanel 和 active cursor。（已开始：filter、collapse/expand、active branch 标记、fork preview confirm、clone/fork loading、parentSession lineage 展示、cursor source 标注、label mode 风险提示）
+4. 评估 SDK sidecar + SettingsManager。（ADR 草案已写入 `docs/sdk-sidecar-adr.md`；最小 sidecar skeleton 已写入 `src-sidecar/pi-sdk-sidecar.mjs`；smoke 脚本已写入 `scripts/pi-sdk-sidecar-smoke.mjs`；Tauri bridge commands 已预留；前端 SdkSidecarClient 已接入 session tree/label/status/auth）
+5. 同步 README / agent.md / design.md / AGENTS.md。（已同步当前阶段状态、extension UI response 约定、默认不自动验证/git 的开发偏好）
+6. 按需执行验证命令，由用户明确触发。

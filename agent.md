@@ -89,6 +89,8 @@ Left Sidebar + Main Chat/Run Area + Right Inspector
 - commands 带 `id`，responses 回同 id
 - events 不带 id
 - 必须支持 extension UI protocol
+- `extension_ui_request` 中 confirm/select/input/editor 必须进入桌面 Dialog
+- `extension_ui_response` 直接写入 RPC stdin，不走普通 command request correlation
 
 ## 文件结构建议
 
@@ -172,6 +174,7 @@ src/
 - right inspector tab
 - cwd / project path
 - extension UI dialogs
+- pending extension UI queue
 
 ## 安全要求
 
@@ -206,13 +209,13 @@ src/
 - 不默认静默执行危险 bash
 - 不忽略 session replacement 后重订阅问题
 - 不把 WorkAny 的 AI Runtime 直接照搬；本项目核心是 pi
+- 修改后不要自动运行 build/lint/cargo check/git，除非用户明确要求
 
 ## 当前阶段目标
 
-当前仓库仍是规划阶段。优先顺序：
+当前仓库已完成基础壳、RPC PoC、工具可视化、会话管理、workspace sessions、session tree/fork/clone、模型/设置基础能力。当前优先顺序：
 
-1. 建立 Tauri + React 项目骨架
-2. 建立视觉 token 和 AppShell
-3. 做 pi 集成 PoC（SDK sidecar 或 RPC）
-4. 打通 prompt → event stream → UI
-5. 再做完整会话管理和扩展协议
+1. 完成阶段 7+ extension UI response 闭环与真实 extension 手工验证
+2. 打磨 session tree active cursor、filter、fork/clone 反馈
+3. 评估 SDK sidecar + SettingsManager，用于设置持久化、auth 状态、精准 session tree
+4. 同步 README / design / plan，保持 pi 能力不被简化成普通聊天 UI

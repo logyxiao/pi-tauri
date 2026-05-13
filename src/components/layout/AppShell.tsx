@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ExtensionUiDialog } from "@/components/extensions/ExtensionUiDialog";
 import { LeftSidebar } from "./LeftSidebar";
 import { MainArea } from "./MainArea";
 import { RightInspector } from "./RightInspector";
@@ -27,6 +28,7 @@ export function AppShell() {
     commands,
     extensionPanels,
     extensionMessages,
+    pendingExtensionUi,
     extensionErrors,
     safetyEvents,
     files,
@@ -48,6 +50,7 @@ export function AppShell() {
     updateSettings,
     executeCommand,
     recordSafetyEvent,
+    respondExtensionUi,
     previewFile,
     clearPrefillInput,
     clearError,
@@ -118,6 +121,7 @@ export function AppShell() {
                 commands={commands}
                 extensionPanels={extensionPanels}
                 extensionMessages={extensionMessages}
+                pendingExtensionUi={pendingExtensionUi}
                 extensionErrors={extensionErrors}
                 safetyEvents={safetyEvents}
                 files={files}
@@ -135,6 +139,7 @@ export function AppShell() {
           </div>
         </div>
       </div>
+      <ExtensionUiDialog request={pendingExtensionUi[0] ?? null} onRespond={respondExtensionUi} />
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}

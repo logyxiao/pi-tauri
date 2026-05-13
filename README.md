@@ -95,26 +95,28 @@ import {
 
 ## 核心功能规划
 
-### MVP
+### 已实现基础能力
 
-- [ ] Tauri + React + Tailwind 基础壳
-- [ ] AppShell 三栏布局
-- [ ] 左侧会话列表
-- [ ] 中央消息流和底部输入框
-- [ ] pi prompt / abort / get_state / get_messages
-- [ ] 工具调用列表：read/write/edit/bash/grep/find/ls
-- [ ] 模型选择和 thinking level
-- [ ] 设置页：auth、model、cwd、sessionDir
+- [x] Tauri + React + Tailwind 基础壳
+- [x] AppShell 三栏布局
+- [x] workspace folder tree + session 切换
+- [x] 中央消息流和底部输入框
+- [x] pi prompt / abort / get_state / get_messages
+- [x] 工具调用列表：read/write/edit/bash/grep/find/ls
+- [x] 文件树和代码预览
+- [x] 模型选择、provider 分组搜索、thinking level
+- [x] session tree / fork / clone / label 基础版
+- [x] compaction/retry/steering/follow-up runtime 设置
+- [x] extension UI request 基础映射与 response dialog 基础闭环
+- [x] 权限确认和危险操作可视化
 
-### 第二阶段
+### 后续重点
 
-- [ ] session tree / fork / clone
-- [ ] compaction 状态展示
-- [ ] extension UI request 映射
-- [ ] skills / prompt templates 命令面板
-- [ ] 文件树和代码预览
-- [ ] HTML / Markdown / 图片预览
-- [ ] 权限确认和危险操作拦截
+- [ ] extension UI response 真实 extension 手工验证
+- [ ] session tree active cursor 精准化
+- [ ] SettingsManager 持久化设置
+- [ ] auth/API key 真实状态探测
+- [ ] SDK sidecar 评估
 - [ ] 会话搜索与索引缓存
 
 ## 页面结构建议
@@ -162,6 +164,7 @@ src/
 | `fork` / `clone` | 会话分支操作 |
 | `get_available_models` | 模型选择器 |
 | `extension_ui_request` | Dialog / Toast / Status / Widget |
+| `extension_ui_response` | confirm/select/input/editor 回写 |
 
 ## 开发原则
 
@@ -177,3 +180,10 @@ src/
 - [`design.md`](./design.md)：设计风格与 pi 关键信息
 - [`agent.md`](./agent.md)：给 coding agent 的开发约束
 - [`plan.md`](./plan.md)：开发计划
+- [`docs/sdk-sidecar-adr.md`](./docs/sdk-sidecar-adr.md)：SDK sidecar ADR 草案
+
+## 开发约定
+
+- 修改代码后默认不自动运行 build/lint/cargo check/git。
+- 需要验证时由用户明确要求，再运行：`pnpm build`、`pnpm lint`、`pnpm pi:rpc:smoke`、`cd src-tauri && cargo check`。
+- session JSONL、fork/clone、extension UI response 属于核心能力，改动时必须同步 `plan.md`。

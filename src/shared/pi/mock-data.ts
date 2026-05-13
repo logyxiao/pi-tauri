@@ -152,6 +152,7 @@ export const demoSettings: PiSettings = {
   thinkingLevel: demoPiState.thinkingLevel,
   cwd: demoPiState.cwd,
   clientMode: "mock",
+  sdkSidecar: { available: false, error: "mock client" },
   sessionFile: demoPiState.sessionFile,
   sessionDir: "~/.pi/agent/sessions",
   autoCompaction: true,
@@ -203,6 +204,30 @@ export const demoCommands: PiCommand[] = [
     description: "Show loaded extensions and active UI widgets",
     source: "extension",
     path: "~/.pi/agent/extensions/ui.ts",
+  },
+  {
+    name: "ui-confirm",
+    description: "Mock extension confirm dialog",
+    source: "extension",
+    path: "~/.pi/agent/extensions/mock-ui.ts",
+  },
+  {
+    name: "ui-select",
+    description: "Mock extension select dialog",
+    source: "extension",
+    path: "~/.pi/agent/extensions/mock-ui.ts",
+  },
+  {
+    name: "ui-input",
+    description: "Mock extension input dialog",
+    source: "extension",
+    path: "~/.pi/agent/extensions/mock-ui.ts",
+  },
+  {
+    name: "ui-editor",
+    description: "Mock extension editor dialog",
+    source: "extension",
+    path: "~/.pi/agent/extensions/mock-ui.ts",
   },
   {
     name: "compact",
@@ -260,6 +285,16 @@ export const demoExtensionMessages: PiExtensionMessage[] = [
     level: "warning",
     source: "shell-guard.ts",
     createdAt: "22:35",
+  },
+  {
+    id: "ext-confirm-1",
+    method: "confirm",
+    title: "Mock extension confirm",
+    message: "Allow extension to continue?",
+    level: "info",
+    source: "mock-extension.ts",
+    createdAt: "22:36",
+    expectsResponse: true,
   },
 ];
 

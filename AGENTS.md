@@ -45,6 +45,7 @@ RPC 路线：
 - commands 可带 id，responses 回 id
 - events 无 id
 - 支持 extension UI protocol
+- `extension_ui_response` 是阶段 7+ 优先项：confirm/select/input/editor 必须弹 UI 并回写响应
 
 ## UI 必须映射的 pi 事件
 
@@ -56,6 +57,8 @@ RPC 路线：
 - `compaction_start/end`
 - `auto_retry_start/end`
 - `extension_error`
+- `extension_ui_request`
+- `extension_ui_response`
 
 ## 禁止
 
@@ -64,3 +67,4 @@ RPC 路线：
 - 不忽略 session JSONL/tree/fork/clone
 - 不照搬 Claude Desktop
 - 不默认静默执行危险命令
+- 修改后不要自动运行 build/lint/cargo check/git，除非用户明确要求

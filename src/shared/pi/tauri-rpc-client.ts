@@ -7,6 +7,7 @@ import type {
   PiExtensionMessage,
   PiExtensionPanel,
   PiExtensionStatus,
+  PiExtensionUiResponse,
   PiFileEntry,
   PiFilePreview,
   PiForkMessage,
@@ -22,6 +23,7 @@ import type {
   PiToolCall,
 } from "./types";
 import { createSafetyEvent, detectDangerousCommand, detectDangerousTool } from "./safety";
+import { sdkSidecarClient } from "./sdk-sidecar-client";
 
 type RpcResponse = {
   id?: string;
@@ -146,7 +148,12 @@ export class TauriPiRpcClient implements PiClient {
     const state = await this.getState();
     const target = sessionPath ?? state.sessionFile;
     if (!target) return { nodes: [] };
-    return invoke<PiSessionTree>("pi_session_tree", { sessionPath: target });
+    try {
+      return await sdkSidecarClient.request<PiSessionTree>("sdk_session_tree", { sessionFile: target });
+    } catch (error) {
+      console.warn("pi sdk sidecar session tree unavailable, falling back to jsonl parser", error);
+      return invoke<PiSessionTree>("pi_session_tree", { sessionPath: target });
+    }
   }
 
   async getForkMessages(): Promise<PiForkMessage[]> {
@@ -169,7 +176,12 @@ export class TauriPiRpcClient implements PiClient {
   async setSessionEntryLabel(entryId: string, label?: string): Promise<void> {
     const state = await this.getState();
     if (!state.sessionFile) throw new Error("No active session file for label update");
-    await invoke("pi_set_session_label", { sessionPath: state.sessionFile, targetId: entryId, label: label?.trim() || null });
+    try {
+      await sdkSidecarClient.request("sdk_set_label", { sessionFile: state.sessionFile, entryId, label: label?.trim() || null });
+    } catch (error) {
+      console.warn("pi sdk sidecar label unavailable, falling back to jsonl append", error);
+      await invoke("pi_set_session_label", { sessionPath: state.sessionFile, targetId: entryId, label: label?.trim() || null });
+    }
   }
 
   async getState(): Promise<PiState> {
@@ -235,19 +247,24 @@ export class TauriPiRpcClient implements PiClient {
   async getSettings(): Promise<PiSettings> {
     const state = await this.getState();
     const [provider, model] = splitModelKey(state.model);
+    const sdkSidecar = await this.getSdkSidecarStatus();
+    const auth = sdkSidecar.available
+      ? await sdkSidecarClient.request<PiSettings["auth"]>("sdk_auth_status").catch(() => inferAuthStatus(state.model))
+      : inferAuthStatus(state.model);
     return {
       model,
       provider,
       thinkingLevel: state.thinkingLevel,
       cwd: state.cwd,
       clientMode: "tauri-rpc",
+      sdkSidecar,
       sessionFile: state.sessionFile,
       sessionDir: state.sessionFile ? dirname(state.sessionFile) : undefined,
       autoCompaction: true,
       autoRetry: true,
       steeringMode: "one-at-a-time",
       followUpMode: "one-at-a-time",
-      auth: inferAuthStatus(state.model),
+      auth,
     };
   }
 
@@ -348,6 +365,15 @@ export class TauriPiRpcClient implements PiClient {
         content: error instanceof Error ? error.message : "Preview unavailable.",
       };
     }
+  }
+
+  async respondExtensionUi(response: PiExtensionUiResponse): Promise<void> {
+    const payload: Record<string, unknown> = { type: "extension_ui_response", id: response.id };
+    if (response.cancelled) payload.cancelled = true;
+    else if (response.method === "confirm") payload.confirmed = Boolean(response.confirmed);
+    else payload.value = response.value ?? "";
+    await this.connect();
+    await invoke("pi_rpc_send", { message: JSON.stringify(payload) });
   }
 
   subscribe(listener: Listener): () => void {
@@ -465,6 +491,11 @@ export class TauriPiRpcClient implements PiClient {
       level: normalizeNotifyType(event.notifyType),
       source: (event.extensionPath as string | undefined) ?? (event.statusKey as string | undefined),
       createdAt: nowLabel(),
+      options: Array.isArray(event.options) ? event.options.map((item) => String(item)) : undefined,
+      placeholder: event.placeholder as string | undefined,
+      prefill: event.prefill as string | undefined,
+      timeoutMs: typeof event.timeout === "number" ? event.timeout : undefined,
+      expectsResponse: method === "confirm" || method === "select" || method === "input" || method === "editor",
     };
 
     let panel: PiExtensionPanel | undefined;
@@ -499,6 +530,15 @@ export class TauriPiRpcClient implements PiClient {
 
     this.extensionMessages = [message, ...this.extensionMessages].slice(0, 40);
     this.emit({ type: "extension_ui_request", message, panel, status, editorText });
+  }
+
+  private async getSdkSidecarStatus(): Promise<{ available: boolean; version?: string; error?: string }> {
+    try {
+      const result = await sdkSidecarClient.ping();
+      return { available: result.sdkAvailable, version: result.version, error: result.sdkAvailable ? undefined : "SDK package unavailable" };
+    } catch (error) {
+      return { available: false, error: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   private emit(event: PiClientEvent) {

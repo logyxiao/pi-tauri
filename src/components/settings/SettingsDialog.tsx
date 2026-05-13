@@ -128,6 +128,11 @@ export function SettingsDialog({
           <section className="grid gap-3 sm:grid-cols-2">
             <InfoCard icon={<Folder size={14} />} label="cwd" value={settings?.cwd ?? state?.cwd ?? "loading..."} />
             <InfoCard icon={<Settings size={14} />} label="client mode" value={settings?.clientMode ?? "loading"} />
+            <InfoCard
+              icon={<Settings size={14} />}
+              label="SDK sidecar"
+              value={settings?.sdkSidecar ? `${settings.sdkSidecar.available ? "available" : "unavailable"}${settings.sdkSidecar.version ? ` · ${settings.sdkSidecar.version}` : ""}${settings.sdkSidecar.error ? ` · ${settings.sdkSidecar.error}` : ""}` : "loading"}
+            />
             <InfoCard icon={<HardDrive size={14} />} label="session dir" value={settings?.sessionDir ?? "default ~/.pi/agent/sessions"} wide />
             <InfoCard icon={<HardDrive size={14} />} label="session file" value={settings?.sessionFile ?? state?.sessionFile ?? "no session file"} wide />
           </section>

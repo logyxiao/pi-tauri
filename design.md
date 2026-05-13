@@ -589,6 +589,13 @@ Extensions 是 TypeScript 模块。能力：
 - `setTitle`
 - `set_editor_text`
 
+当前设计约定：
+
+- `confirm/select/input/editor` 进入 `ExtensionUiDialog`，阻塞等待用户响应。
+- `extension_ui_response` 直接写回 RPC stdin，不走普通 command request correlation。
+- pending dialog 同时在 Inspector / Extension UI 面板显示，避免用户只靠弹窗感知阻塞。
+- `notify/setStatus/setWidget/setTitle/set_editor_text` 为 fire-and-forget：分别映射为消息、状态、Widget、标题记录、输入框预填。
+
 ### 7.7 Settings 重点
 
 全局 + 项目合并：
@@ -628,25 +635,29 @@ Extensions 是 TypeScript 模块。能力：
 
 ## 8. 后续开发建议
 
-### 8.1 MVP 范围
+### 8.1 已落地基础范围
 
-第一阶段建议实现：
+当前已落地：
 
 1. Tauri + React + Tailwind 基础壳
-2. 左侧会话列表
+2. workspace folder tree + session 切换
 3. 中央聊天/执行流
-4. pi SDK sidecar 或 RPC client
+4. pi RPC client
 5. prompt / abort / get_state / get_messages
 6. 工具调用展示
-7. 模型选择
-8. 设置页：auth/model/cwd/sessionDir
+7. 模型选择 + provider 搜索分组
+8. 设置页：model/thinking/compaction/retry/delivery/sessionDir/auth status 展示
+9. session tree/fork/clone/label 基础版
+10. extension UI request/response dialog 基础闭环
+11. 文件树与代码预览
 
-### 8.2 第二阶段
+### 8.2 下一阶段
 
-1. session tree/fork/clone
-2. extension UI protocol
-3. skills/prompts 命令面板
-4. 文件树与代码预览
+1. extension UI response 真实 extension 手工验证
+2. session tree active cursor 精准化与过滤
+3. SDK sidecar + SettingsManager 评估
+4. auth/API key 真实状态探测
+5. settings 持久化
 5. HTML/Markdown/image artifact preview
 6. 权限确认 extension
 7. 会话搜索与索引

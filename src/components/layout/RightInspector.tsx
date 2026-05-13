@@ -32,6 +32,7 @@ interface RightInspectorProps {
   commands: PiCommand[];
   extensionPanels: PiExtensionPanel[];
   extensionMessages: PiExtensionMessage[];
+  pendingExtensionUi: PiExtensionMessage[];
   extensionErrors: PiExtensionError[];
   safetyEvents: PiSafetyEvent[];
   files: PiFileEntry[];
@@ -57,6 +58,7 @@ export function RightInspector({
   commands,
   extensionPanels,
   extensionMessages,
+  pendingExtensionUi,
   extensionErrors,
   safetyEvents,
   files,
@@ -177,6 +179,7 @@ export function RightInspector({
           commands={commands}
           extensionPanels={extensionPanels}
           extensionMessages={extensionMessages}
+          pendingExtensionUi={pendingExtensionUi}
           extensionErrors={extensionErrors}
         />
 

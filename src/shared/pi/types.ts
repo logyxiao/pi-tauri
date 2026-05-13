@@ -47,6 +47,11 @@ export interface PiSettings {
   thinkingLevel: PiThinkingLevel;
   cwd: string;
   clientMode: "mock" | "tauri-rpc";
+  sdkSidecar?: {
+    available: boolean;
+    version?: string;
+    error?: string;
+  };
   sessionFile?: string;
   sessionDir?: string;
   autoCompaction?: boolean;
@@ -101,10 +106,15 @@ export interface PiSessionTreeNode {
   isLeaf: boolean;
 }
 
+export type PiSessionTreeCursorSource = "sdk" | "rpc" | "jsonl-inferred" | "unknown";
+
 export interface PiSessionTree {
   sessionFile?: string;
+  parentSession?: string;
   nodes: PiSessionTreeNode[];
   activeLeafId?: string;
+  activeLeafSource?: PiSessionTreeCursorSource;
+  activeLeafNote?: string;
 }
 
 export interface PiForkMessage {
@@ -201,14 +211,29 @@ export interface PiExtensionStatus {
   source?: string;
 }
 
+export type PiExtensionUiMethod = "notify" | "setStatus" | "setWidget" | "setTitle" | "set_editor_text" | "confirm" | "select" | "input" | "editor";
+
 export interface PiExtensionMessage {
   id: string;
-  method: "notify" | "setStatus" | "setWidget" | "setTitle" | "set_editor_text" | "confirm" | "select" | "input" | "editor";
+  method: PiExtensionUiMethod;
   title?: string;
   message?: string;
   level?: "info" | "warning" | "error";
   source?: string;
   createdAt: string;
+  options?: string[];
+  placeholder?: string;
+  prefill?: string;
+  timeoutMs?: number;
+  expectsResponse?: boolean;
+}
+
+export interface PiExtensionUiResponse {
+  id: string;
+  method: PiExtensionUiMethod;
+  value?: string;
+  confirmed?: boolean;
+  cancelled?: boolean;
 }
 
 export interface PiExtensionError {

@@ -5,10 +5,11 @@ interface ExtensionsPanelProps {
   commands: PiCommand[];
   extensionPanels: PiExtensionPanel[];
   extensionMessages: PiExtensionMessage[];
+  pendingExtensionUi: PiExtensionMessage[];
   extensionErrors: PiExtensionError[];
 }
 
-export function ExtensionsPanel({ commands, extensionPanels, extensionMessages, extensionErrors }: ExtensionsPanelProps) {
+export function ExtensionsPanel({ commands, extensionPanels, extensionMessages, pendingExtensionUi, extensionErrors }: ExtensionsPanelProps) {
   return (
     <div className="space-y-4">
       <section className="rounded-2xl border border-border bg-background/60 p-3">
@@ -66,9 +67,26 @@ export function ExtensionsPanel({ commands, extensionPanels, extensionMessages, 
       </section>
 
       <section className="rounded-2xl border border-border bg-background/60 p-3">
-        <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          <Blocks size={14} /> UI messages
+        <div className="mb-3 flex items-center justify-between gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          <span className="inline-flex items-center gap-2"><Blocks size={14} /> UI messages</span>
+          {pendingExtensionUi.length ? (
+            <span className="rounded-full border border-primary/30 px-2 py-0.5 text-[10px] text-primary">{pendingExtensionUi.length} pending</span>
+          ) : null}
         </div>
+        {pendingExtensionUi.length ? (
+          <div className="mb-3 space-y-2">
+            {pendingExtensionUi.map((message) => (
+              <div key={message.id} className="rounded-xl border border-primary/25 bg-primary/5 p-3">
+                <div className="mb-1 flex items-center justify-between gap-2 text-xs">
+                  <span className="font-semibold text-primary">{message.title ?? message.method}</span>
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[10px] text-primary">waiting</span>
+                </div>
+                <div className="text-xs leading-5 text-muted-foreground">{message.message ?? `Extension waits for ${message.method} response.`}</div>
+                {message.source ? <div className="mt-2 truncate font-mono text-[11px] text-muted-foreground">{message.source}</div> : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
         <div className="space-y-2">
           {extensionMessages.length ? (
             extensionMessages.slice(0, 6).map((message) => (
@@ -76,6 +94,9 @@ export function ExtensionsPanel({ commands, extensionPanels, extensionMessages, 
                 <div className="mb-1 flex items-center gap-2 text-xs">
                   <Info size={12} className={message.level === "error" ? "text-danger" : message.level === "warning" ? "text-warning" : "text-primary"} />
                   <span className="font-semibold">{message.title ?? message.method}</span>
+                  {message.expectsResponse ? (
+                    <span className="rounded-full bg-muted px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground">dialog</span>
+                  ) : null}
                   <span className="text-muted-foreground">{message.createdAt}</span>
                 </div>
                 <div className="text-xs leading-5 text-muted-foreground">{message.message ?? "No message body."}</div>

@@ -19,6 +19,7 @@ import type {
   PiExtensionError,
   PiExtensionMessage,
   PiExtensionPanel,
+  PiExtensionUiResponse,
   PiFileEntry,
   PiFilePreview,
   PiForkMessage,
@@ -203,7 +204,10 @@ export class MockPiClient implements PiClient {
   async getSessionTree(): Promise<PiSessionTree> {
     return {
       sessionFile: this.state.sessionFile,
+      parentSession: "~/.pi/agent/sessions/mock/original-session.jsonl",
       activeLeafId: "mock-a2",
+      activeLeafSource: "jsonl-inferred",
+      activeLeafNote: "Mock tree mirrors current RPC JSONL inference until SDK cursor is available.",
       nodes: [
         {
           id: "mock-session",
@@ -335,6 +339,13 @@ export class MockPiClient implements PiClient {
 
   async executeCommand(commandName: string): Promise<void> {
     const command = this.commands.find((item) => item.name === commandName);
+    const mockDialog = mockExtensionDialog(commandName, command?.path);
+    if (mockDialog) {
+      this.extensionMessages = [mockDialog, ...this.extensionMessages].slice(0, 20);
+      this.emit({ type: "extension_ui_request", message: mockDialog });
+      return;
+    }
+
     const action = command ? detectDangerousCommand(command) : null;
     if (action) this.safetyEvents = [createSafetyEvent(action, "allowed", "command"), ...this.safetyEvents].slice(0, 20);
     const summary = command ? `/${command.name} executed via mock client` : `/${commandName} executed via mock client`;
@@ -387,6 +398,19 @@ export class MockPiClient implements PiClient {
     };
   }
 
+  async respondExtensionUi(response: PiExtensionUiResponse): Promise<void> {
+    const message: PiExtensionMessage = {
+      id: crypto.randomUUID(),
+      method: "notify",
+      title: "Extension UI response",
+      message: response.cancelled ? `${response.method} cancelled` : `${response.method} responded`,
+      level: response.cancelled ? "warning" : "info",
+      createdAt: nowLabel(),
+    };
+    this.extensionMessages = [message, ...this.extensionMessages].slice(0, 20);
+    this.emit({ type: "extension_ui_request", message });
+  }
+
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -399,6 +423,51 @@ export class MockPiClient implements PiClient {
 
 function normalizePath(path: string) {
   return path.replace(/\\/g, "/").replace(/\/$/, "");
+}
+
+function mockExtensionDialog(commandName: string, source?: string): PiExtensionMessage | null {
+  const base = {
+    id: crypto.randomUUID(),
+    source,
+    createdAt: nowLabel(),
+    expectsResponse: true,
+  };
+  if (commandName === "ui-confirm") {
+    return {
+      ...base,
+      method: "confirm",
+      title: "Confirm workspace action",
+      message: "Allow mock extension to continue?",
+    };
+  }
+  if (commandName === "ui-select") {
+    return {
+      ...base,
+      method: "select",
+      title: "Choose review mode",
+      message: "Select mode for mock extension.",
+      options: ["fast", "balanced", "thorough"],
+    };
+  }
+  if (commandName === "ui-input") {
+    return {
+      ...base,
+      method: "input",
+      title: "Name checkpoint",
+      message: "Enter bookmark label.",
+      placeholder: "checkpoint-label",
+    };
+  }
+  if (commandName === "ui-editor") {
+    return {
+      ...base,
+      method: "editor",
+      title: "Edit extension note",
+      message: "Update mock extension note.",
+      prefill: "# Extension note\n\nDescribe next action...",
+    };
+  }
+  return null;
 }
 
 export const mockPiClient = new MockPiClient();

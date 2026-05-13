@@ -18,9 +18,19 @@ struct RpcProcess {
     stdin: ChildStdin,
 }
 
+struct SdkSidecarProcess {
+    child: Child,
+    stdin: ChildStdin,
+}
+
 #[derive(Default)]
 struct RpcState {
     process: Arc<Mutex<Option<RpcProcess>>>,
+}
+
+#[derive(Default)]
+struct SdkSidecarState {
+    process: Arc<Mutex<Option<SdkSidecarProcess>>>,
 }
 
 #[tauri::command]
@@ -92,6 +102,65 @@ fn pi_rpc_stop(state: State<'_, RpcState>) -> RpcResult<()> {
 }
 
 #[tauri::command]
+fn pi_sdk_sidecar_start(app: AppHandle, state: State<'_, SdkSidecarState>) -> RpcResult<()> {
+    let mut slot = state.process.lock().map_err(|error| error.to_string())?;
+    if slot.is_some() {
+        return Ok(());
+    }
+
+    let sidecar_bin = std::env::var("PI_SDK_SIDECAR_BIN").unwrap_or_else(|_| default_node_bin());
+    let sidecar_script = std::env::var("PI_SDK_SIDECAR_SCRIPT").unwrap_or_else(|_| "src-sidecar/pi-sdk-sidecar.mjs".to_string());
+    let mut child = Command::new(sidecar_bin)
+        .arg(sidecar_script)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("failed to start pi sdk sidecar: {error}"))?;
+
+    let stdin = child.stdin.take().ok_or("failed to open pi sdk sidecar stdin")?;
+    let stdout = child.stdout.take().ok_or("failed to open pi sdk sidecar stdout")?;
+    let stderr = child.stderr.take().ok_or("failed to open pi sdk sidecar stderr")?;
+
+    spawn_named_stdout_reader(app.clone(), "pi-sdk-sidecar-message", "pi-sdk-sidecar-error", stdout);
+    spawn_named_stderr_reader(app, "pi-sdk-sidecar-stderr", "pi-sdk-sidecar-error", stderr);
+
+    *slot = Some(SdkSidecarProcess { child, stdin });
+    Ok(())
+}
+
+#[tauri::command]
+fn pi_sdk_sidecar_send(state: State<'_, SdkSidecarState>, message: String) -> RpcResult<()> {
+    let mut slot = state.process.lock().map_err(|error| error.to_string())?;
+    let process = slot.as_mut().ok_or("pi sdk sidecar is not running")?;
+    process
+        .stdin
+        .write_all(message.as_bytes())
+        .map_err(|error| format!("failed to write pi sdk sidecar stdin: {error}"))?;
+    process
+        .stdin
+        .write_all(b"\n")
+        .map_err(|error| format!("failed to write pi sdk sidecar newline: {error}"))?;
+    process
+        .stdin
+        .flush()
+        .map_err(|error| format!("failed to flush pi sdk sidecar stdin: {error}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn pi_sdk_sidecar_stop(state: State<'_, SdkSidecarState>) -> RpcResult<()> {
+    let mut slot = state.process.lock().map_err(|error| error.to_string())?;
+    if let Some(mut process) = slot.take() {
+        process
+            .child
+            .kill()
+            .map_err(|error| format!("failed to kill pi sdk sidecar: {error}"))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn pi_list_sessions(cwd: String) -> RpcResult<Vec<serde_json::Value>> {
     let target_cwd = if cwd.trim().is_empty() {
         None
@@ -129,6 +198,7 @@ fn pi_session_tree(session_path: String) -> RpcResult<serde_json::Value> {
     let mut nodes = Vec::<serde_json::Value>::new();
     let mut parent_ids = Vec::<(String, Option<String>)>::new();
     let mut labels = std::collections::HashMap::<String, Option<String>>::new();
+    let mut parent_session = None::<String>;
 
     for line in reader.lines().map_while(Result::ok) {
         let value = match serde_json::from_str::<serde_json::Value>(&line) {
@@ -152,6 +222,10 @@ fn pi_session_tree(session_path: String) -> RpcResult<serde_json::Value> {
         if id.is_empty() {
             continue;
         }
+        if entry_type == "session" {
+            parent_session = value.get("parentSession").and_then(|item| item.as_str()).map(str::to_string);
+        }
+
         let parent_id = value.get("parentId").and_then(|item| item.as_str()).map(str::to_string);
         let role = value
             .get("message")
@@ -211,7 +285,10 @@ fn pi_session_tree(session_path: String) -> RpcResult<serde_json::Value> {
 
     Ok(serde_json::json!({
         "sessionFile": path.to_string_lossy(),
+        "parentSession": parent_session,
         "activeLeafId": active_leaf_id,
+        "activeLeafSource": "jsonl-inferred",
+        "activeLeafNote": "pi RPC does not expose current tree cursor; active leaf is inferred from JSONL leaf entries. Use SDK SessionManager.getLeafEntry() later for exact cursor.",
         "nodes": nodes
     }))
 }
@@ -301,6 +378,10 @@ fn pi_read_file(cwd: String, path: String) -> RpcResult<serde_json::Value> {
 }
 
 fn spawn_stdout_reader(app: AppHandle, stdout: std::process::ChildStdout) {
+    spawn_named_stdout_reader(app, "pi-rpc-message", "pi-rpc-error", stdout);
+}
+
+fn spawn_named_stdout_reader(app: AppHandle, message_event: &'static str, error_event: &'static str, stdout: std::process::ChildStdout) {
     thread::spawn(move || {
         let reader = BufReader::new(stdout);
         for line_result in reader.lines() {
@@ -309,11 +390,11 @@ fn spawn_stdout_reader(app: AppHandle, stdout: std::process::ChildStdout) {
                     let trimmed = line.strip_suffix('\r').unwrap_or(&line);
                     match serde_json::from_str::<serde_json::Value>(trimmed) {
                         Ok(value) => {
-                            let _ = app.emit("pi-rpc-message", value);
+                            let _ = app.emit(message_event, value);
                         }
                         Err(error) => {
                             let _ = app.emit(
-                                "pi-rpc-error",
+                                error_event,
                                 serde_json::json!({
                                     "source": "stdout-json",
                                     "error": error.to_string(),
@@ -325,7 +406,7 @@ fn spawn_stdout_reader(app: AppHandle, stdout: std::process::ChildStdout) {
                 }
                 Err(error) => {
                     let _ = app.emit(
-                        "pi-rpc-error",
+                        error_event,
                         serde_json::json!({"source": "stdout", "error": error.to_string()}),
                     );
                     break;
@@ -336,6 +417,10 @@ fn spawn_stdout_reader(app: AppHandle, stdout: std::process::ChildStdout) {
 }
 
 fn spawn_stderr_reader(app: AppHandle, stderr: std::process::ChildStderr) {
+    spawn_named_stderr_reader(app, "pi-rpc-stderr", "pi-rpc-error", stderr);
+}
+
+fn spawn_named_stderr_reader(app: AppHandle, stderr_event: &'static str, error_event: &'static str, stderr: std::process::ChildStderr) {
     thread::spawn(move || {
         let reader = BufReader::new(stderr);
         for line_result in reader.lines() {
@@ -344,14 +429,14 @@ fn spawn_stderr_reader(app: AppHandle, stderr: std::process::ChildStderr) {
                     let trimmed = line.strip_suffix('\r').unwrap_or(&line);
                     if !trimmed.trim().is_empty() {
                         let _ = app.emit(
-                            "pi-rpc-stderr",
+                            stderr_event,
                             serde_json::json!({"line": trimmed}),
                         );
                     }
                 }
                 Err(error) => {
                     let _ = app.emit(
-                        "pi-rpc-error",
+                        error_event,
                         serde_json::json!({"source": "stderr", "error": error.to_string()}),
                     );
                     break;
@@ -639,6 +724,14 @@ fn mime_for_path(path: &Path) -> &'static str {
     }
 }
 
+fn default_node_bin() -> String {
+    if cfg!(windows) {
+        "node.exe".to_string()
+    } else {
+        "node".to_string()
+    }
+}
+
 fn default_pi_bin() -> String {
     if cfg!(windows) {
         "pi.cmd".to_string()
@@ -653,11 +746,15 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(RpcState::default())
+        .manage(SdkSidecarState::default())
         .invoke_handler(tauri::generate_handler![
             app_info,
             pi_rpc_start,
             pi_rpc_send,
             pi_rpc_stop,
+            pi_sdk_sidecar_start,
+            pi_sdk_sidecar_send,
+            pi_sdk_sidecar_stop,
             pi_list_sessions,
             pi_delete_session,
             pi_session_tree,
