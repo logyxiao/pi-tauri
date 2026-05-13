@@ -9,7 +9,6 @@ interface GitManagementPanelProps {
   cwd: string;
   model?: string;
   thinkingLevel?: string;
-  sessionFile?: string;
   isRunning?: boolean;
   onRefresh: () => Promise<void> | void;
 }
@@ -41,7 +40,7 @@ type GitCommit = {
   refs?: string;
 };
 
-export function GitManagementPanel({ cwd, model, thinkingLevel, sessionFile, isRunning = false, onRefresh }: GitManagementPanelProps) {
+export function GitManagementPanel({ cwd, model, thinkingLevel, isRunning = false, onRefresh }: GitManagementPanelProps) {
   const { t } = useI18n();
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [commits, setCommits] = useState<GitCommit[]>([]);
@@ -132,7 +131,7 @@ export function GitManagementPanel({ cwd, model, thinkingLevel, sessionFile, isR
     if (isRunning || !status?.staged) return;
     setBusy("generate");
     try {
-      const nextMessage = await invoke<string>("pi_git_generate_commit_message", { cwd, model: model ?? null, thinkingLevel: thinkingLevel ?? null, sessionFile: sessionFile ?? null });
+      const nextMessage = await invoke<string>("pi_git_generate_commit_message", { cwd, model: model ?? null, thinkingLevel: thinkingLevel ?? null });
       setMessage(nextMessage.trim());
       setError(null);
     } catch (caught) {

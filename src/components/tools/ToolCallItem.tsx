@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronRight, Code2, FileText, Loader2, ShieldAlert, Terminal, X } from "lucide-react";
 import type { PiToolCall } from "@/shared/pi/types";
 import { cn } from "@/shared/lib/cn";
@@ -7,12 +7,17 @@ import { ToolResultPanel } from "./ToolResultPanel";
 interface ToolCallItemProps {
   tool: PiToolCall;
   onSelect?: (tool: PiToolCall) => void;
+  defaultExpanded?: boolean;
 }
 
-export function ToolCallItem({ tool, onSelect }: ToolCallItemProps) {
-  const [expanded, setExpanded] = useState(false);
+export function ToolCallItem({ tool, onSelect, defaultExpanded = false }: ToolCallItemProps) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const summary = useMemo(() => buildToolSummary(tool), [tool]);
   const canExpand = tool.name === "read" || tool.name === "edit" || tool.name === "write" || tool.name === "bash";
+  useEffect(() => {
+    if (defaultExpanded) setExpanded(true);
+    else setExpanded(false);
+  }, [defaultExpanded]);
   const icon =
     tool.status === "running" ? (
       <Loader2 className="animate-spin text-primary" size={13} />

@@ -891,7 +891,7 @@ fn pi_git_commit(cwd: String, message: String) -> RpcResult<()> {
 }
 
 #[tauri::command]
-fn pi_git_generate_commit_message(cwd: String, model: Option<String>, thinking_level: Option<String>, _session_file: Option<String>) -> RpcResult<String> {
+fn pi_git_generate_commit_message(cwd: String, model: Option<String>, thinking_level: Option<String>) -> RpcResult<String> {
     let repo_root = git_repo_root(&cwd)?;
     let stat = git_output(&repo_root, &["diff", "--cached", "--stat"])?;
     let diff = git_output(&repo_root, &["diff", "--cached", "--no-ext-diff", "--"])?;

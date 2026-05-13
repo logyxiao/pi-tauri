@@ -13,6 +13,7 @@ interface MessageListProps {
   isConnecting?: boolean;
   isRefreshing?: boolean;
   isSwitchingSession?: boolean;
+  isRunning?: boolean;
   onSelectTool?: (tool: PiToolCall) => void;
 }
 
@@ -28,7 +29,7 @@ type RenderItem =
   | { type: "message"; message: PiMessage }
   | { type: "activityGroup"; id: string; tools: PiToolCall[]; messages: PiMessage[] };
 
-export function MessageList({ messages, isConnecting = false, isRefreshing = false, isSwitchingSession = false, onSelectTool }: MessageListProps) {
+export function MessageList({ messages, isConnecting = false, isRefreshing = false, isSwitchingSession = false, isRunning = false, onSelectTool }: MessageListProps) {
   const { t } = useI18n();
   const showEmptyState = !messages.length && !isConnecting;
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -37,6 +38,7 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
   const renderItems = useMemo(() => buildRenderItems(messages), [messages]);
   const [activeTimelineId, setActiveTimelineId] = useState<string | null>(timelineItems[0]?.id ?? null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const activeAssistantId = isRunning ? findLastAssistantId(messages) : null;
 
   useEffect(() => {
     if (!timelineItems.length) {
@@ -120,7 +122,8 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
           <div className="flex flex-col gap-4">
             {renderItems.map((item) => {
               if (item.type === "message") {
-                if (isHiddenAssistantMessage(item.message)) return null;
+                const isActiveAssistant = item.message.id === activeAssistantId;
+                if (!isActiveAssistant && isHiddenAssistantMessage(item.message)) return null;
                 return (
                   <div
                     key={item.message.id}
@@ -130,14 +133,14 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
                     }}
                     className="scroll-mt-16"
                   >
-                    <MessageBubble message={item.message} onSelectTool={onSelectTool} />
+                    <MessageBubble message={item.message} onSelectTool={onSelectTool} isActive={isActiveAssistant} />
                   </div>
                 );
               }
 
               return (
                 <div key={item.id} className="scroll-mt-16">
-                  <ActivityGroup tools={item.tools} messages={item.messages} onSelectTool={onSelectTool} />
+                  <ActivityGroup tools={item.tools} messages={item.messages} onSelectTool={onSelectTool} live={isRunning} />
                 </div>
               );
             })}
@@ -162,7 +165,7 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
   );
 }
 
-function MessageBubble({ message, onSelectTool }: { message: PiMessage; onSelectTool?: (tool: PiToolCall) => void }) {
+function MessageBubble({ message, onSelectTool, isActive = false }: { message: PiMessage; onSelectTool?: (tool: PiToolCall) => void; isActive?: boolean }) {
   const isUser = message.role === "user";
   const displayContent = message.role === "assistant" ? stripToolMarkers(message.content) : message.content;
   const [copied, setCopied] = useState(false);
@@ -185,19 +188,23 @@ function MessageBubble({ message, onSelectTool }: { message: PiMessage; onSelect
   return (
     <article className={cn("flex w-full gap-2.5", isUser ? "justify-end" : "justify-start")}>
       <div className={cn("min-w-0", isUser ? "flex max-w-[min(34rem,86%)] flex-col items-end" : "max-w-[min(44rem,94%)] flex-1")}>
-        {isUser ? <UserContent message={message} /> : <AssistantContent message={message} content={displayContent} createdAt={message.createdAt} hasTools={Boolean(message.tools?.length)} />}
+        {isUser ? <UserContent message={message} /> : <AssistantContent message={message} content={displayContent} createdAt={message.createdAt} hasTools={Boolean(message.tools?.length)} isActive={isActive} />}
         {getCopyText(message, displayContent) ? <CopyAction align={isUser ? "right" : "left"} copied={copied} onCopy={copyMessage} /> : null}
 
-        {message.tools?.length ? <ActivityGroup tools={message.tools} messages={[]} onSelectTool={onSelectTool} className="mt-2" /> : null}
+        {message.tools?.length ? <ActivityGroup tools={message.tools} messages={[]} onSelectTool={onSelectTool} className="mt-2" live={isActive} /> : null}
       </div>
     </article>
   );
 }
 
-function ActivityGroup({ tools, messages, onSelectTool, className }: { tools: PiToolCall[]; messages: PiMessage[]; onSelectTool?: (tool: PiToolCall) => void; className?: string }) {
-  const [expanded, setExpanded] = useState(false);
+function ActivityGroup({ tools, messages, onSelectTool, className, live = false }: { tools: PiToolCall[]; messages: PiMessage[]; onSelectTool?: (tool: PiToolCall) => void; className?: string; live?: boolean }) {
+  const [expanded, setExpanded] = useState(live);
   const summaryItems = summarizeActivity(tools, messages);
   const count = tools.length + messages.length;
+  useEffect(() => {
+    if (live) setExpanded(true);
+    else setExpanded(false);
+  }, [live]);
   return (
     <section className={cn("w-full max-w-[min(44rem,96%)]", className)}>
       <button
@@ -221,10 +228,10 @@ function ActivityGroup({ tools, messages, onSelectTool, className }: { tools: Pi
       {expanded ? (
         <div className="mt-1.5 space-y-1 border border-border/70 bg-surface/50 p-1.5 font-mono text-[11px] leading-5 shadow-[0_8px_24px_rgb(44_54_70/0.03)]">
           {messages.map((message) => (
-            <GroupedMessage key={message.id} message={message} />
+            <GroupedMessage key={message.id} message={message} live={live} />
           ))}
           {tools.map((tool) => (
-            <ToolCallItem key={tool.id} tool={tool} onSelect={onSelectTool} />
+            <ToolCallItem key={tool.id} tool={tool} onSelect={onSelectTool} defaultExpanded={live} />
           ))}
         </div>
       ) : null}
@@ -232,15 +239,15 @@ function ActivityGroup({ tools, messages, onSelectTool, className }: { tools: Pi
   );
 }
 
-function GroupedMessage({ message }: { message: PiMessage }) {
+function GroupedMessage({ message, live = false }: { message: PiMessage; live?: boolean }) {
   if (message.role === "assistant") {
     return (
       <div className="border border-border/70 bg-background/60 font-mono text-[11px] leading-5 text-muted-foreground">
-        <AssistantBlocks message={message} fallback={message.content} />
+        <AssistantBlocks message={message} fallback={message.content} live={live} />
       </div>
     );
   }
-  return <MessageBubble message={message} />;
+  return <MessageBubble message={message} isActive={live} />;
 }
 
 function summarizeActivity(tools: PiToolCall[], messages: PiMessage[]): string[] {
@@ -314,17 +321,18 @@ function UserContent({ message }: { message: PiMessage }) {
   );
 }
 
-function AssistantContent({ message, content, createdAt, hasTools }: { message: PiMessage; content: string; createdAt: string; hasTools: boolean }) {
+function AssistantContent({ message, content, createdAt, hasTools, isActive }: { message: PiMessage; content: string; createdAt: string; hasTools: boolean; isActive: boolean }) {
   const hasContent = Boolean(content.trim());
   const renderBlocks = shouldRenderAssistantBlocks(message);
-  if (!hasContent && !renderBlocks && hasTools) return null;
+  const showWorking = isActive && !hasContent && !renderBlocks && !hasTools;
+  if (!showWorking && !hasContent && !renderBlocks && hasTools) return null;
 
   return (
     <div>
       <div className="mb-1 px-1 font-mono text-[10px] text-muted-foreground">{createdAt}</div>
       <div className="overflow-hidden border border-border bg-surface/82 text-foreground shadow-[0_10px_30px_rgb(44_54_70/0.055)]">
         <div className="space-y-3 px-3.5 py-3 text-[13px] leading-5">
-          {renderBlocks ? <AssistantBlocks message={message} fallback={content} /> : hasContent ? <MarkdownContent content={content} /> : null}
+          {showWorking ? <WorkingBlock /> : renderBlocks ? <AssistantBlocks message={message} fallback={content} live={isActive} /> : hasContent ? <MarkdownContent content={content} /> : null}
           <AssistantStopState message={message} />
         </div>
       </div>
@@ -341,13 +349,13 @@ function SystemMessage({ message }: { message: PiMessage }) {
   );
 }
 
-function AssistantBlocks({ message, fallback }: { message: PiMessage; fallback: string }) {
+function AssistantBlocks({ message, fallback, live = false }: { message: PiMessage; fallback: string; live?: boolean }) {
   const blocks = message.contentBlocks?.length ? message.contentBlocks : fallback ? [{ type: "text" as const, text: fallback }] : [];
   return (
     <>
       {blocks.map((block, index) => {
         if (block.type === "text") return block.text.trim() ? <MarkdownContent key={index} content={stripToolMarkers(block.text)} /> : null;
-        if (block.type === "thinking") return <ThinkingBlock key={index} block={block} />;
+        if (block.type === "thinking") return <ThinkingBlock key={index} block={block} live={live} />;
         if (block.type === "image") return <ImageBlock key={index} block={block} />;
         if (block.type === "toolCall") return null;
         return <UnknownBlock key={index} label={block.label} value={block.value} />;
@@ -356,9 +364,22 @@ function AssistantBlocks({ message, fallback }: { message: PiMessage; fallback: 
   );
 }
 
-function ThinkingBlock({ block }: { block: Extract<NonNullable<PiMessage["contentBlocks"]>[number], { type: "thinking" }> }) {
-  const [expanded, setExpanded] = useState(false);
+function WorkingBlock() {
+  return (
+    <div className="flex items-center gap-2 border border-border bg-background/60 px-2.5 py-2 font-mono text-[11px] leading-5 text-muted-foreground">
+      <Loader2 size={13} className="animate-spin text-primary" />
+      <span>working…</span>
+    </div>
+  );
+}
+
+function ThinkingBlock({ block, live = false }: { block: Extract<NonNullable<PiMessage["contentBlocks"]>[number], { type: "thinking" }>; live?: boolean }) {
+  const [expanded, setExpanded] = useState(live);
   const text = block.redacted ? "Thinking redacted by provider safety filters." : block.thinking.trim();
+  useEffect(() => {
+    if (live) setExpanded(true);
+    else setExpanded(false);
+  }, [live]);
   if (!text) return null;
   return (
     <div className="rounded-none border border-border bg-background/60 text-muted-foreground">
@@ -628,6 +649,13 @@ function stripToolMarkers(content: string): string {
     .filter((line) => !/^\s*\[tool:/i.test(line))
     .join("\n")
     .trim();
+}
+
+function findLastAssistantId(messages: PiMessage[]): string | null {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (messages[index].role === "assistant") return messages[index].id;
+  }
+  return null;
 }
 
 function isScrollAtBottom(container: HTMLElement): boolean {
