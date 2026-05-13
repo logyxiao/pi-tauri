@@ -468,27 +468,25 @@ export function usePiSession() {
 
       if (event.type === "message_update") {
         const assistantId = ensureLiveAssistantMessage();
-        if (event.delta) {
-          enqueueTypewriterDelta(event.delta);
-          return;
-        }
-        stopTypewriter();
-        setMessages((current) =>
-          current.map((message) => {
-            if (message.id !== assistantId) return message;
-            if (event.message) {
+        if (event.message) {
+          stopTypewriter();
+          setMessages((current) =>
+            current.map((message) => {
+              if (message.id !== assistantId) return message;
               return {
                 ...message,
                 ...event.message,
                 id: message.id,
                 createdAt: message.createdAt,
-                content: event.message.content,
                 tools: message.tools,
               };
-            }
-            return message;
-          }),
-        );
+            }),
+          );
+          return;
+        }
+        if (event.delta) {
+          enqueueTypewriterDelta(event.delta);
+        }
         return;
       }
 
@@ -523,7 +521,21 @@ export function usePiSession() {
       }
 
       if (event.type === "agent_end" || event.type === "aborted") {
+        const assistantId = activeAssistantIdRef.current;
         flushTypewriter();
+        if (event.type === "agent_end" && event.messages?.length) {
+          setMessages((current) => {
+            const liveMessage = assistantId ? current.find((message) => message.id === assistantId) : undefined;
+            const withoutLive = assistantId ? current.filter((message) => message.id !== assistantId) : current;
+            const finalMessages = event.messages?.map((message, index) => {
+              if (index === 0 && message.role === "assistant" && assistantId) {
+                return { ...message, id: assistantId, createdAt: liveMessage?.createdAt ?? message.createdAt, tools: liveMessage?.tools ?? message.tools };
+              }
+              return message;
+            }) ?? [];
+            return [...withoutLive, ...finalMessages];
+          });
+        }
         setStatus("ready");
         setState((current) => (current ? { ...current, runState: "idle" } : current));
         activeAssistantIdRef.current = null;

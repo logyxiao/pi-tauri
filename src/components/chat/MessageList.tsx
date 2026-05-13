@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ArrowDown, Brain, Check, ChevronRight, Copy, FileText, ImageIcon, Loader2, Terminal } from "lucide-react";
@@ -34,11 +34,13 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
   const showEmptyState = !messages.length && !isConnecting;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const messageRefs = useRef(new Map<string, HTMLDivElement>());
+  const shouldAutoScrollRef = useRef(true);
   const timelineItems = useMemo(() => buildTimelineItems(messages, t), [messages, t]);
-  const renderItems = useMemo(() => buildRenderItems(messages), [messages]);
+  const activeAssistantId = isRunning ? findLastAssistantId(messages) : null;
+  const renderItems = useMemo(() => buildRenderItems(messages, activeAssistantId), [messages, activeAssistantId]);
   const [activeTimelineId, setActiveTimelineId] = useState<string | null>(timelineItems[0]?.id ?? null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  const activeAssistantId = isRunning ? findLastAssistantId(messages) : null;
+  const streamSignature = useMemo(() => buildStreamSignature(messages), [messages]);
 
   useEffect(() => {
     if (!timelineItems.length) {
@@ -48,17 +50,22 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
     setActiveTimelineId((current) => (current && timelineItems.some((item) => item.id === current) ? current : timelineItems[0].id));
   }, [timelineItems]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const container = scrollRef.current;
     if (!container || isConnecting || isSwitchingSession) return;
+    if (isPromptStart(messages, activeAssistantId)) shouldAutoScrollRef.current = true;
+    if (!shouldAutoScrollRef.current) return;
     container.scrollTo({ top: container.scrollHeight, behavior: "auto" });
+    setShowScrollToBottom(false);
     updateActiveTimelineItem();
-  }, [messages.length, isConnecting, isSwitchingSession]);
+  }, [streamSignature, isConnecting, isSwitchingSession, messages, activeAssistantId]);
 
   function updateActiveTimelineItem() {
     const container = scrollRef.current;
     if (!container) return;
-    setShowScrollToBottom(!isScrollAtBottom(container));
+    const atBottom = isScrollAtBottom(container);
+    shouldAutoScrollRef.current = atBottom;
+    setShowScrollToBottom(!atBottom);
     if (!timelineItems.length) return;
     const containerRect = container.getBoundingClientRect();
     const targetY = containerRect.top + containerRect.height * 0.32;
@@ -82,6 +89,7 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
   function scrollToBottom() {
     const container = scrollRef.current;
     if (!container) return;
+    shouldAutoScrollRef.current = true;
     container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
     setShowScrollToBottom(false);
   }
@@ -324,7 +332,7 @@ function UserContent({ message }: { message: PiMessage }) {
 function AssistantContent({ message, content, createdAt, hasTools, isActive }: { message: PiMessage; content: string; createdAt: string; hasTools: boolean; isActive: boolean }) {
   const hasContent = Boolean(content.trim());
   const renderBlocks = shouldRenderAssistantBlocks(message);
-  const showWorking = isActive && !hasContent && !renderBlocks && !hasTools;
+  const showWorking = isActive && !hasContent && !renderBlocks;
   if (!showWorking && !hasContent && !renderBlocks && hasTools) return null;
 
   return (
@@ -669,7 +677,36 @@ function findLastAssistantId(messages: PiMessage[]): string | null {
 }
 
 function isScrollAtBottom(container: HTMLElement): boolean {
-  return container.scrollHeight - container.scrollTop - container.clientHeight < 24;
+  return container.scrollHeight - container.scrollTop - container.clientHeight < 32;
+}
+
+function isPromptStart(messages: PiMessage[], activeAssistantId: string | null): boolean {
+  const last = messages[messages.length - 1];
+  const previous = messages[messages.length - 2];
+  return Boolean(
+    activeAssistantId &&
+      last?.id === activeAssistantId &&
+      previous?.role === "user" &&
+      !last.content.trim() &&
+      !last.contentBlocks?.length &&
+      !last.tools?.length,
+  );
+}
+
+function buildStreamSignature(messages: PiMessage[]): string {
+  return messages
+    .map((message) => {
+      const blocks = message.contentBlocks?.map((block) => {
+        if (block.type === "text") return `t:${block.text.length}`;
+        if (block.type === "thinking") return `h:${block.thinking.length}:${block.redacted ? 1 : 0}`;
+        if (block.type === "toolCall") return `c:${block.id ?? ""}:${block.name}:${JSON.stringify(block.arguments ?? {}).length}`;
+        if (block.type === "image") return "i";
+        return `u:${block.label}`;
+      }).join(",") ?? "";
+      const tools = message.tools?.map((tool) => `${tool.id}:${tool.status}:${tool.output?.length ?? 0}`).join(",") ?? "";
+      return `${message.id}:${message.role}:${message.content.length}:${blocks}:${tools}:${message.stopReason ?? ""}`;
+    })
+    .join("|");
 }
 
 function getNearbyTimelineItems(items: TimelineItem[], activeIndex: number, limit: number): TimelineItem[] {
@@ -679,7 +716,7 @@ function getNearbyTimelineItems(items: TimelineItem[], activeIndex: number, limi
   return items.slice(start, start + limit);
 }
 
-function buildRenderItems(messages: PiMessage[]): RenderItem[] {
+function buildRenderItems(messages: PiMessage[], activeAssistantId: string | null): RenderItem[] {
   const items: RenderItem[] = [];
   let pendingTools: PiToolCall[] = [];
   let pendingMessages: PiMessage[] = [];
@@ -712,7 +749,7 @@ function buildRenderItems(messages: PiMessage[]): RenderItem[] {
       }
     }
 
-    if (isGroupableActivityMessage(message)) {
+    if (message.id !== activeAssistantId && isGroupableActivityMessage(message)) {
       addPendingMessage(message);
       continue;
     }

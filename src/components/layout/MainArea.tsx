@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, Code2, GitBranch, Loader2, Monitor, Terminal } from "lucide-react";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { MessageList } from "@/components/chat/MessageList";
@@ -85,6 +85,14 @@ function projectFolderName(path: string | null) {
   return parts[parts.length - 1] ?? normalized;
 }
 
+function useStableCallback<T extends (...args: any[]) => any>(callback: T): T {
+  const callbackRef = useRef(callback);
+  useLayoutEffect(() => {
+    callbackRef.current = callback;
+  }, [callback]);
+  return useCallback(((...args: Parameters<T>) => callbackRef.current(...args)) as T, []);
+}
+
 export function MainArea({
   inspectorOpen,
   messages,
@@ -119,6 +127,16 @@ export function MainArea({
 
   const projectPath = resolveProjectPath(state?.cwd, workspacePaths);
   const projectTitle = projectFolderName(projectPath) ?? t("main.title");
+
+  const submitPrompt = useStableCallback(onPrompt);
+  const abortRun = useStableCallback(onAbort);
+  const steerRun = useStableCallback(onSteer);
+  const followUpRun = useStableCallback(onFollowUp);
+  const executeCommand = useStableCallback(onExecuteCommand);
+  const recordSafetyEvent = useStableCallback(onRecordSafetyEvent);
+  const consumePrefill = useStableCallback(onConsumePrefill);
+  const updateSettings = useStableCallback(onUpdateSettings);
+  const changeModel = useCallback((model: PiModel) => updateSettings({ model: model.id, provider: model.provider }), [updateSettings]);
 
   function openProject(target = preferredOpenTarget) {
     if (!projectPath) return;
@@ -221,14 +239,14 @@ export function MainArea({
             status={status}
             prefillValue={prefillInput}
             disabled={isConnecting}
-            onSubmit={onPrompt}
-            onAbort={onAbort}
-            onSteer={onSteer}
-            onFollowUp={onFollowUp}
-            onModelChange={(model) => onUpdateSettings({ model: model.id, provider: model.provider })}
-            onExecuteCommand={onExecuteCommand}
-            onRecordSafetyEvent={onRecordSafetyEvent}
-            onConsumePrefill={onConsumePrefill}
+            onSubmit={submitPrompt}
+            onAbort={abortRun}
+            onSteer={steerRun}
+            onFollowUp={followUpRun}
+            onModelChange={changeModel}
+            onExecuteCommand={executeCommand}
+            onRecordSafetyEvent={recordSafetyEvent}
+            onConsumePrefill={consumePrefill}
           />
         </div>
       </div>

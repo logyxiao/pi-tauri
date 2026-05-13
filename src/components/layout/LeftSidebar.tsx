@@ -1,4 +1,5 @@
 import { useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import {
   ChevronDown,
   ChevronRight,
@@ -246,28 +247,30 @@ export function LeftSidebar({
           )}
         </div>
       </div>
-      {deleteTarget && !collapsed ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-4 backdrop-blur-[1px]">
-          <div className="w-full max-w-[18rem] border border-border bg-popover p-3 text-xs shadow-xl">
+      {deleteTarget ? createPortal(
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/35 p-6 backdrop-blur-[2px]" role="dialog" aria-modal="true">
+          <div className="w-full max-w-sm border border-border bg-popover p-4 text-xs shadow-2xl">
             <div className="font-semibold text-foreground">{t("sidebar.deleteConfirm")}</div>
             <div className="mt-2 truncate font-medium text-foreground">{deleteTarget.name}</div>
-            <div className="mt-1 break-all font-mono text-[9px] text-muted-foreground">{deleteTarget.filePath}</div>
-            <div className="mt-3 flex justify-end gap-2">
+            <div className="mt-1 max-h-20 overflow-auto break-all font-mono text-[10px] text-muted-foreground">{deleteTarget.filePath}</div>
+            <div className="mt-4 flex justify-end gap-2">
               <Button className="cursor-pointer" size="sm" variant="ghost" onClick={() => setDeleteTarget(null)}>{t("common.cancel")}</Button>
               <Button className="cursor-pointer" size="sm" variant="destructive" onClick={() => void confirmDeleteTarget()}>{t("command.confirm")}</Button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
-      {notice && !collapsed ? (
+      {notice ? createPortal(
         <div
           className={cn(
-            "pointer-events-none absolute bottom-3 left-3 right-4 z-20 border px-3 py-2 text-xs shadow-lg backdrop-blur",
+            "pointer-events-none fixed bottom-4 right-4 z-[1001] max-w-xs border px-3 py-2 text-xs shadow-xl backdrop-blur",
             notice.kind === "success" ? "border-success/30 bg-success/10 text-success" : "border-destructive/30 bg-destructive/10 text-destructive",
           )}
         >
           {notice.text}
-        </div>
+        </div>,
+        document.body,
       ) : null}
       {!collapsed ? (
         <div

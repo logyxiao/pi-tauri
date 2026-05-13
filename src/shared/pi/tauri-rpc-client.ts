@@ -44,12 +44,17 @@ type PendingRequest = {
 
 type Listener = (event: PiClientEvent) => void;
 
-const builtinFallbackCommands: PiCommand[] = [
-  { name: "help", description: "Show available slash commands", source: "builtin" },
-  { name: "models", description: "List available models", source: "builtin" },
+const builtinCommands: PiCommand[] = [
+  { name: "compact", description: "Compact current context now", source: "builtin" },
+  { name: "cycle-model", description: "Switch to next available model", source: "builtin" },
+  { name: "cycle-thinking", description: "Switch to next thinking level", source: "builtin" },
+  { name: "abort-retry", description: "Abort active auto-retry", source: "builtin" },
+  { name: "abort-bash", description: "Abort active bash command", source: "builtin" },
+  { name: "export-html", description: "Export current session to HTML", source: "builtin" },
+  { name: "help", description: "Show available slash commands and pi usage hints", source: "builtin" },
+  { name: "models", description: "List available models and current selection", source: "builtin" },
   { name: "sessions", description: "Show session summary", source: "builtin" },
-  { name: "extensions", description: "Show extension status", source: "builtin" },
-  { name: "compact", description: "Compact current context", source: "builtin" },
+  { name: "extensions", description: "Show loaded extensions and UI widgets", source: "builtin" },
 ];
 
 export class TauriPiRpcClient implements PiClient {
@@ -354,20 +359,47 @@ export class TauriPiRpcClient implements PiClient {
       const response = await this.request({ type: "get_commands" });
       const data = response.data as { commands?: unknown[] } | undefined;
       const commands = (data?.commands ?? []).map(mapCommand).filter((item): item is PiCommand => Boolean(item));
-      if (commands.length) return commands;
+      if (commands.length) return mergeCommands(builtinCommands, commands);
     } catch (error) {
       console.warn("pi rpc get_commands unavailable", error);
     }
 
-    return builtinFallbackCommands;
+    return builtinCommands;
   }
 
   async executeCommand(commandName: string): Promise<void> {
+    const normalizedName = commandName.replace(/^\//, "");
     const commands = await this.listCommands();
-    const command = commands.find((item) => item.name === commandName);
+    const command = commands.find((item) => item.name === normalizedName);
     const action = command ? detectDangerousCommand(command) : null;
     if (action) this.safetyEvents = [createSafetyEvent(action, "allowed", "command"), ...this.safetyEvents].slice(0, 20);
-    await this.prompt(`/${commandName}`);
+
+    if (normalizedName === "compact") {
+      await this.request({ type: "compact" });
+      return;
+    }
+    if (normalizedName === "cycle-model") {
+      await this.request({ type: "cycle_model" });
+      return;
+    }
+    if (normalizedName === "cycle-thinking") {
+      await this.request({ type: "cycle_thinking_level" });
+      return;
+    }
+    if (normalizedName === "abort-retry") {
+      await this.request({ type: "abort_retry" });
+      return;
+    }
+    if (normalizedName === "abort-bash") {
+      await this.request({ type: "abort_bash" });
+      return;
+    }
+    if (normalizedName === "export-html") {
+      await this.request({ type: "export_html" });
+      return;
+    }
+
+    await this.prompt(`/${normalizedName}`);
   }
 
   async listExtensionPanels(): Promise<PiExtensionPanel[]> {
@@ -488,7 +520,8 @@ export class TauriPiRpcClient implements PiClient {
     }
 
     if (event.type === "agent_end") {
-      this.emit({ type: "agent_end" });
+      const messages = Array.isArray(event.messages) ? event.messages.map(mapAgentMessage).filter((message): message is PiMessage => Boolean(message)) : undefined;
+      this.emit({ type: "agent_end", messages });
       return;
     }
 
@@ -595,6 +628,16 @@ export class TauriPiRpcClient implements PiClient {
   }
 }
 
+function mergeCommands(...groups: PiCommand[][]): PiCommand[] {
+  const merged = new Map<string, PiCommand>();
+  for (const group of groups) {
+    for (const command of group) {
+      merged.set(`${command.source}:${command.name}:${command.path ?? ""}`, command);
+    }
+  }
+  return Array.from(merged.values());
+}
+
 function mapForkMessage(raw: unknown): PiForkMessage | null {
   if (!raw || typeof raw !== "object") return null;
   const message = raw as Record<string, unknown>;
@@ -628,12 +671,13 @@ function mapCommand(raw: unknown): PiCommand | null {
   if (!raw || typeof raw !== "object") return null;
   const command = raw as Record<string, unknown>;
   if (typeof command.name !== "string") return null;
+  const sourceInfo = command.sourceInfo && typeof command.sourceInfo === "object" ? (command.sourceInfo as Record<string, unknown>) : undefined;
   const mapped: PiCommand = {
     name: command.name,
     description: typeof command.description === "string" ? command.description : undefined,
     source: normalizeCommandSource(command.source),
-    location: normalizeCommandLocation(command.location),
-    path: typeof command.path === "string" ? command.path : undefined,
+    location: normalizeCommandLocation(command.location ?? sourceInfo?.location ?? sourceInfo?.scope),
+    path: typeof command.path === "string" ? command.path : typeof sourceInfo?.path === "string" ? sourceInfo.path : undefined,
     dangerous: /delete|reset|shell|batch|wipe|remove/i.test(command.name),
   };
   const safety = detectDangerousCommand(mapped);
@@ -776,6 +820,7 @@ function normalizeCommandSource(value: unknown): PiCommand["source"] {
 
 function normalizeCommandLocation(value: unknown): PiCommand["location"] | undefined {
   if (value === "user" || value === "project" || value === "path") return value;
+  if (value === "temporary") return "path";
   return undefined;
 }
 

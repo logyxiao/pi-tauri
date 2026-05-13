@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Box, FileText, Package, ShieldAlert, Sparkles, TerminalSquare } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
 import { useI18n } from "@/shared/i18n";
@@ -5,27 +6,21 @@ import type { PiCommand } from "@/shared/pi/types";
 
 interface CommandPaletteProps {
   commands: PiCommand[];
-  query: string;
   selectedIndex: number;
   onSelect: (command: PiCommand) => void;
 }
 
-export function CommandPalette({ commands, query, selectedIndex, onSelect }: CommandPaletteProps) {
+export const CommandPalette = memo(function CommandPalette({ commands, selectedIndex, onSelect }: CommandPaletteProps) {
   const { t } = useI18n();
-  const search = query.toLowerCase();
-  const filtered = commands.filter((command) => {
-    if (!search) return true;
-    return [command.name, command.description, command.source, command.location, command.path].filter(Boolean).join(" ").toLowerCase().includes(search);
-  });
-  const groups = groupCommands(filtered);
+  const groups = groupCommands(commands);
 
-  if (!filtered.length) return null;
+  if (!commands.length) return null;
 
   return (
     <div className="overflow-hidden rounded-none border border-border bg-popover/98 shadow-xl shadow-black/10 backdrop-blur-[2px]">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{t("command.title")}</div>
-        <div className="font-mono text-[10px] text-muted-foreground">{filtered.length}</div>
+        <div className="font-mono text-[10px] text-muted-foreground">{commands.length}</div>
       </div>
       <div className="max-h-[min(20rem,48vh)] overflow-auto overscroll-contain p-1.5">
         {groups.map((group) => (
@@ -65,7 +60,7 @@ export function CommandPalette({ commands, query, selectedIndex, onSelect }: Com
       </div>
     </div>
   );
-}
+});
 
 function groupCommands(commands: PiCommand[]) {
   const grouped = new Map<PiCommand["source"], Array<{ command: PiCommand; globalIndex: number }>>();

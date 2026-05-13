@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
 import { ArrowUp, AtSign, BarChart3, Image, Pause, X } from "lucide-react";
 import { CommandPalette } from "@/components/chat/CommandPalette";
 import { ModelSelector } from "@/components/model/ModelSelector";
@@ -28,7 +28,7 @@ interface ChatInputProps {
   onConsumePrefill: () => void;
 }
 
-export function ChatInput({
+export const ChatInput = memo(function ChatInput({
   isRunning,
   commands,
   state,
@@ -48,13 +48,21 @@ export function ChatInput({
   onConsumePrefill,
 }: ChatInputProps) {
   const { t } = useI18n();
-  const [value, setValue] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const draftRef = useRef("");
+  const canSubmitRef = useRef(false);
+  const commandQueryRef = useRef<string | null>(null);
+  const [commandQuery, setCommandQuery] = useState<string | null>(null);
+  const [canSubmit, setCanSubmit] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [pendingDangerousCommand, setPendingDangerousCommand] = useState<PiCommand | null>(null);
   const [images, setImages] = useState<Array<{ id: string; name: string; dataUrl: string }>>([]);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
 
-  const inputValue = prefillValue || value;
+  useEffect(() => {
+    if (!prefillValue) return;
+    setDraftValue(prefillValue);
+  }, [prefillValue]);
 
   useEffect(() => {
     if (!isRunning || disabled) return;
@@ -67,11 +75,6 @@ export function ChatInput({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [disabled, isRunning, onAbort]);
 
-  const commandQuery = useMemo(() => {
-    if (!inputValue.startsWith("/")) return null;
-    return inputValue.slice(1).trimStart();
-  }, [inputValue]);
-
   const filteredCommands = useMemo(() => {
     if (commandQuery == null) return [];
     const search = commandQuery.toLowerCase();
@@ -81,15 +84,30 @@ export function ChatInput({
     });
   }, [commandQuery, commands]);
 
+  function setDraftValue(next: string) {
+    draftRef.current = next;
+    if (textareaRef.current && textareaRef.current.value !== next) textareaRef.current.value = next;
+    const nextCanSubmit = Boolean(next.trim());
+    if (canSubmitRef.current !== nextCanSubmit) {
+      canSubmitRef.current = nextCanSubmit;
+      setCanSubmit(nextCanSubmit);
+    }
+    const nextCommandQuery = next.startsWith("/") ? next.slice(1).trimStart() : null;
+    if (commandQueryRef.current !== nextCommandQuery) {
+      commandQueryRef.current = nextCommandQuery;
+      setCommandQuery(nextCommandQuery);
+    }
+  }
+
   async function submit() {
-    const message = buildMessage(inputValue.trim(), images);
+    const message = buildMessage(draftRef.current.trim(), images);
     if (!message || isRunning || disabled) return;
     clearInput();
     await onSubmit(message);
   }
 
   async function submitAltEnter() {
-    const message = buildMessage(inputValue.trim(), images);
+    const message = buildMessage(draftRef.current.trim(), images);
     if (!message || disabled) return;
     clearInput();
     await onFollowUp(message);
@@ -101,7 +119,8 @@ export function ChatInput({
   }
 
   function clearInput() {
-    setValue("");
+    setDraftValue("");
+    setSelectedIndex(0);
     setImages([]);
     onConsumePrefill();
   }
@@ -127,9 +146,9 @@ export function ChatInput({
       return;
     }
 
-    setValue(`/${command.name}`);
+    setDraftValue(`/${command.name}`);
     await onExecuteCommand(command.name);
-    setValue("");
+    setDraftValue("");
   }
 
   function applyCommand(command: PiCommand) {
@@ -140,7 +159,7 @@ export function ChatInput({
     <div className="relative z-50">
       {commandQuery != null ? (
         <div className="absolute bottom-full left-0 right-0 z-50 mb-3 max-h-[min(20rem,45vh)] overflow-hidden">
-          <CommandPalette commands={commands} query={commandQuery} selectedIndex={selectedIndex} onSelect={applyCommand} />
+          <CommandPalette commands={filteredCommands} selectedIndex={selectedIndex} onSelect={applyCommand} />
         </div>
       ) : null}
 
@@ -166,12 +185,13 @@ export function ChatInput({
         <textarea
           className="max-h-36 min-h-20 w-full resize-none bg-transparent px-2.5 py-2 font-mono text-[13px] leading-5 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
           placeholder={disabled ? t("chat.connecting") : t("chat.placeholder")}
-          value={inputValue}
+          ref={textareaRef}
+          defaultValue={prefillValue ?? ""}
           disabled={disabled}
           onChange={(event) => {
-            onConsumePrefill();
-            setSelectedIndex(0);
-            setValue(event.currentTarget.value);
+            if (prefillValue) onConsumePrefill();
+            if (selectedIndex !== 0) setSelectedIndex(0);
+            setDraftValue(event.currentTarget.value);
           }}
           onPaste={pasteImages}
           onKeyDown={(event) => {
@@ -203,7 +223,7 @@ export function ChatInput({
               if (event.key === "Tab") {
                 event.preventDefault();
                 const selected = filteredCommands[activeIndex] ?? filteredCommands[0];
-                if (selected) setValue(`/${selected.name}`);
+                if (selected) setDraftValue(`/${selected.name}`);
                 return;
               }
               if (event.key === "Enter" && !event.shiftKey) {
@@ -251,7 +271,7 @@ export function ChatInput({
                   type="button"
                   className="inline-flex size-8 cursor-pointer items-center justify-center text-primary transition hover:text-primary/80 disabled:cursor-not-allowed disabled:text-muted-foreground/45"
                   aria-label={isRunning ? t("chat.pause") : t("chat.send")}
-                  disabled={disabled || (!isRunning && !inputValue.trim() && !images.length)}
+                  disabled={disabled || (!isRunning && !canSubmit && !images.length)}
                   onClick={() => isRunning ? void abortRunning() : void submit()}
                 >
                   {isRunning ? <Pause size={16} className="fill-current" /> : <ArrowUp size={17} />}
@@ -288,12 +308,12 @@ export function ChatInput({
           const action = command.safety ?? detectDangerousCommand(command);
           const event = action ? createSafetyEvent(action, "allowed", "command") : undefined;
           void onExecuteCommand(command.name, event);
-          setValue("");
+          setDraftValue("");
         }}
       />
     </div>
   );
-}
+});
 
 
 function IconHint({ label, disabled, onClick, children }: { label: string; disabled?: boolean; onClick?: () => void; children: ReactNode }) {
@@ -330,7 +350,7 @@ function readImageFile(file: File): Promise<{ id: string; name: string; dataUrl:
   });
 }
 
-function StatsTooltip({ state, stats, settings, status }: { state: PiState | null; stats: PiSessionStats | null; settings: PiSettings | null; status: string }) {
+const StatsTooltip = memo(function StatsTooltip({ state, stats, settings, status }: { state: PiState | null; stats: PiSessionStats | null; settings: PiSettings | null; status: string }) {
   const { t } = useI18n();
   const rows = [
     [t("composerStats.run"), state?.runState ?? status],
@@ -365,4 +385,4 @@ function StatsTooltip({ state, stats, settings, status }: { state: PiState | nul
       </TooltipContent>
     </Tooltip>
   );
-}
+});

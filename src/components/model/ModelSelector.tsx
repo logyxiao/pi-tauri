@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { Check, ChevronDown, Search } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useI18n } from "@/shared/i18n";
@@ -12,7 +12,7 @@ interface ModelSelectorProps {
   compact?: boolean;
 }
 
-export function ModelSelector({ state, models, onModelChange, compact = false }: ModelSelectorProps) {
+export const ModelSelector = memo(function ModelSelector({ state, models, onModelChange, compact = false }: ModelSelectorProps) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
   const current = state ?? demoPiState;
@@ -79,7 +79,7 @@ export function ModelSelector({ state, models, onModelChange, compact = false }:
       </DropdownMenuContent>
     </DropdownMenu>
   );
-}
+});
 
 function modelKey(model: PiModel): string {
   return `${model.provider}/${model.id}`;

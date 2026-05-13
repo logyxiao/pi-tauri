@@ -26,9 +26,9 @@ export type PiTextDeltaEvent = {
   message?: PiMessage;
 };
 
-export type PiAgentStateEvent = {
-  type: "agent_start" | "agent_end" | "aborted";
-};
+export type PiAgentStateEvent =
+  | { type: "agent_start" | "aborted" }
+  | { type: "agent_end"; messages?: PiMessage[] };
 
 export type PiToolEvent =
   | { type: "tool_execution_start"; tool: PiToolCall }
