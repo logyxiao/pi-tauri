@@ -15,7 +15,7 @@ export function RightInspector({ state, settings, isRunning = false }: RightInsp
   return (
     <aside className="hidden w-80 shrink-0 flex-col border-l border-border bg-sidebar/70 lg:flex xl:w-96">
       <div className="min-h-0 flex-1 overflow-hidden">
-        <GitManagementPanel cwd={cwd} model={state?.model} thinkingLevel={state?.thinkingLevel} isRunning={isRunning} />
+        <GitManagementPanel cwd={cwd} model={state?.model} provider={settings?.provider} thinkingLevel={state?.thinkingLevel ?? settings?.thinkingLevel} isRunning={isRunning} />
       </div>
     </aside>
   );

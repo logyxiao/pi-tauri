@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     fs::OpenOptions,
     io::{BufRead, BufReader, Write},
@@ -1355,13 +1355,13 @@ fn pi_git_commit_blocking(cwd: String, message: String) -> RpcResult<()> {
 }
 
 #[tauri::command]
-async fn pi_git_generate_commit_message(cwd: String, model: Option<String>, thinking_level: Option<String>) -> RpcResult<String> {
-    tauri::async_runtime::spawn_blocking(move || pi_git_generate_commit_message_blocking(cwd, model, thinking_level))
+async fn pi_git_generate_commit_message(cwd: String, model: Option<String>, provider: Option<String>, thinking_level: Option<String>) -> RpcResult<String> {
+    tauri::async_runtime::spawn_blocking(move || pi_git_generate_commit_message_blocking(cwd, model, provider, thinking_level))
         .await
         .map_err(|error| format!("git commit message task failed: {error}"))?
 }
 
-fn pi_git_generate_commit_message_blocking(cwd: String, model: Option<String>, thinking_level: Option<String>) -> RpcResult<String> {
+fn pi_git_generate_commit_message_blocking(cwd: String, model: Option<String>, provider: Option<String>, thinking_level: Option<String>) -> RpcResult<String> {
     let repo_root = git_repo_root(&cwd)?;
     let stat = git_output(&repo_root, &["diff", "--cached", "--stat"])?;
     let diff = git_output(&repo_root, &["diff", "--cached", "--no-ext-diff", "--"])?;
@@ -1376,48 +1376,254 @@ fn pi_git_generate_commit_message_blocking(cwd: String, model: Option<String>, t
     context.push_str("\n\nDIFF:\n");
     context.push_str(&truncate_for_prompt(&diff, 80_000));
 
-    let prompt = "Generate a git commit message for the staged diff from stdin. Output only one concise commit subject line, imperative mood, <=72 characters. Prefer Conventional Commits when obvious. No markdown, no quotes, no explanation.";
-    let pi_bin = std::env::var("PI_BIN").unwrap_or_else(|_| default_pi_bin());
-    let mut args = vec!["--no-tools".to_string(), "--no-session".to_string()];
-    if let Some(model) = model.as_deref().map(str::trim).filter(|value| !value.is_empty() && *value != "no model") {
-        args.push("--model".to_string());
-        args.push(model.to_string());
-    }
-    if let Some(level) = thinking_level.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-        args.push("--thinking".to_string());
-        args.push(level.to_string());
-    }
-    args.push("-p".to_string());
-    args.push(prompt.to_string());
-
-    let mut child = Command::new(pi_bin)
-        .args(args)
-        .current_dir(&repo_root)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| format!("failed to start pi for commit message: {error}"))?;
-
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(context.as_bytes())
-            .map_err(|error| format!("failed to send diff to pi: {error}"))?;
-    }
-
-    let output = wait_with_output_timeout(child, Duration::from_secs(90))
-        .map_err(|error| format!("failed to wait for pi commit message: {error}"))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() { "pi failed to generate commit message".to_string() } else { stderr });
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let message = clean_commit_message(&stdout);
+    let prompt = "Generate a git commit message for the staged diff. Output only one concise commit subject line, imperative mood, <=72 characters. Prefer Conventional Commits when obvious. No markdown, no quotes, no explanation.";
+    let raw = generate_commit_message_via_provider(model, provider, thinking_level, prompt, &context)?;
+    let message = clean_commit_message(&raw);
     if message.is_empty() {
-        return Err("pi returned an empty commit message".to_string());
+        return Err("model returned an empty commit message".to_string());
     }
     Ok(message)
+}
+
+fn generate_commit_message_via_provider(model: Option<String>, provider: Option<String>, thinking_level: Option<String>, prompt: &str, context: &str) -> RpcResult<String> {
+    let config = resolve_commit_model_config(model, provider, thinking_level)?;
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(90))
+        .build()
+        .map_err(|error| format!("failed to create HTTP client: {error}"))?;
+
+    match config.api.as_str() {
+        "anthropic-messages" => call_anthropic_messages(&client, &config, prompt, context),
+        "google-generative-ai" => call_google_generate_content(&client, &config, prompt, context),
+        "openai-responses" => call_openai_responses(&client, &config, prompt, context),
+        "openai-completions" | "openai-chat-completions" | "openai" => call_openai_chat_completions(&client, &config, prompt, context),
+        other => Err(format!("unsupported commit message model api: {other}")),
+    }
+}
+
+struct CommitModelConfig {
+    model_id: String,
+    api: String,
+    base_url: String,
+    api_key: Option<String>,
+    headers: HashMap<String, String>,
+    auth_header: bool,
+    max_tokens: u64,
+    thinking_level: Option<String>,
+}
+
+fn resolve_commit_model_config(model: Option<String>, provider: Option<String>, thinking_level: Option<String>) -> RpcResult<CommitModelConfig> {
+    let models_json = read_models_json().unwrap_or_else(|_| serde_json::json!({}));
+    let settings = read_pi_settings_json().unwrap_or_else(|_| serde_json::json!({}));
+    let requested_model = model.as_deref().map(str::trim).filter(|value| !value.is_empty() && *value != "no model").map(str::to_string);
+    let requested_provider = provider.as_deref().map(str::trim).filter(|value| !value.is_empty()).map(str::to_string);
+    let (model_provider, model_id_from_key) = requested_model.as_deref().and_then(split_model_key_for_commit).unwrap_or((None, requested_model.clone()));
+    let provider_id = requested_provider
+        .or(model_provider)
+        .or_else(|| settings.get("defaultProvider").and_then(|value| value.as_str()).map(str::to_string))
+        .ok_or("commit message generation needs provider in settings or active model".to_string())?;
+    let model_id = model_id_from_key
+        .or_else(|| settings.get("defaultModel").and_then(|value| value.as_str()).map(str::to_string))
+        .ok_or("commit message generation needs model in settings or active model".to_string())?;
+
+    let providers = models_json.get("providers").and_then(|value| value.as_object()).ok_or("models.json providers not found; configure provider API/key first".to_string())?;
+    let provider_value = providers.get(&provider_id).ok_or_else(|| format!("provider '{provider_id}' not found in models.json"))?;
+    let model_value = find_model_config(provider_value, &model_id);
+    let api = model_value.and_then(|value| value.get("api")).and_then(|value| value.as_str())
+        .or_else(|| provider_value.get("api").and_then(|value| value.as_str()))
+        .unwrap_or("openai-completions")
+        .to_string();
+    let base_url = provider_value.get("baseUrl").and_then(|value| value.as_str()).map(str::to_string).or_else(|| default_base_url_for_api(&provider_id, &api));
+    let base_url = base_url.ok_or_else(|| format!("provider '{provider_id}' missing baseUrl"))?;
+    let api_key = provider_value.get("apiKey").and_then(|value| value.as_str()).map(resolve_secret_value).transpose()?;
+    let headers = resolve_header_map(provider_value.get("headers"))?;
+    let auth_header = provider_value.get("authHeader").and_then(|value| value.as_bool()).unwrap_or(true);
+    let max_tokens = model_value
+        .and_then(|value| value.get("maxTokens"))
+        .and_then(|value| value.as_u64())
+        .unwrap_or(128)
+        .min(512);
+
+    Ok(CommitModelConfig { model_id, api, base_url, api_key, headers, auth_header, max_tokens, thinking_level })
+}
+
+fn read_models_json() -> RpcResult<serde_json::Value> {
+    let path = pi_models_json_path()?;
+    if !path.exists() {
+        return Ok(serde_json::json!({}));
+    }
+    let content = fs::read_to_string(&path).map_err(|error| format!("failed to read models.json: {error}"))?;
+    serde_json::from_str::<serde_json::Value>(&content).map_err(|error| format!("models.json is invalid JSON: {error}"))
+}
+
+fn split_model_key_for_commit(value: &str) -> Option<(Option<String>, Option<String>)> {
+    value.split_once('/').map(|(provider, model)| (Some(provider.to_string()), Some(model.to_string())))
+}
+
+fn find_model_config<'a>(provider: &'a serde_json::Value, model_id: &str) -> Option<&'a serde_json::Value> {
+    provider.get("models")?.as_array()?.iter().find(|item| item.get("id").and_then(|value| value.as_str()) == Some(model_id))
+}
+
+fn default_base_url_for_api(provider_id: &str, api: &str) -> Option<String> {
+    match api {
+        "anthropic-messages" => Some("https://api.anthropic.com/v1".to_string()),
+        "google-generative-ai" => Some("https://generativelanguage.googleapis.com/v1beta".to_string()),
+        "openai-responses" | "openai-completions" | "openai-chat-completions" | "openai" if provider_id == "openai" => Some("https://api.openai.com/v1".to_string()),
+        _ => None,
+    }
+}
+
+fn resolve_secret_value(value: &str) -> RpcResult<String> {
+    let trimmed = value.trim();
+    if let Some(command) = trimmed.strip_prefix('!') {
+        let output = if cfg!(windows) {
+            Command::new("cmd.exe").args(["/C", command]).output()
+        } else {
+            Command::new("sh").args(["-c", command]).output()
+        }.map_err(|error| format!("failed to resolve secret command: {error}"))?;
+        if !output.status.success() {
+            return Err(format!("secret command failed: {}", String::from_utf8_lossy(&output.stderr).trim()));
+        }
+        return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
+    }
+    Ok(std::env::var(trimmed).unwrap_or_else(|_| trimmed.to_string()))
+}
+
+fn resolve_header_map(value: Option<&serde_json::Value>) -> RpcResult<HashMap<String, String>> {
+    let mut headers = HashMap::new();
+    if let Some(object) = value.and_then(|value| value.as_object()) {
+        for (key, value) in object {
+            if let Some(text) = value.as_str() {
+                headers.insert(key.clone(), resolve_secret_value(text)?);
+            }
+        }
+    }
+    Ok(headers)
+}
+
+fn request_builder_with_auth(client: &reqwest::blocking::Client, config: &CommitModelConfig, url: String) -> reqwest::blocking::RequestBuilder {
+    let mut request = client.post(url);
+    for (key, value) in &config.headers {
+        request = request.header(key, value);
+    }
+    if config.auth_header {
+        if let Some(api_key) = &config.api_key {
+            request = request.bearer_auth(api_key);
+        }
+    }
+    request
+}
+
+fn call_openai_chat_completions(client: &reqwest::blocking::Client, config: &CommitModelConfig, prompt: &str, context: &str) -> RpcResult<String> {
+    let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
+    let mut body = serde_json::json!({
+        "model": config.model_id,
+        "messages": [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": context}
+        ],
+        "temperature": 0.2,
+        "max_tokens": config.max_tokens
+    });
+    if let Some(effort) = reasoning_effort(config.thinking_level.as_deref()) {
+        body["reasoning_effort"] = serde_json::Value::String(effort.to_string());
+    }
+    let value = send_json_request(request_builder_with_auth(client, config, url), body)?;
+    value.get("choices").and_then(|value| value.as_array()).and_then(|items| items.first())
+        .and_then(|item| item.get("message")).and_then(|message| message.get("content")).and_then(|value| value.as_str())
+        .map(str::to_string)
+        .ok_or("OpenAI chat response missing message content".to_string())
+}
+
+fn call_openai_responses(client: &reqwest::blocking::Client, config: &CommitModelConfig, prompt: &str, context: &str) -> RpcResult<String> {
+    let url = format!("{}/responses", config.base_url.trim_end_matches('/'));
+    let mut body = serde_json::json!({
+        "model": config.model_id,
+        "instructions": prompt,
+        "input": context,
+        "temperature": 0.2,
+        "max_output_tokens": config.max_tokens
+    });
+    if let Some(effort) = reasoning_effort(config.thinking_level.as_deref()) {
+        body["reasoning"] = serde_json::json!({ "effort": effort });
+    }
+    let value = send_json_request(request_builder_with_auth(client, config, url), body)?;
+    extract_openai_response_text(&value).ok_or("OpenAI responses output text missing".to_string())
+}
+
+fn call_anthropic_messages(client: &reqwest::blocking::Client, config: &CommitModelConfig, prompt: &str, context: &str) -> RpcResult<String> {
+    let url = format!("{}/messages", config.base_url.trim_end_matches('/'));
+    let mut request = request_builder_with_auth(client, config, url)
+        .header("anthropic-version", "2023-06-01");
+    if !config.auth_header {
+        if let Some(api_key) = &config.api_key {
+            request = request.header("x-api-key", api_key);
+        }
+    } else if let Some(api_key) = &config.api_key {
+        request = request.header("x-api-key", api_key);
+    }
+    let body = serde_json::json!({
+        "model": config.model_id,
+        "system": prompt,
+        "messages": [{"role": "user", "content": context}],
+        "max_tokens": config.max_tokens
+    });
+    let value = send_json_request(request, body)?;
+    value.get("content").and_then(|value| value.as_array()).and_then(|items| items.first())
+        .and_then(|item| item.get("text")).and_then(|value| value.as_str())
+        .map(str::to_string)
+        .ok_or("Anthropic response missing text content".to_string())
+}
+
+fn call_google_generate_content(client: &reqwest::blocking::Client, config: &CommitModelConfig, prompt: &str, context: &str) -> RpcResult<String> {
+    let api_key = config.api_key.as_deref().ok_or("Google provider requires apiKey".to_string())?;
+    let url = format!("{}/models/{}:generateContent?key={}", config.base_url.trim_end_matches('/'), config.model_id, api_key);
+    let body = serde_json::json!({
+        "contents": [{"role": "user", "parts": [{"text": format!("{}\n\n{}", prompt, context)}]}],
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": config.max_tokens}
+    });
+    let value = send_json_request(request_builder_with_auth(client, config, url), body)?;
+    value.get("candidates").and_then(|value| value.as_array()).and_then(|items| items.first())
+        .and_then(|item| item.get("content")).and_then(|content| content.get("parts")).and_then(|parts| parts.as_array()).and_then(|parts| parts.first())
+        .and_then(|part| part.get("text")).and_then(|value| value.as_str())
+        .map(str::to_string)
+        .ok_or("Google response missing text content".to_string())
+}
+
+fn reasoning_effort(level: Option<&str>) -> Option<&'static str> {
+    match level {
+        Some("minimal") => Some("minimal"),
+        Some("low") => Some("low"),
+        Some("medium") => Some("medium"),
+        Some("high") | Some("xhigh") => Some("high"),
+        _ => None,
+    }
+}
+
+fn send_json_request(request: reqwest::blocking::RequestBuilder, body: serde_json::Value) -> RpcResult<serde_json::Value> {
+    let response = request.json(&body).send().map_err(|error| format!("commit message request failed: {error}"))?;
+    let status = response.status();
+    let text = response.text().map_err(|error| format!("failed to read commit message response: {error}"))?;
+    if !status.is_success() {
+        return Err(format!("commit message request failed with {status}: {text}"));
+    }
+    serde_json::from_str(&text).map_err(|error| format!("commit message response is invalid JSON: {error}"))
+}
+
+fn extract_openai_response_text(value: &serde_json::Value) -> Option<String> {
+    if let Some(text) = value.get("output_text").and_then(|value| value.as_str()) {
+        return Some(text.to_string());
+    }
+    let output = value.get("output")?.as_array()?;
+    for item in output {
+        let content = item.get("content").and_then(|value| value.as_array())?;
+        for part in content {
+            if let Some(text) = part.get("text").and_then(|value| value.as_str()) {
+                return Some(text.to_string());
+            }
+        }
+    }
+    None
 }
 
 fn wait_with_output_timeout(mut child: Child, timeout: Duration) -> std::io::Result<std::process::Output> {

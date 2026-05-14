@@ -8,6 +8,7 @@ import { cn } from "@/shared/lib/cn";
 interface GitManagementPanelProps {
   cwd: string;
   model?: string;
+  provider?: string;
   thinkingLevel?: string;
   isRunning?: boolean;
 }
@@ -41,7 +42,7 @@ type GitCommit = {
 
 const MAX_RENDERED_GIT_FILES = 300;
 
-export function GitManagementPanel({ cwd, model, thinkingLevel, isRunning = false }: GitManagementPanelProps) {
+export function GitManagementPanel({ cwd, model, provider, thinkingLevel, isRunning = false }: GitManagementPanelProps) {
   const { t } = useI18n();
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [commits, setCommits] = useState<GitCommit[]>([]);
@@ -146,7 +147,7 @@ export function GitManagementPanel({ cwd, model, thinkingLevel, isRunning = fals
     if (isRunning || !status?.staged) return;
     setBusy("generate");
     try {
-      const nextMessage = await invoke<string>("pi_git_generate_commit_message", { cwd, model: model ?? null, thinkingLevel: thinkingLevel ?? null });
+      const nextMessage = await invoke<string>("pi_git_generate_commit_message", { cwd, model: model ?? null, provider: provider ?? null, thinkingLevel: thinkingLevel ?? null });
       setMessage(nextMessage.trim());
       setError(null);
     } catch (caught) {
