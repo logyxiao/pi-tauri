@@ -69,7 +69,8 @@ export interface PiNewSessionOptions {
 }
 
 export interface PiClient {
-  connect(): Promise<void>;
+  connect(cwd?: string): Promise<void>;
+  reconnect?(cwd?: string): Promise<void>;
   prompt(message: string, options?: PromptOptions): Promise<void>;
   steer(message: string): Promise<void>;
   followUp(message: string): Promise<void>;

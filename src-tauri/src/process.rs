@@ -32,6 +32,90 @@ pub(crate) fn background_command<S: AsRef<std::ffi::OsStr>>(program: S) -> Comma
     command
 }
 
+pub(crate) fn resolve_pi_bin() -> String {
+    if let Ok(value) = std::env::var("PI_BIN") {
+        if !value.trim().is_empty() {
+            return value;
+        }
+    }
+    resolve_program(&["pi.cmd", "pi.exe", "pi"]).unwrap_or_else(default_pi_bin)
+}
+
+pub(crate) fn resolve_program(names: &[&str]) -> Option<String> {
+    for name in names {
+        let path = PathBuf::from(name);
+        if (path.is_absolute() || name.contains(std::path::MAIN_SEPARATOR)) && path.exists() {
+            return Some(path.to_string_lossy().to_string());
+        }
+    }
+
+    for dir in candidate_program_dirs() {
+        for name in names {
+            let candidate = dir.join(name);
+            if candidate.exists() {
+                return Some(candidate.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    None
+}
+
+pub(crate) fn candidate_program_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::<PathBuf>::new();
+    if let Some(path) = std::env::var_os("PATH") {
+        dirs.extend(std::env::split_paths(&path));
+    }
+
+    #[cfg(windows)]
+    {
+        push_env_joined(&mut dirs, "APPDATA", &["npm"]);
+        push_env_joined(&mut dirs, "LOCALAPPDATA", &["pnpm"]);
+        push_env_joined(&mut dirs, "LOCALAPPDATA", &["Volta", "bin"]);
+        push_env_joined(&mut dirs, "VOLTA_HOME", &["bin"]);
+        push_env_joined(&mut dirs, "SCOOP", &["shims"]);
+        push_env_joined(&mut dirs, "SCOOP", &["apps", "volta", "current", "appdata", "bin"]);
+        push_env_joined(&mut dirs, "SCOOP_GLOBAL", &["shims"]);
+        push_env_joined(&mut dirs, "SCOOP_GLOBAL", &["apps", "volta", "current", "appdata", "bin"]);
+        push_env_joined(&mut dirs, "USERPROFILE", &["scoop", "shims"]);
+        push_env_joined(&mut dirs, "USERPROFILE", &["scoop", "apps", "volta", "current", "appdata", "bin"]);
+    }
+
+    #[cfg(not(windows))]
+    {
+        push_env_joined(&mut dirs, "HOME", &[".local", "bin"]);
+        push_env_joined(&mut dirs, "HOME", &[".npm-global", "bin"]);
+    }
+
+    dedupe_paths(dirs)
+}
+
+pub(crate) fn push_env_joined(dirs: &mut Vec<PathBuf>, env_key: &str, parts: &[&str]) {
+    let Ok(root) = std::env::var(env_key) else {
+        return;
+    };
+    if root.trim().is_empty() {
+        return;
+    }
+    let mut path = PathBuf::from(root);
+    for part in parts {
+        path.push(part);
+    }
+    dirs.push(path);
+}
+
+pub(crate) fn dedupe_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut seen = HashSet::<String>::new();
+    let mut deduped = Vec::new();
+    for path in paths {
+        let key = path.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+        if seen.insert(key) {
+            deduped.push(path);
+        }
+    }
+    deduped
+}
+
 #[tauri::command]
 pub(crate) fn pi_rpc_start(app: AppHandle, state: State<'_, RpcState>, cwd: Option<String>) -> RpcResult<()> {
     let mut slot = state.process.lock().map_err(|error| error.to_string())?;
@@ -43,7 +127,7 @@ pub(crate) fn pi_rpc_start(app: AppHandle, state: State<'_, RpcState>, cwd: Opti
         Some(value) => Some(safe_root(value)?),
         None => None,
     };
-    let pi_bin = std::env::var("PI_BIN").unwrap_or_else(|_| default_pi_bin());
+    let pi_bin = resolve_pi_bin();
     let mut command = background_command(pi_bin);
     command.args(["--mode", "rpc", "--no-session", "--offline"]);
     if let Some(path) = cwd_path {

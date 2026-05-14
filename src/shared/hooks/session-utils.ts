@@ -1,5 +1,6 @@
 import type { PiSessionSummary, PiState } from "@/shared/pi/types";
 import { normalizePath } from "@/shared/hooks/session-cache";
+import { isKnownCwd } from "@/shared/pi/cwd";
 
 export function normalizeSessionKey(path: string) {
   return normalizePath(path).toLowerCase();
@@ -28,10 +29,6 @@ export function mergeSessions(...groups: PiSessionSummary[][]): PiSessionSummary
     }
   }
   return Array.from(merged.values());
-}
-
-export function isKnownCwd(cwd: string | undefined): cwd is string {
-  return Boolean(cwd && cwd !== "unknown cwd" && cwd !== "Unknown cwd");
 }
 
 export function findSessionByPath(sessions: PiSessionSummary[], sessionPath: string) {

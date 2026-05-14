@@ -10,7 +10,7 @@ import {
   loadPersistedWorkspacePaths,
   removePersistedSessionMessages,
 } from "@/shared/hooks/session-cache";
-import { applySessionOverride, filterDeletedSessions, findSessionByPath, isDeletedSession, isKnownCwd, isLowQualitySessionSummary, mergeSessions, normalizeSessionKey } from "@/shared/hooks/session-utils";
+import { applySessionOverride, filterDeletedSessions, findSessionByPath, isDeletedSession, isLowQualitySessionSummary, mergeSessions, normalizeSessionKey } from "@/shared/hooks/session-utils";
 import { timed, logTimings, type TimingEntry } from "@/shared/hooks/timing";
 import { extractToolCallsFromMessage, mergeToolCall, mergeToolLists } from "@/shared/hooks/tool-merge";
 import { reconcileFinalMessages, upsertAssistantTool } from "@/shared/hooks/live-message";
@@ -21,6 +21,7 @@ import { useLiveAssistantMessages } from "@/shared/hooks/use-live-assistant-mess
 import { usePendingExtensionExpiry } from "@/shared/hooks/use-pending-extension-expiry";
 import { persistSessionStateMessages, useSessionPersistence } from "@/shared/hooks/use-session-persistence";
 import { useWarmSessionCache } from "@/shared/hooks/use-warm-session-cache";
+import { firstKnownCwd, isKnownCwd } from "@/shared/pi/cwd";
 import type { PiClientEvent } from "@/shared/pi/client";
 import type {
   PiCommand,
@@ -40,7 +41,6 @@ import type {
 export type PiSessionStatus = "connecting" | "ready" | "refreshing" | "running" | "error";
 
 const nowLabel = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
 function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
@@ -137,6 +137,10 @@ export function usePiSession() {
     const timings: TimingEntry[] = [];
     setStatus((current) => (current === "connecting" || current === "running" ? current : "refreshing"));
     try {
+      if (scope === "refresh" || scope === "manualReconnect") {
+        await timed(timings, "client.reconnect", () => client.reconnect ? client.reconnect(options.targetCwd ?? firstKnownCwd(workspacePaths)) : client.connect(options.targetCwd ?? firstKnownCwd(workspacePaths)));
+        if (!isCurrentEpoch(epoch)) return;
+      }
       const [
         nextMessages,
         nextState,
@@ -198,7 +202,7 @@ export function usePiSession() {
       setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }
-  }, [client, isCurrentEpoch, refreshWorkspaceSessions, t]);
+  }, [client, isCurrentEpoch, refreshWorkspaceSessions, t, workspacePaths]);
 
   const upsertTool = useCallback((tool: PiToolCall) => {
     const assistantId = ensureLiveAssistantMessage();
@@ -307,7 +311,7 @@ export function usePiSession() {
       const timings: TimingEntry[] = [];
       setStatus("connecting");
       try {
-        await timed(timings, "client.connect", () => client.connect());
+        await timed(timings, "client.connect", () => client.connect(firstKnownCwd(workspacePaths)));
         if (disposed) return;
 
         setError(null);
@@ -329,7 +333,7 @@ export function usePiSession() {
       disposed = true;
       unsubscribe();
     };
-  }, [client, handleEvent, refresh]);
+  }, [client, handleEvent, refresh, workspacePaths]);
 
   async function prompt(content: string) {
     const trimmed = content.trim();
@@ -450,7 +454,10 @@ export function usePiSession() {
       setPendingSessionTarget(sessionPath);
       setIsSwitchingSession(!hasCachedMessages);
       setStatus("refreshing");
-      if (targetCwd) setState((current) => (current ? { ...current, cwd: targetCwd, sessionFile: targetSession?.filePath ?? current.sessionFile, sessionId: targetSession?.id ?? current.sessionId, sessionName: targetSession?.name ?? current.sessionName } : current));
+      if (targetCwd) {
+        const sessionOverride = targetSession;
+        setState((current) => (current ? { ...current, cwd: targetCwd, sessionFile: sessionOverride?.filePath ?? current.sessionFile, sessionId: sessionOverride?.id ?? current.sessionId, sessionName: sessionOverride?.name ?? current.sessionName } : current));
+      }
       setMessages(cachedMessages);
       if (!cachedMessages.length) {
         void loadSessionMessagesFromDb(sessionPath).then((dbMessages) => {

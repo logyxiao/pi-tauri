@@ -8,6 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/lib/cn";
 import { loadPreferredOpenTarget, openProjectPath, persistPreferredOpenTarget, type ProjectOpenTarget } from "@/shared/system-open";
+import { firstKnownCwd, isKnownCwd } from "@/shared/pi/cwd";
 import type { PiCommand, PiExtensionPanel, PiExtensionStatus, PiMessage, PiModel, PiSafetyEvent, PiSessionStats, PiSettings, PiSettingsUpdate, PiState, PiToolCall } from "@/shared/pi/types";
 
 interface MainAreaProps {
@@ -56,8 +57,8 @@ function openTargetIcon(target: ProjectOpenTarget): ReactNode {
 }
 
 function resolveProjectPath(cwd: string | undefined, workspacePaths: string[]) {
-  if (cwd && cwd !== "unknown cwd" && cwd !== "Unknown cwd") return cwd;
-  return workspacePaths[0] ?? null;
+  if (isKnownCwd(cwd)) return cwd;
+  return firstKnownCwd(workspacePaths) ?? null;
 }
 
 function projectFolderName(path: string | null) {
@@ -111,6 +112,7 @@ export function MainArea({
 
   const projectPath = resolveProjectPath(state?.cwd, workspacePaths);
   const projectTitle = projectFolderName(projectPath) ?? t("main.title");
+  const cwdLabel = projectPath ?? (state ? t("main.cwdWaiting") : t("main.cwdWaiting"));
 
   const submitPrompt = useStableCallback(onPrompt);
   const abortRun = useStableCallback(onAbort);
@@ -140,7 +142,7 @@ export function MainArea({
             </span>
             {isRefreshing ? <Loader2 size={11} className="animate-spin text-primary" /> : null}
           </div>
-          <div className="mt-0.5 max-w-[52vw] truncate font-mono text-[10px] text-muted-foreground">{state?.cwd ?? t("main.cwdWaiting")}</div>
+          <div className="mt-0.5 max-w-[52vw] truncate font-mono text-[10px] text-muted-foreground">{cwdLabel}</div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <div className="flex items-center gap-0.5">

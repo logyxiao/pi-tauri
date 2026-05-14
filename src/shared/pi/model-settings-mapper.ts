@@ -1,3 +1,4 @@
+import { displayCwd } from "@/shared/pi/cwd";
 import type { PiDeliveryMode, PiModel, PiState } from "./types";
 
 export function mapStateResponse(data: unknown): PiState {
@@ -5,7 +6,7 @@ export function mapStateResponse(data: unknown): PiState {
   const model = record?.model as Record<string, unknown> | null | undefined;
   return {
     runState: record?.isStreaming ? "running" : "idle",
-    cwd: (record?.cwd as string | undefined) ?? "unknown cwd",
+    cwd: displayCwd(record?.cwd as string | undefined, ""),
     model: model ? `${model.provider as string}/${model.id as string}` : "no model",
     thinkingLevel: normalizeThinkingLevel(record?.thinkingLevel),
     tokenCount: Number((record?.messageCount as number | undefined) ?? 0),

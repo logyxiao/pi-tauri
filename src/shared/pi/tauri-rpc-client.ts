@@ -26,6 +26,7 @@ import type {
 import { createSafetyEvent, detectDangerousCommand } from "./safety";
 import { sdkSidecarClient } from "./sdk-sidecar-client";
 import { builtinCommands, mapCommand, mergeCommands } from "./command-mapper";
+import { isKnownCwd } from "./cwd";
 import {
   inferAuthStatus,
   mapModel,
@@ -100,24 +101,36 @@ export class TauriPiRpcClient implements PiClient {
   private commandsCache: { value: PiCommand[]; expiresAt: number } | null = null;
   private commandsRequest: Promise<PiCommand[]> | null = null;
 
-  async connect(): Promise<void> {
+  async connect(cwd?: string): Promise<void> {
     if (this.connected) return;
-    await this.startRpc();
+    await this.startRpc(cwd);
+  }
+
+  async reconnect(cwd?: string): Promise<void> {
+    await this.restartRpc(cwd ?? this.rpcCwd ?? undefined);
   }
 
   private async startRpc(cwd?: string): Promise<void> {
-    this.unlistenMessage = await listen<RpcMessage>("pi-rpc-message", (event) => this.handleRpcMessage(event.payload));
-    this.unlistenError = await listen<unknown>("pi-rpc-error", (event) => {
+    const unlistenMessage = await listen<RpcMessage>("pi-rpc-message", (event) => this.handleRpcMessage(event.payload));
+    const unlistenError = await listen<unknown>("pi-rpc-error", (event) => {
       console.error("pi rpc error", event.payload);
     });
 
     const normalizedCwd = normalizeOptionalCwd(cwd);
-    await invoke("pi_rpc_start", { cwd: normalizedCwd });
+    try {
+      await invoke("pi_rpc_start", { cwd: normalizedCwd });
+    } catch (error) {
+      unlistenMessage();
+      unlistenError();
+      throw error;
+    }
+    this.unlistenMessage = unlistenMessage;
+    this.unlistenError = unlistenError;
     this.connected = true;
     this.rpcCwd = normalizedCwd;
   }
 
-  private async reconnect(cwd?: string): Promise<void> {
+  private async restartRpc(cwd?: string): Promise<void> {
     this.rejectPendingRequests("pi rpc reconnecting");
     this.toolStartTimes.clear();
     this.invalidateStateCache();
@@ -155,7 +168,7 @@ export class TauriPiRpcClient implements PiClient {
 
   async newSession(options: PiNewSessionOptions = {}): Promise<void> {
     if (options.cwd && normalizeOptionalCwd(options.cwd) !== this.rpcCwd) {
-      await this.reconnect(options.cwd);
+      await this.restartRpc(options.cwd);
     }
     this.invalidateStateCache();
     await this.request({ type: "new_session" });
@@ -826,7 +839,7 @@ function currentSessionFallback(state: PiState): PiSessionSummary[] {
 }
 
 function isUsableCwd(cwd: string | undefined): cwd is string {
-  return Boolean(cwd && cwd.trim() && cwd !== "unknown cwd" && cwd !== "Unknown cwd");
+  return isKnownCwd(cwd);
 }
 
 function normalizeOptionalCwd(cwd: string | undefined): string | null {
