@@ -8,22 +8,19 @@ import {
   loadPersistedSessions,
   loadPersistedSettings,
   loadPersistedWorkspacePaths,
-  persistMessagesForState,
-  persistSessionMessages,
-  persistSessions,
-  persistSettings,
-  persistWorkspacePaths,
   removePersistedSessionMessages,
 } from "@/shared/hooks/session-cache";
 import { applySessionOverride, filterDeletedSessions, findSessionByPath, isDeletedSession, isKnownCwd, isLowQualitySessionSummary, mergeSessions, normalizeSessionKey } from "@/shared/hooks/session-utils";
 import { timed, logTimings, type TimingEntry } from "@/shared/hooks/timing";
 import { extractToolCallsFromMessage, mergeToolCall, mergeToolLists } from "@/shared/hooks/tool-merge";
-import { clearScheduledCacheWrite, scheduleSessionCacheWrite } from "@/shared/hooks/cache-scheduler";
-import { appendAssistantDelta, createAssistantMessage, ensureAssistantMessage, reconcileFinalMessages, upsertAssistantTool } from "@/shared/hooks/live-message";
-import { expirePendingExtensionMessages, markPendingExtensionMessage, removePendingExtensionMessage, upsertPendingExtensionMessage } from "@/shared/hooks/extension-pending";
-import { createWarmSessionCacheQueue, type WarmSessionCacheQueue } from "@/shared/hooks/warm-session-cache";
-import { loadSessionMessagesFromDb, loadSessionsFromDb, persistSessionMessagesToDb, persistSessionsToDb, removeSessionMessagesFromDb } from "@/shared/hooks/session-db-cache";
+import { reconcileFinalMessages, upsertAssistantTool } from "@/shared/hooks/live-message";
+import { markPendingExtensionMessage, removePendingExtensionMessage, upsertPendingExtensionMessage } from "@/shared/hooks/extension-pending";
+import { loadSessionMessagesFromDb, persistSessionMessagesToDb, removeSessionMessagesFromDb } from "@/shared/hooks/session-db-cache";
 import { initialSessionPanelState, sessionPanelReducer } from "@/shared/hooks/session-panel-state";
+import { useLiveAssistantMessages } from "@/shared/hooks/use-live-assistant-messages";
+import { usePendingExtensionExpiry } from "@/shared/hooks/use-pending-extension-expiry";
+import { persistSessionStateMessages, useSessionPersistence } from "@/shared/hooks/use-session-persistence";
+import { useWarmSessionCache } from "@/shared/hooks/use-warm-session-cache";
 import type { PiClientEvent } from "@/shared/pi/client";
 import type {
   PiCommand,
@@ -76,15 +73,18 @@ export function usePiSession() {
   const [isSwitchingSession, setIsSwitchingSession] = useState(false);
   const [pendingSessionTarget, setPendingSessionTarget] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const activeAssistantIdRef = useRef<string | null>(null);
   const activeSessionOverrideRef = useRef<PiSessionSummary | null>(null);
   const deletedSessionKeysRef = useRef<Set<string>>(new Set());
-  const messagePersistTimerRef = useRef<number | null>(null);
-  const liveDeltaBufferRef = useRef("");
-  const liveDeltaRafRef = useRef<number | null>(null);
   const sessionEpochRef = useRef(0);
   const suppressRuntimeEventsRef = useRef(false);
-  const warmSessionCacheQueueRef = useRef<WarmSessionCacheQueue | null>(null);
+  const warmSessionCacheQueue = useWarmSessionCache(client);
+  const {
+    activeAssistantIdRef,
+    appendDeltaToLiveAssistant,
+    clearLiveAssistant,
+    ensureLiveAssistantMessage,
+    flushLiveAssistantDelta,
+  } = useLiveAssistantMessages(setMessages);
 
   const isCurrentEpoch = useCallback((epoch: number) => sessionEpochRef.current === epoch, []);
 
@@ -93,95 +93,17 @@ export function usePiSession() {
     return sessionEpochRef.current;
   }, []);
 
-  const flushLiveAssistantDelta = useCallback(() => {
-    const assistantId = activeAssistantIdRef.current;
-    if (!assistantId) return;
-    const delta = liveDeltaBufferRef.current;
-    if (!delta) return;
-    liveDeltaBufferRef.current = "";
-    setMessages((current) => appendAssistantDelta(current, assistantId, delta));
-  }, []);
-
-  const appendDeltaToLiveAssistant = useCallback((delta: string) => {
-    if (!delta) return;
-    liveDeltaBufferRef.current += delta;
-    if (liveDeltaRafRef.current !== null) return;
-    liveDeltaRafRef.current = window.requestAnimationFrame(() => {
-      liveDeltaRafRef.current = null;
-      flushLiveAssistantDelta();
-    });
-  }, [flushLiveAssistantDelta]);
-
-  const clearLiveAssistantDelta = useCallback(() => {
-    if (liveDeltaRafRef.current !== null) {
-      window.cancelAnimationFrame(liveDeltaRafRef.current);
-      liveDeltaRafRef.current = null;
-    }
-    liveDeltaBufferRef.current = "";
-  }, []);
-
-  useEffect(() => () => {
-    messagePersistTimerRef.current = clearScheduledCacheWrite(messagePersistTimerRef.current);
-    clearLiveAssistantDelta();
-  }, [clearLiveAssistantDelta]);
-
-  useEffect(() => {
-    if (!pendingExtensionUi.some((item) => item.expiresAt && item.uiState !== "expired")) return;
-    const timer = window.setInterval(() => {
-      setPendingExtensionUi((current) => expirePendingExtensionMessages(current));
-    }, 1_000);
-    return () => window.clearInterval(timer);
-  }, [pendingExtensionUi]);
-
-  useEffect(() => {
-    persistWorkspacePaths(workspacePaths);
-  }, [workspacePaths]);
-
-  useEffect(() => {
-    persistSessions(sessions);
-    void persistSessionsToDb(sessions);
-  }, [sessions]);
-
-  useEffect(() => {
-    let disposed = false;
-    void loadSessionsFromDb().then((dbSessions) => {
-      if (disposed || !dbSessions.length) return;
-      setSessions((current) => filterDeletedSessions(mergeSessions(current, dbSessions), deletedSessionKeysRef.current));
-    });
-    return () => {
-      disposed = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    persistSettings(settings);
-  }, [settings]);
-
-  useEffect(() => {
-    const sessionPath = state?.sessionFile ?? state?.sessionId;
-    if (!sessionPath || !messages.length || activeAssistantIdRef.current) return;
-    messagePersistTimerRef.current = scheduleSessionCacheWrite(messagePersistTimerRef.current, () => {
-      messagePersistTimerRef.current = null;
-      persistSessionMessages(sessionPath, messages);
-      void persistSessionMessagesToDb(sessionPath, messages);
-    });
-    return () => {
-      messagePersistTimerRef.current = clearScheduledCacheWrite(messagePersistTimerRef.current);
-    };
-  }, [messages, state?.sessionFile, state?.sessionId]);
-
-  const ensureLiveAssistantMessage = useCallback(() => {
-    const existingId = activeAssistantIdRef.current;
-    if (existingId) {
-      setMessages((current) => ensureAssistantMessage(current, existingId, nowLabel()));
-      return existingId;
-    }
-
-    const assistantId = crypto.randomUUID();
-    activeAssistantIdRef.current = assistantId;
-    setMessages((current) => [...current, createAssistantMessage(assistantId, nowLabel())]);
-    return assistantId;
-  }, []);
+  usePendingExtensionExpiry(pendingExtensionUi, setPendingExtensionUi);
+  useSessionPersistence({
+    messages,
+    state,
+    sessions,
+    settings,
+    workspacePaths,
+    setSessions,
+    activeAssistantIdRef,
+    deletedSessionKeysRef,
+  });
 
   const refreshWorkspaceSessions = useCallback(async () => {
     if (!workspacePaths.length) return;
@@ -202,12 +124,12 @@ export function usePiSession() {
         )
       ).flat();
       setSessions((current) => filterDeletedSessions(mergeSessions(current, workspaceSessions), deletedSessionKeysRef.current));
-      warmSessionCacheQueueRef.current?.enqueue(workspaceSessions.slice(0, 20).map((session) => session.filePath).filter((path): path is string => Boolean(path)));
+      warmSessionCacheQueue.enqueue(workspaceSessions.slice(0, 20).map((session) => session.filePath).filter((path): path is string => Boolean(path)));
       logTimings("workspaceSessions.refresh", timings, totalStartedAt);
     } catch {
       logTimings("workspaceSessions.refresh: failed", timings, totalStartedAt);
     }
-  }, [client, workspacePaths]);
+  }, [client, warmSessionCacheQueue, workspacePaths]);
 
   const refresh = useCallback(async (scope = "refresh", options: { forceModels?: boolean; targetCwd?: string; epoch?: number } = {}) => {
     const epoch = options.epoch ?? sessionEpochRef.current;
@@ -247,7 +169,7 @@ export function usePiSession() {
       if (!isCurrentEpoch(epoch)) return;
       if (!activeAssistantIdRef.current) {
         setMessages((current) => mergeTransientCommandMessages(current, nextMessages));
-        persistMessagesForState(nextState, nextMessages);
+        persistSessionStateMessages(nextState, nextMessages);
       }
       setState((current) => {
         const mergedState = applySessionOverride(nextState, activeSessionOverrideRef.current);
@@ -369,11 +291,11 @@ export function usePiSession() {
         }
         setStatus("ready");
         setState((current) => (current ? { ...current, runState: "idle" } : current));
-        activeAssistantIdRef.current = null;
+        clearLiveAssistant();
         void refresh("agentEnd.refresh", { epoch: eventEpoch });
       }
     },
-    [appendDeltaToLiveAssistant, ensureLiveAssistantMessage, flushLiveAssistantDelta, isCurrentEpoch, refresh, upsertTool],
+    [appendDeltaToLiveAssistant, clearLiveAssistant, ensureLiveAssistantMessage, flushLiveAssistantDelta, isCurrentEpoch, refresh, upsertTool],
   );
 
   useEffect(() => {
@@ -431,8 +353,7 @@ export function usePiSession() {
       await client.prompt(trimmed);
     } catch (caught) {
       if (!isCurrentEpoch(epoch)) return;
-      activeAssistantIdRef.current = null;
-      clearLiveAssistantDelta();
+      clearLiveAssistant();
       setMessages((current) => current.filter((message) => message.id !== assistantId));
       setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
@@ -478,8 +399,7 @@ export function usePiSession() {
       activeSessionOverrideRef.current = null;
       await client.newSession(cwd ? { cwd } : undefined);
       if (!isCurrentEpoch(epoch)) return;
-      activeAssistantIdRef.current = null;
-      clearLiveAssistantDelta();
+      clearLiveAssistant();
       if (cwd) setState((current) => (current ? { ...current, cwd, sessionName: undefined } : current));
       setMessages([]);
       dispatchPanel({ type: "setFilePreview", preview: null });
@@ -502,8 +422,7 @@ export function usePiSession() {
       activeSessionOverrideRef.current = null;
       await client.continueRecent();
       if (!isCurrentEpoch(epoch)) return;
-      activeAssistantIdRef.current = null;
-      clearLiveAssistantDelta();
+      clearLiveAssistant();
       dispatchPanel({ type: "setFilePreview", preview: null });
       setError(null);
       suppressRuntimeEventsRef.current = false;
@@ -514,23 +433,6 @@ export function usePiSession() {
       setStatus("error");
     } finally {
       if (isCurrentEpoch(epoch)) suppressRuntimeEventsRef.current = false;
-    }
-  }
-
-  async function warmSessionCache(sessionPath: string) {
-    try {
-      const cached = loadPersistedSessionMessages(sessionPath);
-      if (cached.length) return;
-      const dbMessages = await loadSessionMessagesFromDb(sessionPath);
-      if (dbMessages.length) {
-        persistSessionMessages(sessionPath, dbMessages);
-        return;
-      }
-      const messages = await client.readSessionMessages(sessionPath);
-      if (messages.length) persistSessionMessages(sessionPath, messages);
-      if (messages.length) void persistSessionMessagesToDb(sessionPath, messages);
-    } catch {
-      // Warm cache is best-effort.
     }
   }
 
@@ -567,10 +469,9 @@ export function usePiSession() {
       ]);
       if (!isCurrentEpoch(epoch)) return;
 
-      activeAssistantIdRef.current = null;
-      clearLiveAssistantDelta();
+      clearLiveAssistant();
       setMessages(nextMessages);
-      persistMessagesForState(nextState, nextMessages);
+      persistSessionStateMessages(nextState, nextMessages);
       if (nextState.sessionFile || nextState.sessionId) void persistSessionMessagesToDb(nextState.sessionFile ?? nextState.sessionId ?? sessionPath, nextMessages);
       setState(applySessionOverride(nextState, targetSession));
       setStats(nextStats);
@@ -594,13 +495,6 @@ export function usePiSession() {
         setIsSwitchingSession(false);
       }
     }
-  }
-
-  if (!warmSessionCacheQueueRef.current) {
-    warmSessionCacheQueueRef.current = createWarmSessionCacheQueue({
-      normalizeKey: normalizeSessionKey,
-      warm: warmSessionCache,
-    });
   }
 
   async function setSessionName(name: string) {

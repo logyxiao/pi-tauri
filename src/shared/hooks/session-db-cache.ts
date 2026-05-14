@@ -7,6 +7,8 @@ const SESSION_MESSAGES_STORE = "sessionMessages";
 const SESSIONS_STORE = "sessions";
 const MESSAGE_LIMIT = 500;
 const SESSION_LIMIT = 1000;
+const SESSION_MESSAGE_RECORD_LIMIT = 120;
+const SESSION_MESSAGE_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
 
 interface SessionMessagesRecord {
   key: string;
@@ -27,6 +29,10 @@ export async function loadSessionMessagesFromDb(sessionPath: string): Promise<Pi
   const db = await openCacheDb();
   if (!db) return [];
   const record = await getRecord<SessionMessagesRecord>(db, SESSION_MESSAGES_STORE, cacheKey(sessionPath));
+  if (record && Date.now() - record.savedAt > SESSION_MESSAGE_MAX_AGE_MS) {
+    await deleteRecord(db, SESSION_MESSAGES_STORE, record.key);
+    return [];
+  }
   return record?.messages ?? [];
 }
 
@@ -40,6 +46,7 @@ export async function persistSessionMessagesToDb(sessionPath: string, messages: 
     messages: messages.slice(-MESSAGE_LIMIT),
   };
   await putRecord(db, SESSION_MESSAGES_STORE, record);
+  void pruneSessionMessageRecords(db);
 }
 
 export async function removeSessionMessagesFromDb(sessionPath: string): Promise<void> {
@@ -106,6 +113,41 @@ function deleteRecord(db: IDBDatabase, storeName: string, key: string): Promise<
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => resolve();
     transaction.objectStore(storeName).delete(key);
+  });
+}
+
+async function pruneSessionMessageRecords(db: IDBDatabase): Promise<void> {
+  const records = await getAllRecords<SessionMessagesRecord>(db, SESSION_MESSAGES_STORE);
+  const now = Date.now();
+  const expiredKeys = records
+    .filter((record) => now - record.savedAt > SESSION_MESSAGE_MAX_AGE_MS)
+    .map((record) => record.key);
+  const overflowKeys = records
+    .filter((record) => !expiredKeys.includes(record.key))
+    .sort((left, right) => right.savedAt - left.savedAt)
+    .slice(SESSION_MESSAGE_RECORD_LIMIT)
+    .map((record) => record.key);
+  const keys = [...new Set([...expiredKeys, ...overflowKeys])];
+  if (!keys.length) return;
+  await deleteRecords(db, SESSION_MESSAGES_STORE, keys);
+}
+
+function getAllRecords<T>(db: IDBDatabase, storeName: string): Promise<T[]> {
+  return new Promise((resolve) => {
+    const transaction = db.transaction(storeName, "readonly");
+    const request = transaction.objectStore(storeName).getAll();
+    request.onsuccess = () => resolve((request.result as T[] | undefined) ?? []);
+    request.onerror = () => resolve([]);
+  });
+}
+
+function deleteRecords(db: IDBDatabase, storeName: string, keys: string[]): Promise<void> {
+  return new Promise((resolve) => {
+    const transaction = db.transaction(storeName, "readwrite");
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => resolve();
+    const store = transaction.objectStore(storeName);
+    for (const key of keys) store.delete(key);
   });
 }
 

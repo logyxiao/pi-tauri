@@ -82,10 +82,9 @@ function mergeLoadedFiles(current: PiFileEntry[], parentPath: string, loaded: Pi
   const children = loaded
     .filter((entry) => normalizePath(entry.path) !== normalizedParent)
     .map((entry) => ({ ...entry, depth: parentDepth + 1 + entry.depth }));
-  const childKeys = new Set(children.map((entry) => normalizePath(entry.path)));
   const withoutOldChildren = current.filter((entry) => {
     const normalized = normalizePath(entry.path);
-    return !normalized.startsWith(`${normalizedParent}/`) || !childKeys.has(normalized);
+    return !normalized.startsWith(`${normalizedParent}/`);
   });
   const insertAt = Math.max(withoutOldChildren.findIndex((entry) => normalizePath(entry.path) === normalizedParent), 0) + 1;
   return [...withoutOldChildren.slice(0, insertAt), ...children, ...withoutOldChildren.slice(insertAt)];
