@@ -61,12 +61,22 @@ type ModelsConfig = {
   }>;
 };
 
+type PiSettingsJsonConfig = {
+  enabledModels?: string[];
+};
+
 type PendingRequest = {
   resolve: (value: RpcResponse) => void;
   reject: (error: Error) => void;
 };
 
 type Listener = (event: PiClientEvent) => void;
+
+function modelEnabledBySettings(model: PiModel, patterns: string[]): boolean {
+  const exact = `${model.provider}/${model.id}`;
+  const wildcard = `${model.provider}/*`;
+  return patterns.some((pattern) => pattern === exact || pattern === wildcard || pattern === model.id);
+}
 
 export class TauriPiRpcClient implements PiClient {
   private connected = false;
@@ -317,13 +327,20 @@ export class TauriPiRpcClient implements PiClient {
   }
 
   private async filterConfiguredModels(models: PiModel[]): Promise<PiModel[]> {
-    const config = await this.readModelsConfig().catch((error) => {
-      console.warn("models.json filtering unavailable", error);
-      return null;
-    });
-    if (!config) return models.filter((model) => model.enabled !== false);
-    const providers = config.providers ?? {};
+    const [modelsConfig, settingsConfig] = await Promise.all([
+      this.readModelsConfig().catch((error) => {
+        console.warn("models.json filtering unavailable", error);
+        return null;
+      }),
+      this.readPiSettingsConfig().catch((error) => {
+        console.warn("settings.json model filtering unavailable", error);
+        return null;
+      }),
+    ]);
+    const enabledPatterns = settingsConfig?.enabledModels?.map((item) => item.trim()).filter(Boolean) ?? [];
+    const providers = modelsConfig?.providers ?? {};
     return models.filter((model) => {
+      if (enabledPatterns.length && !modelEnabledBySettings(model, enabledPatterns)) return false;
       const provider = providers[model.provider];
       if (!provider) return model.enabled !== false;
       if (provider.enabled === false) return false;
@@ -337,6 +354,14 @@ export class TauriPiRpcClient implements PiClient {
     const content = state.content;
     if (!content) return null;
     const parsed = JSON.parse(content) as ModelsConfig;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  }
+
+  private async readPiSettingsConfig(): Promise<PiSettingsJsonConfig | null> {
+    const state = await invoke<{ content?: string }>("pi_settings_json_read");
+    const content = state.content;
+    if (!content) return null;
+    const parsed = JSON.parse(content) as PiSettingsJsonConfig;
     return parsed && typeof parsed === "object" ? parsed : null;
   }
 

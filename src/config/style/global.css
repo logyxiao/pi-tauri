@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --app-font-ui: "Maple Mono NF CN", "Maple Mono NF", "Maple Mono SC NF", "Maple Mono", "LXGW WenKai Mono", ui-monospace, "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  --app-font-ui: "Noto Sans SC", "Noto Sans CJK SC", "Noto Sans CJK", "Source Han Sans SC", "Source Han Sans CN", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "SimHei", ui-sans-serif, system-ui, sans-serif;
   font-family: var(--app-font-ui);
   color: var(--foreground);
   background: var(--background);

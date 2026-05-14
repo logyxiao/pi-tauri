@@ -92,6 +92,21 @@ fn pi_models_json_read() -> RpcResult<serde_json::Value> {
 }
 
 #[tauri::command]
+fn pi_settings_json_read() -> RpcResult<serde_json::Value> {
+    let path = pi_settings_json_path()?;
+    let content = if path.exists() {
+        fs::read_to_string(&path).map_err(|error| format!("failed to read settings.json: {error}"))?
+    } else {
+        "{}".to_string()
+    };
+    Ok(serde_json::json!({
+        "path": display_path(&path),
+        "exists": path.exists(),
+        "content": content,
+    }))
+}
+
+#[tauri::command]
 async fn pi_fetch_provider_models(base_url: String, api_key: Option<String>, headers: Option<HashMap<String, String>>, auth_header: Option<bool>) -> RpcResult<Vec<String>> {
     fetch_provider_models_with_options(base_url, api_key, headers, auth_header).await.map(|result| result.models)
 }
@@ -3291,6 +3306,7 @@ pub fn run() {
             app_info,
             app_restart,
             pi_models_json_read,
+            pi_settings_json_read,
             pi_models_json_write,
             pi_sync_cc_switch_models,
             pi_fetch_provider_models,
