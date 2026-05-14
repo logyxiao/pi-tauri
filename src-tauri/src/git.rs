@@ -275,7 +275,7 @@ struct CommitModelConfig {
     thinking_level: Option<String>,
 }
 
-pub(crate) fn resolve_commit_model_config(model: Option<String>, provider: Option<String>, thinking_level: Option<String>) -> RpcResult<CommitModelConfig> {
+fn resolve_commit_model_config(model: Option<String>, provider: Option<String>, thinking_level: Option<String>) -> RpcResult<CommitModelConfig> {
     let models_json = read_models_json().unwrap_or_else(|_| serde_json::json!({}));
     let settings = read_pi_settings_json().unwrap_or_else(|_| serde_json::json!({}));
     let requested_model = model.as_deref().map(str::trim).filter(|value| !value.is_empty() && *value != "no model").map(str::to_string);
@@ -327,7 +327,7 @@ pub(crate) fn default_base_url_for_api(provider_id: &str, api: &str) -> Option<S
     }
 }
 
-pub(crate) fn request_builder_with_auth(client: &reqwest::blocking::Client, config: &CommitModelConfig, url: String) -> reqwest::blocking::RequestBuilder {
+fn request_builder_with_auth(client: &reqwest::blocking::Client, config: &CommitModelConfig, url: String) -> reqwest::blocking::RequestBuilder {
     let mut request = client.post(url);
     for (key, value) in &config.headers {
         request = request.header(key, value);
@@ -340,7 +340,7 @@ pub(crate) fn request_builder_with_auth(client: &reqwest::blocking::Client, conf
     request
 }
 
-pub(crate) fn call_openai_chat_completions(client: &reqwest::blocking::Client, config: &CommitModelConfig, prompt: &str, context: &str) -> RpcResult<String> {
+fn call_openai_chat_completions(client: &reqwest::blocking::Client, config: &CommitModelConfig, prompt: &str, context: &str) -> RpcResult<String> {
     let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
     let mut body = serde_json::json!({
         "model": config.model_id,
@@ -361,7 +361,7 @@ pub(crate) fn call_openai_chat_completions(client: &reqwest::blocking::Client, c
         .ok_or("OpenAI chat response missing message content".to_string())
 }
 
-pub(crate) fn call_openai_responses(client: &reqwest::blocking::Client, config: &CommitModelConfig, prompt: &str, context: &str) -> RpcResult<String> {
+fn call_openai_responses(client: &reqwest::blocking::Client, config: &CommitModelConfig, prompt: &str, context: &str) -> RpcResult<String> {
     let url = format!("{}/responses", config.base_url.trim_end_matches('/'));
     let mut body = serde_json::json!({
         "model": config.model_id,
@@ -377,7 +377,7 @@ pub(crate) fn call_openai_responses(client: &reqwest::blocking::Client, config: 
     extract_openai_response_text(&value).ok_or("OpenAI responses output text missing".to_string())
 }
 
-pub(crate) fn call_anthropic_messages(client: &reqwest::blocking::Client, config: &CommitModelConfig, prompt: &str, context: &str) -> RpcResult<String> {
+fn call_anthropic_messages(client: &reqwest::blocking::Client, config: &CommitModelConfig, prompt: &str, context: &str) -> RpcResult<String> {
     let url = format!("{}/messages", config.base_url.trim_end_matches('/'));
     let mut request = request_builder_with_auth(client, config, url)
         .header("anthropic-version", "2023-06-01");
@@ -401,7 +401,7 @@ pub(crate) fn call_anthropic_messages(client: &reqwest::blocking::Client, config
         .ok_or("Anthropic response missing text content".to_string())
 }
 
-pub(crate) fn call_google_generate_content(client: &reqwest::blocking::Client, config: &CommitModelConfig, prompt: &str, context: &str) -> RpcResult<String> {
+fn call_google_generate_content(client: &reqwest::blocking::Client, config: &CommitModelConfig, prompt: &str, context: &str) -> RpcResult<String> {
     let api_key = config.api_key.as_deref().ok_or("Google provider requires apiKey".to_string())?;
     let url = format!("{}/models/{}:generateContent?key={}", config.base_url.trim_end_matches('/'), config.model_id, api_key);
     let body = serde_json::json!({

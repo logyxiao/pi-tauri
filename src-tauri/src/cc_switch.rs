@@ -246,7 +246,7 @@ pub(crate) fn safe_sqlite_identifier(value: &str) -> RpcResult<String> {
     }
 }
 
-pub(crate) fn cc_switch_provider_import(_id: &str, app_type: &str, name: &str, config: &serde_json::Value, meta: &serde_json::Value) -> Option<CcSwitchProviderImport> {
+fn cc_switch_provider_import(_id: &str, app_type: &str, name: &str, config: &serde_json::Value, meta: &serde_json::Value) -> Option<CcSwitchProviderImport> {
     let base_url = first_config_string(
         config,
         &[
@@ -311,7 +311,7 @@ pub(crate) fn cc_switch_provider_import(_id: &str, app_type: &str, name: &str, c
     })
 }
 
-pub(crate) fn ensure_unique_provider_keys(imports: &mut [CcSwitchProviderImport]) {
+fn ensure_unique_provider_keys(imports: &mut [CcSwitchProviderImport]) {
     let mut seen = HashMap::<String, usize>::new();
     for import in imports {
         let base = import.provider_key.clone();

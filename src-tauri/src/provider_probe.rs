@@ -18,7 +18,7 @@ pub(crate) async fn pi_test_provider(base_url: String, api_key: Option<String>, 
     }))
 }
 
-pub(crate) async fn fetch_provider_models_with_options(base_url: String, api_key: Option<String>, headers: Option<HashMap<String, String>>, auth_header: Option<bool>) -> RpcResult<ProviderModelsResult> {
+async fn fetch_provider_models_with_options(base_url: String, api_key: Option<String>, headers: Option<HashMap<String, String>>, auth_header: Option<bool>) -> RpcResult<ProviderModelsResult> {
     let client = reqwest::Client::new();
     let key = resolve_optional_secret(api_key)?;
     let resolved_headers = resolve_provider_headers(headers)?;
