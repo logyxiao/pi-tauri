@@ -1776,16 +1776,28 @@ fn find_tool_call_arguments_by_id(content: &serde_json::Value, tool_call_id: Opt
 }
 
 fn find_assistant_tool_args(messages: &[serde_json::Value], parent_id: Option<&str>, tool_call_id: Option<&str>) -> serde_json::Value {
-    let Some(parent_id) = parent_id else {
-        return serde_json::Value::Null;
-    };
+    if let Some(parent_id) = parent_id {
+        let mut current_parent_id = Some(parent_id);
+        while let Some(id) = current_parent_id {
+            let Some(entry) = messages.iter().rev().find(|entry| entry.get("id").and_then(|item| item.as_str()) == Some(id)) else {
+                break;
+            };
+            if let Some(content) = entry.get("message").and_then(|message| message.get("content")) {
+                let args = find_tool_call_arguments_by_id(content, tool_call_id);
+                if !args.is_null() {
+                    return args;
+                }
+            }
+            current_parent_id = entry.get("parentId").and_then(|item| item.as_str());
+        }
+    }
+
     messages
         .iter()
         .rev()
-        .find(|entry| entry.get("id").and_then(|item| item.as_str()) == Some(parent_id))
-        .and_then(|entry| entry.get("message"))
-        .and_then(|message| message.get("content"))
+        .filter_map(|entry| entry.get("message").and_then(|message| message.get("content")))
         .map(|content| find_tool_call_arguments_by_id(content, tool_call_id))
+        .find(|args| !args.is_null())
         .unwrap_or(serde_json::Value::Null)
 }
 
@@ -1900,11 +1912,21 @@ fn pi_read_session_messages_blocking(session_path: String) -> RpcResult<Vec<serd
 #[tauri::command]
 fn pi_open_project_with(path: String, target: String) -> RpcResult<()> {
     let project_path = safe_root(&path)?;
-    match target.as_str() {
-        "fileManager" => open_file_manager(&project_path),
-        "terminal" => open_terminal(&project_path),
-        "vscode" => open_editor(&project_path, "vscode", "code", "Code.exe"),
-        "cursor" => open_editor(&project_path, "cursor", "cursor", "Cursor.exe"),
+    open_path_with_target(&project_path, &target)
+}
+
+#[tauri::command]
+fn pi_open_code_file_with(path: String, target: String) -> RpcResult<()> {
+    let file_path = safe_root(&path)?;
+    open_path_with_target(&file_path, &target)
+}
+
+fn open_path_with_target(path: &Path, target: &str) -> RpcResult<()> {
+    match target {
+        "fileManager" => open_file_manager(path),
+        "terminal" => open_terminal(path.parent().unwrap_or(path)),
+        "vscode" => open_editor(path, "vscode", "code", "Code.exe"),
+        "cursor" => open_editor(path, "cursor", "cursor", "Cursor.exe"),
         _ => Err(format!("unsupported open target: {target}")),
     }
 }
@@ -2202,6 +2224,38 @@ async fn pi_git_log(cwd: String, limit: Option<usize>) -> RpcResult<Vec<serde_js
     tauri::async_runtime::spawn_blocking(move || pi_git_log_blocking(cwd, limit))
         .await
         .map_err(|error| format!("git log task failed: {error}"))?
+}
+
+#[tauri::command]
+async fn pi_git_file_diff(cwd: String, path: String, staged: bool) -> RpcResult<serde_json::Value> {
+    tauri::async_runtime::spawn_blocking(move || pi_git_file_diff_blocking(cwd, path, staged))
+        .await
+        .map_err(|error| format!("git file diff task failed: {error}"))?
+}
+
+fn pi_git_file_diff_blocking(cwd: String, path: String, staged: bool) -> RpcResult<serde_json::Value> {
+    safe_git_relative_path(&path)?;
+    let repo_root = git_repo_root(&cwd)?;
+    let stat = if staged {
+        git_output(&repo_root, &["diff", "--cached", "--stat", "--", &path])?
+    } else if is_untracked_file(&repo_root, &path)? {
+        "Untracked file".to_string()
+    } else {
+        git_output(&repo_root, &["diff", "--stat", "--", &path])?
+    };
+    let diff = if staged {
+        git_output(&repo_root, &["diff", "--cached", "--no-ext-diff", "--", &path])?
+    } else if is_untracked_file(&repo_root, &path)? {
+        git_diff_allow_nonzero(&repo_root, &["diff", "--no-index", "--", os_null_path(), &path])?
+    } else {
+        git_output(&repo_root, &["diff", "--no-ext-diff", "--", &path])?
+    };
+    Ok(serde_json::json!({
+        "path": path,
+        "absolutePath": display_path(&repo_root.join(&path)),
+        "stat": stat,
+        "diff": diff
+    }))
 }
 
 fn pi_git_log_blocking(cwd: String, limit: Option<usize>) -> RpcResult<Vec<serde_json::Value>> {
@@ -3041,6 +3095,24 @@ fn git_status(cwd: &Path, args: &[&str]) -> RpcResult<()> {
     git_output(cwd, args).map(|_| ())
 }
 
+fn git_diff_allow_nonzero(cwd: &Path, args: &[&str]) -> RpcResult<String> {
+    let child = Command::new(default_git_bin())
+        .args(args)
+        .current_dir(cwd)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("failed to run git: {error}"))?;
+    let output = wait_with_output_timeout(child, Duration::from_secs(30))
+        .map_err(|error| format!("git command timed out or failed: {error}"))?;
+    if output.status.success() || output.status.code() == Some(1) {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if stderr.is_empty() { "git diff failed".to_string() } else { stderr })
+    }
+}
+
 fn parse_git_branch_header(header: &str) -> (String, Option<String>, usize, usize) {
     let mut subject = header;
     let mut meta = "";
@@ -3271,6 +3343,10 @@ fn spawn_app(program: &str, args: &[String]) -> RpcResult<()> {
         .map_err(|error| format!("failed to open {program}: {error}"))
 }
 
+fn os_null_path() -> &'static str {
+    if cfg!(windows) { "NUL" } else { "/dev/null" }
+}
+
 fn default_git_bin() -> String {
     if cfg!(windows) {
         "git.exe".to_string()
@@ -3331,6 +3407,7 @@ pub fn run() {
             pi_list_sessions,
             pi_read_session_messages,
             pi_open_project_with,
+            pi_open_code_file_with,
             pi_delete_session,
             pi_session_tree,
             pi_set_session_label,
@@ -3339,6 +3416,7 @@ pub fn run() {
             pi_git_status,
             pi_git_log,
             pi_git_action,
+            pi_git_file_diff,
             pi_git_sync,
             pi_git_commit,
             pi_git_generate_commit_message

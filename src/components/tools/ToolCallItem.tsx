@@ -44,6 +44,12 @@ export function ToolCallItem({ tool, onSelect, defaultExpanded = false }: ToolCa
         <span className="min-w-0 flex-1 truncate text-muted-foreground">
           <span>{summary.prefix}</span>
           {summary.path ? <span className="font-mono text-primary">{summary.path}</span> : null}
+          {summary.additions !== undefined || summary.deletions !== undefined ? (
+            <span className="font-mono">
+              {" "}
+              <span className="text-success">+{summary.additions ?? 0}</span> <span className="text-danger">-{summary.deletions ?? 0}</span>
+            </span>
+          ) : null}
           {summary.suffix ? <span>{summary.suffix}</span> : null}
         </span>
         <span
@@ -124,8 +130,13 @@ function CodePreview({ title, path, range, content }: { tool: PiToolCall; title:
   return (
     <div className="border-t border-border bg-[#1f2a20] px-2 py-1.5 font-mono text-[11px] leading-5 text-[#d7e1d2]">
       <div className="mb-1 text-[11px]">
-        <span className="font-semibold text-white">{title}</span>{" "}
-        {path ? <span className="text-[#7fc7bb]">{path}</span> : <span className="text-[#8b9589]">unknown</span>}
+        <span className="font-semibold text-white">{title}</span>
+        {path ? (
+          <>
+            {" "}
+            <span className="text-[#7fc7bb]">{path}</span>
+          </>
+        ) : null}
         {path && range ? <span className="text-[#f2d46b]">:{range}</span> : null}
       </div>
       {displayLines.length ? (
@@ -144,6 +155,8 @@ interface ToolSummary {
   suffix?: string;
   range?: string;
   diff?: string;
+  additions?: number;
+  deletions?: number;
 }
 
 function buildToolSummary(tool: PiToolCall): ToolSummary {
@@ -151,23 +164,25 @@ function buildToolSummary(tool: PiToolCall): ToolSummary {
     const path = getToolPath(tool);
     const { start, end } = getReadRange(tool);
     const range = start ? `${start}${end && end !== start ? `-${end}` : ""}` : undefined;
-    return { prefix: "读取 ", path, range, suffix: path && range ? `:${range}` : "" };
+    return { prefix: "", path, range, suffix: path && range ? `:${range}` : "" };
   }
 
   if (tool.name === "edit") {
     const path = getToolPath(tool);
     const diff = getStringDetail(tool, "diff") ?? buildDiffFromArgs(tool);
-    return { prefix: "修改 ", path, suffix: diff ? "" : ` · ${tool.summary}`, diff };
+    const stats = diff ? countDiffLines(diff) : countEditArgLines(tool);
+    return { prefix: "", path, suffix: hasLineStats(stats) ? "" : tool.summary ? ` · ${tool.summary}` : "", diff, ...stats };
   }
 
   if (tool.name === "write") {
     const path = getToolPath(tool) ?? parseWritePath(tool.output);
-    return { prefix: "写入 ", path };
+    const stats = countWriteLines(tool);
+    return { prefix: "", path, suffix: "", ...stats };
   }
 
   if (tool.name === "bash") {
     const command = getStringArg(tool, "command") ?? tool.target;
-    return { prefix: "执行 ", path: command };
+    return { prefix: "", path: command };
   }
 
   return { prefix: `${toolActionLabel(tool.name)} `, path: getToolPath(tool) || tool.target || tool.name, suffix: tool.summary ? ` · ${tool.summary}` : "" };
@@ -199,6 +214,50 @@ function buildDiffFromArgs(tool: PiToolCall): string | undefined {
     return [`@@ edit ${index + 1} @@`, ...oldText.split(/\r?\n/).map((line) => `-${line}`), ...newText.split(/\r?\n/).map((line) => `+${line}`)];
   });
   return chunks.length ? chunks.join("\n") : undefined;
+}
+
+function countDiffLines(diff: string): { additions: number; deletions: number } {
+  return diff.split(/\r?\n/).reduce(
+    (stats, line) => {
+      if (line.startsWith("+") && !line.startsWith("+++")) stats.additions += 1;
+      if (line.startsWith("-") && !line.startsWith("---")) stats.deletions += 1;
+      return stats;
+    },
+    { additions: 0, deletions: 0 },
+  );
+}
+
+function countEditArgLines(tool: PiToolCall): { additions: number; deletions: number } {
+  const edits = tool.args?.edits;
+  if (!Array.isArray(edits)) return { additions: 0, deletions: 0 };
+  return edits.reduce(
+    (stats, edit) => {
+      if (!edit || typeof edit !== "object") return stats;
+      const item = edit as Record<string, unknown>;
+      const oldText = typeof item.oldText === "string" ? item.oldText : typeof item.old_text === "string" ? item.old_text : "";
+      const newText = typeof item.newText === "string" ? item.newText : typeof item.new_text === "string" ? item.new_text : "";
+      stats.additions += countMeaningfulLines(newText);
+      stats.deletions += countMeaningfulLines(oldText);
+      return stats;
+    },
+    { additions: 0, deletions: 0 },
+  );
+}
+
+function countWriteLines(tool: PiToolCall): { additions: number; deletions: number } {
+  const content = getStringArg(tool, "content") ?? tool.output ?? "";
+  return { additions: countMeaningfulLines(content), deletions: 0 };
+}
+
+function countMeaningfulLines(text: string): number {
+  if (!text) return 0;
+  const lines = text.split(/\r?\n/);
+  if (lines.length > 1 && lines[lines.length - 1] === "") return lines.length - 1;
+  return lines.length;
+}
+
+function hasLineStats(stats: { additions: number; deletions: number }): boolean {
+  return Boolean(stats.additions || stats.deletions);
 }
 
 function DiffPreview({ diff }: { diff?: string }) {
@@ -243,11 +302,24 @@ function getToolPath(tool: PiToolCall): string | undefined {
     getStringArg(tool, "path") ??
     getStringArg(tool, "file_path") ??
     getStringArg(tool, "filePath") ??
+    getStringArg(tool, "filepath") ??
     getStringArg(tool, "relativePath") ??
+    getStringArg(tool, "relative_path") ??
     getStringArg(tool, "absolutePath") ??
+    getStringArg(tool, "absolute_path") ??
+    getStringArg(tool, "sourcePath") ??
+    getStringArg(tool, "source_path") ??
     getStringArg(tool, "target") ??
     getStringArg(tool, "filename") ??
     getStringArg(tool, "file") ??
+    getNestedToolArgString(tool, "input", ["path", "file_path", "filePath", "filepath", "relativePath", "relative_path", "absolutePath", "absolute_path", "target", "filename", "file"]) ??
+    getNestedToolArgString(tool, "arguments", ["path", "file_path", "filePath", "filepath", "relativePath", "relative_path", "absolutePath", "absolute_path", "target", "filename", "file"]) ??
+    getStringDetail(tool, "path") ??
+    getStringDetail(tool, "file_path") ??
+    getStringDetail(tool, "filePath") ??
+    getStringDetail(tool, "filepath") ??
+    getStringDetail(tool, "relativePath") ??
+    getStringDetail(tool, "relative_path") ??
     (isUsefulToolTarget(tool.target, tool.name) ? tool.target : undefined)
   );
 }
@@ -261,6 +333,17 @@ function isUsefulToolTarget(target: string | undefined, toolName: string): targe
 function getStringArg(tool: PiToolCall, key: string): string | undefined {
   const value = tool.args?.[key];
   return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function getNestedToolArgString(tool: PiToolCall, key: string, childKeys: string[]): string | undefined {
+  const value = tool.args?.[key];
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  for (const childKey of childKeys) {
+    const childValue = record[childKey];
+    if (typeof childValue === "string" && childValue.trim()) return childValue;
+  }
+  return undefined;
 }
 
 function getNumberArg(tool: PiToolCall, key: string): number | undefined {

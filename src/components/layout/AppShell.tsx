@@ -50,6 +50,8 @@ export function AppShell() {
     switchSession,
     deleteSession,
     openWorkspaceFolder,
+    removeWorkspaceFolder,
+    pinWorkspaceFolder,
     updateSettings,
     executeCommand,
     recordSafetyEvent,
@@ -80,6 +82,8 @@ export function AppShell() {
               onOpenWorkspaceFolder={openWorkspaceFolder}
               onSwitchSession={switchSession}
               onDeleteSession={deleteSession}
+              onRemoveWorkspaceFolder={removeWorkspaceFolder}
+              onPinWorkspaceFolder={pinWorkspaceFolder}
               onNewSession={newSession}
               onOpenSettings={() => {
                 setSettingsOpen(true);

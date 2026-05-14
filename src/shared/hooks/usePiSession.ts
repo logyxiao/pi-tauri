@@ -575,6 +575,20 @@ export function usePiSession() {
     }
   }
 
+  function removeWorkspaceFolder(cwd: string) {
+    const normalized = normalizePath(cwd);
+    setWorkspacePaths((current) => current.filter((item) => normalizePath(item) !== normalized));
+    setSessions((current) => current.filter((session) => normalizePath(session.cwd || "") !== normalized));
+  }
+
+  function pinWorkspaceFolder(cwd: string) {
+    const normalized = normalizePath(cwd);
+    setWorkspacePaths((current) => {
+      const target = current.find((item) => normalizePath(item) === normalized) ?? cwd;
+      return [target, ...current.filter((item) => normalizePath(item) !== normalized)];
+    });
+  }
+
 
   async function updateSettings(update: PiSettingsUpdate) {
     try {
@@ -706,6 +720,8 @@ export function usePiSession() {
     deleteSession,
     exportHtml,
     openWorkspaceFolder,
+    removeWorkspaceFolder,
+    pinWorkspaceFolder,
     updateSettings,
     executeCommand,
     recordSafetyEvent,

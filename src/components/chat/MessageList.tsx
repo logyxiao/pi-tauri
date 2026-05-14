@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, Brain, Check, ChevronRight, Copy, FileText, ImageIcon, Loader2, Terminal } from "lucide-react";
+import { ArrowDown, Brain, Check, ChevronRight, Copy, FilePenLine, FileText, ImageIcon, Loader2, Terminal } from "lucide-react";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
 import { LoadingPanel } from "@/components/status/LoadingPanel";
 import { ToolCallItem } from "@/components/tools/ToolCallItem";
@@ -25,7 +25,7 @@ interface TimelineItem {
 }
 
 type RenderItem =
-  | { type: "message"; message: PiMessage }
+  | { type: "message"; message: PiMessage; activityTools?: PiToolCall[]; activityMessages?: PiMessage[] }
   | { type: "activityGroup"; id: string; tools: PiToolCall[]; messages: PiMessage[] };
 
 export function MessageList({ messages, isConnecting = false, isRefreshing = false, isSwitchingSession = false, isRunning = false, onSelectTool }: MessageListProps) {
@@ -152,7 +152,7 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
             {renderItems.map((item) => {
               if (item.type === "message") {
                 const isActiveAssistant = item.message.id === activeAssistantId;
-                if (!isActiveAssistant && isHiddenAssistantMessage(item.message)) return null;
+                if (!isActiveAssistant && isHiddenAssistantMessage(item.message) && !item.activityTools?.length && !item.activityMessages?.length) return null;
                 return (
                   <div
                     key={item.message.id}
@@ -162,7 +162,7 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
                     }}
                     className="scroll-mt-16"
                   >
-                    <MessageBubble message={item.message} onSelectTool={onSelectTool} isActive={isActiveAssistant} />
+                    <MessageBubble message={item.message} activityTools={item.activityTools} activityMessages={item.activityMessages} onSelectTool={onSelectTool} isActive={isActiveAssistant} />
                   </div>
                 );
               }
@@ -194,7 +194,7 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
   );
 }
 
-function MessageBubble({ message, onSelectTool, isActive = false }: { message: PiMessage; onSelectTool?: (tool: PiToolCall) => void; isActive?: boolean }) {
+function MessageBubble({ message, activityTools = [], activityMessages = [], onSelectTool, isActive = false }: { message: PiMessage; activityTools?: PiToolCall[]; activityMessages?: PiMessage[]; onSelectTool?: (tool: PiToolCall) => void; isActive?: boolean }) {
   const isUser = message.role === "user";
   const displayContent = message.role === "assistant" ? stripToolMarkers(message.content) : message.content;
   const [copied, setCopied] = useState(false);
@@ -220,7 +220,7 @@ function MessageBubble({ message, onSelectTool, isActive = false }: { message: P
         {isUser ? (
           <UserContent message={message} />
         ) : (
-          <AssistantContent message={message} content={displayContent} createdAt={message.createdAt} isActive={isActive} onSelectTool={onSelectTool} />
+          <AssistantContent message={message} content={displayContent} createdAt={message.createdAt} activityTools={activityTools} activityMessages={activityMessages} isActive={isActive} onSelectTool={onSelectTool} />
         )}
         {getCopyText(message, displayContent) ? <CopyAction align={isUser ? "right" : "left"} copied={copied} onCopy={copyMessage} /> : null}
       </div>
@@ -228,7 +228,7 @@ function MessageBubble({ message, onSelectTool, isActive = false }: { message: P
   );
 }
 
-function ActivityGroup({ tools, messages, onSelectTool, className, live = false }: { tools: PiToolCall[]; messages: PiMessage[]; onSelectTool?: (tool: PiToolCall) => void; className?: string; live?: boolean }) {
+function ActivityGroup({ tools, messages, onSelectTool, className, live = false, label = "活动" }: { tools: PiToolCall[]; messages: PiMessage[]; onSelectTool?: (tool: PiToolCall) => void; className?: string; live?: boolean; label?: string }) {
   const [expanded, setExpanded] = useState(live);
   const summaryItems = summarizeActivity(tools, messages);
   const count = tools.length + messages.length;
@@ -244,7 +244,7 @@ function ActivityGroup({ tools, messages, onSelectTool, className, live = false 
         onClick={() => setExpanded((value) => !value)}
       >
         <ChevronRight className={cn("shrink-0 text-muted-foreground transition", expanded && "rotate-90")} size={12} />
-        <span className="shrink-0 text-[10px] font-medium text-foreground">活动</span>
+        <span className="shrink-0 text-[10px] font-medium text-foreground">{label}</span>
         <span className="shrink-0 border border-border/70 bg-background/75 px-1.5 font-mono text-[10px] leading-4 text-muted-foreground">{count}</span>
         {summaryItems.length ? (
           <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-hidden">
@@ -281,8 +281,112 @@ function GroupedMessage({ message, live = false }: { message: PiMessage; live?: 
   return <MessageBubble message={message} isActive={live} />;
 }
 
+function EditedFilesPanel({ tools, onSelectTool, live = false }: { tools: PiToolCall[]; onSelectTool?: (tool: PiToolCall) => void; live?: boolean }) {
+  const files = Array.from(new Set(tools.map(compactToolTarget).filter(Boolean)));
+  return (
+    <section className="overflow-hidden border border-border bg-background/55">
+      <div className="flex items-center justify-between gap-3 border-b border-border bg-surface/70 px-3 py-2 text-xs">
+        <div className="flex min-w-0 items-center gap-2">
+          <FilePenLine size={13} className="shrink-0 text-primary" />
+          <span className="font-semibold text-foreground">{files.length || tools.length} 个文件已更改</span>
+          <span className="text-success">+{tools.filter((tool) => tool.status === "success").length}</span>
+        </div>
+        <span className="shrink-0 text-[11px] text-muted-foreground">编辑结果</span>
+      </div>
+      <div className="divide-y divide-border">
+        {tools.map((tool) => (
+          <ToolCallItem key={tool.id} tool={tool} onSelect={onSelectTool} defaultExpanded={live} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function summarizeActivity(tools: PiToolCall[], messages: PiMessage[]): string[] {
   return [...summarizeTools(tools), ...summarizeGroupedMessages(messages)];
+}
+
+function buildAssistantRenderPlan(message: PiMessage, activityTools: PiToolCall[], activityMessages: PiMessage[], live: boolean) {
+  const tools = message.tools ?? [];
+  const inlineToolIds = new Set<string>();
+  for (const block of message.contentBlocks ?? []) {
+    if (block.type !== "toolCall") continue;
+    const tool = findToolForBlock(block, tools);
+    if (tool) inlineToolIds.add(tool.id);
+  }
+  if (live) {
+    return {
+      processedTools: activityTools,
+      processedMessages: activityMessages,
+      fileTools: [] as PiToolCall[],
+      inlineTools: tools,
+      remainingTools: [] as PiToolCall[],
+    };
+  }
+
+  const inlineTools = uniqueTools(tools.filter((tool) => inlineToolIds.has(tool.id)));
+  const nonInlineTools = uniqueTools(tools.filter((tool) => !inlineToolIds.has(tool.id)));
+  const allActivityTools = uniqueTools([...activityTools, ...nonInlineTools]);
+  const blockFileTools = inlineTools.filter(isFileEditTool);
+  const fileTools = [...allActivityTools, ...blockFileTools].filter(isFileEditTool);
+  const processedTools = [...allActivityTools, ...inlineTools].filter((tool) => !isFileEditTool(tool));
+  const blockActivityMessage = nonTextAssistantActivityMessage(message);
+  const processedMessages = [
+    ...activityMessages.filter((item) => !isTextOnlyAssistantMessage(item)),
+    ...(blockActivityMessage ? [blockActivityMessage] : []),
+  ];
+  return {
+    processedTools,
+    processedMessages,
+    fileTools,
+    inlineTools: [] as PiToolCall[],
+    remainingTools: [] as PiToolCall[],
+  };
+}
+
+function uniqueTools(tools: PiToolCall[]): PiToolCall[] {
+  const byId = new Map<string, PiToolCall>();
+  for (const tool of tools) byId.set(tool.id, byId.has(tool.id) ? { ...byId.get(tool.id), ...tool } : tool);
+  return Array.from(byId.values());
+}
+
+function isFileEditTool(tool: PiToolCall): boolean {
+  const name = tool.name.toLowerCase();
+  if (name === "edit" || name === "write") return true;
+  if (name === "apply_patch" || name === "patch") return true;
+  if (name === "bash") {
+    const command = getToolArgString(tool, "command") || tool.target;
+    return /\bapply_patch\b/.test(command);
+  }
+  return name.includes("edit") || name.includes("write") || name.includes("patch");
+}
+
+function isTextOnlyAssistantMessage(message: PiMessage): boolean {
+  if (message.role !== "assistant") return false;
+  const text = stripToolMarkers(message.content).trim();
+  if (text) return true;
+  return Boolean(message.contentBlocks?.length && message.contentBlocks.every((block) => block.type === "text" ? stripToolMarkers(block.text).trim() : false));
+}
+
+function nonTextAssistantActivityMessage(message: PiMessage): PiMessage | null {
+  const blocks = message.contentBlocks?.filter((block) => block.type !== "text" && block.type !== "toolCall") ?? [];
+  if (!blocks.length) return null;
+  return {
+    ...message,
+    id: `${message.id}:processed`,
+    content: "",
+    contentBlocks: blocks,
+    tools: [],
+  };
+}
+
+function textOnlyAssistantMessage(message: PiMessage): PiMessage {
+  if (!message.contentBlocks?.length) return message;
+  return {
+    ...message,
+    contentBlocks: message.contentBlocks.filter((block) => block.type === "text"),
+    tools: [],
+  };
 }
 
 function compactThinkingPreview(text: string): string {
@@ -367,21 +471,42 @@ function UserContent({ message }: { message: PiMessage }) {
   );
 }
 
-function AssistantContent({ message, content, createdAt, isActive, onSelectTool }: { message: PiMessage; content: string; createdAt: string; isActive: boolean; onSelectTool?: (tool: PiToolCall) => void }) {
+function AssistantContent({
+  message,
+  content,
+  createdAt,
+  activityTools = [],
+  activityMessages = [],
+  isActive,
+  onSelectTool,
+}: {
+  message: PiMessage;
+  content: string;
+  createdAt: string;
+  activityTools?: PiToolCall[];
+  activityMessages?: PiMessage[];
+  isActive: boolean;
+  onSelectTool?: (tool: PiToolCall) => void;
+}) {
   const hasContent = Boolean(content.trim());
   const renderBlocks = shouldRenderAssistantBlocks(message);
   const tools = message.tools ?? [];
   const hasTools = Boolean(tools.length);
   const hasInlineToolBlocks = Boolean(message.contentBlocks?.some((block) => block.type === "toolCall"));
   const showWorking = isActive && !hasContent && !renderBlocks && !hasTools;
+  const plan = buildAssistantRenderPlan(message, activityTools, activityMessages, isActive);
+  const textOnlyMessage = isActive ? message : textOnlyAssistantMessage(message);
 
   return (
     <div>
       <div className="mb-1 px-1 font-mono text-[10px] text-muted-foreground">{createdAt}</div>
       <div className="overflow-hidden border border-border bg-surface/82 text-foreground shadow-[0_10px_30px_rgb(44_54_70/0.055)]">
         <div className="space-y-3 px-3.5 py-3 text-[13px] leading-5">
-          {showWorking ? <WorkingBlock /> : renderBlocks ? <AssistantOrderedBlocks message={message} fallback={content} live={isActive} tools={tools} onSelectTool={onSelectTool} /> : hasContent ? <MarkdownContent content={content} /> : null}
-          {hasTools && !hasInlineToolBlocks ? <ActivityGroup tools={tools} messages={[]} onSelectTool={onSelectTool} live={isActive} /> : null}
+          {showWorking ? <WorkingBlock /> : null}
+          {plan.processedTools.length || plan.processedMessages.length ? <ActivityGroup tools={plan.processedTools} messages={plan.processedMessages} onSelectTool={onSelectTool} live={isActive} label="已处理" /> : null}
+          {!showWorking && (renderBlocks ? <AssistantOrderedBlocks message={textOnlyMessage} fallback={content} live={isActive} tools={plan.inlineTools} onSelectTool={onSelectTool} /> : hasContent ? <MarkdownContent content={content} /> : null)}
+          {!showWorking && plan.fileTools.length ? <EditedFilesPanel tools={plan.fileTools} onSelectTool={onSelectTool} live={isActive} /> : null}
+          {hasTools && !hasInlineToolBlocks && plan.remainingTools.length ? <ActivityGroup tools={plan.remainingTools} messages={[]} onSelectTool={onSelectTool} live={isActive} label={isActive ? "活动" : "已处理"} /> : null}
           <AssistantStopState message={message} />
           {isActive ? <LiveResponseTail /> : null}
         </div>
@@ -615,8 +740,13 @@ function messageToToolCall(message: PiMessage): PiToolCall | null {
 function extractToolTargetFromMessage(message: PiMessage): string {
   const args = message.toolArgs;
   if (message.toolName === "bash" && typeof args?.command === "string") return args.command;
-  if ((message.toolName === "read" || message.toolName === "edit" || message.toolName === "write") && typeof args?.path === "string") return args.path;
-  if (typeof args?.pattern === "string") return args.pattern;
+  if (args) {
+    for (const key of ["path", "file_path", "filePath", "relativePath", "absolutePath", "target", "filename", "file"]) {
+      const value = args[key];
+      if (typeof value === "string" && value.trim()) return value;
+    }
+    if (typeof args.pattern === "string") return args.pattern;
+  }
   return message.toolName ?? "tool";
 }
 
@@ -806,7 +936,18 @@ function buildRenderItems(messages: PiMessage[], activeAssistantId: string | nul
 
   function addPendingTool(message: PiMessage, tool: PiToolCall) {
     pendingId ??= message.id;
+    const existingIndex = pendingTools.findIndex((item) => item.id === tool.id);
+    if (existingIndex >= 0) {
+      pendingTools[existingIndex] = { ...pendingTools[existingIndex], ...tool };
+      return;
+    }
     pendingTools.push(tool);
+  }
+
+  function addPendingAssistantTools(message: PiMessage) {
+    for (const tool of message.tools ?? []) {
+      addPendingTool(message, tool);
+    }
   }
 
   function flushActivity() {
@@ -826,8 +967,27 @@ function buildRenderItems(messages: PiMessage[], activeAssistantId: string | nul
       }
     }
 
-    if (message.id !== activeAssistantId && isGroupableActivityMessage(message)) {
-      addPendingMessage(message);
+    if (message.role === "assistant" && message.id !== activeAssistantId) {
+      if (isGroupableActivityMessage(message)) {
+        addPendingAssistantTools(message);
+        addPendingMessage(message);
+        continue;
+      }
+
+      if (isHiddenAssistantMessage(message)) {
+        addPendingAssistantTools(message);
+        continue;
+      }
+
+      items.push({
+        type: "message",
+        message,
+        activityTools: pendingTools.length ? pendingTools : undefined,
+        activityMessages: pendingMessages.length ? pendingMessages : undefined,
+      });
+      pendingTools = [];
+      pendingMessages = [];
+      pendingId = null;
       continue;
     }
 

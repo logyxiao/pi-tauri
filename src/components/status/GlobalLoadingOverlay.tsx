@@ -1,4 +1,3 @@
-import { PiMark } from "@/components/brand/PiMark";
 import { cn } from "@/shared/lib/cn";
 
 interface GlobalLoadingOverlayProps {
@@ -11,15 +10,9 @@ interface GlobalLoadingOverlayProps {
 export function PiLogo() {
   return (
     <svg className="size-24" viewBox="0 0 96 96" role="img" aria-label="π logo">
-      <defs>
-        <linearGradient id="pi-logo-gradient" x1="18" y1="16" x2="78" y2="82" gradientUnits="userSpaceOnUse">
-          <stop stopColor="currentColor" stopOpacity="0.95" />
-          <stop offset="1" stopColor="currentColor" stopOpacity="0.52" />
-        </linearGradient>
-      </defs>
       <foreignObject x="16" y="16" width="64" height="64">
-        <div className="flex size-16 items-center justify-center text-primary">
-          <PiMark className="size-16" />
+        <div className="flex size-16 items-center justify-center">
+          <img className="size-16" src="/pi.svg" alt="π" draggable={false} />
         </div>
       </foreignObject>
       <circle cx="48" cy="48" r="41" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="18 12" className="animate-spin text-primary/70 [animation-duration:2.8s]" />

@@ -7,7 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/lib/cn";
-import { openProjectPath, type ProjectOpenTarget } from "@/shared/system-open";
+import { loadPreferredOpenTarget, openProjectPath, persistPreferredOpenTarget, type ProjectOpenTarget } from "@/shared/system-open";
 import type { PiCommand, PiExtensionPanel, PiExtensionStatus, PiMessage, PiModel, PiSafetyEvent, PiSessionStats, PiSettings, PiSettingsUpdate, PiState, PiToolCall } from "@/shared/pi/types";
 
 interface MainAreaProps {
@@ -40,26 +40,6 @@ interface MainAreaProps {
   onConsumePrefill: () => void;
   onToggleInspector: () => void;
   onSelectTool: (tool: PiToolCall) => void;
-}
-
-const OPEN_TARGET_STORAGE_KEY = "pi-tauri.projectOpenTarget";
-
-function loadPreferredOpenTarget(): ProjectOpenTarget {
-  try {
-    const value = window.localStorage.getItem(OPEN_TARGET_STORAGE_KEY);
-    if (value === "fileManager" || value === "terminal" || value === "vscode" || value === "cursor") return value;
-  } catch {
-    // Ignore storage failures.
-  }
-  return "terminal";
-}
-
-function persistPreferredOpenTarget(target: ProjectOpenTarget) {
-  try {
-    window.localStorage.setItem(OPEN_TARGET_STORAGE_KEY, target);
-  } catch {
-    // Ignore storage failures.
-  }
 }
 
 function openTargetLabel(target: ProjectOpenTarget, t: (key: string, params?: Record<string, string | number>) => string) {

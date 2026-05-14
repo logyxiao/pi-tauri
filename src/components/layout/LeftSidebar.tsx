@@ -4,12 +4,16 @@ import {
   Folder,
   FolderPlus,
   MessageSquarePlus,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
+  Pin,
   Settings,
   Trash2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/lib/cn";
@@ -24,6 +28,8 @@ interface LeftSidebarProps {
   onOpenWorkspaceFolder: () => Promise<void> | void;
   onSwitchSession: (sessionPath: string) => Promise<void> | void;
   onDeleteSession: (sessionPath: string) => Promise<void> | void;
+  onRemoveWorkspaceFolder: (cwd: string) => Promise<void> | void;
+  onPinWorkspaceFolder: (cwd: string) => Promise<void> | void;
   onNewSession: (cwd?: string) => Promise<void> | void;
   onOpenSettings: () => void;
 }
@@ -45,6 +51,8 @@ export function LeftSidebar({
   onOpenWorkspaceFolder,
   onSwitchSession,
   onDeleteSession,
+  onRemoveWorkspaceFolder,
+  onPinWorkspaceFolder,
   onNewSession,
   onOpenSettings,
 }: LeftSidebarProps) {
@@ -210,6 +218,33 @@ export function LeftSidebar({
                       </TooltipTrigger>
                       <TooltipContent>{t("sidebar.newSession")}</TooltipContent>
                     </Tooltip>
+                    <DropdownMenu>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              className="size-7 shrink-0 cursor-pointer text-muted-foreground opacity-0 transition hover:bg-transparent hover:text-primary group-hover/project:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 data-[state=open]:text-primary"
+                              size="icon"
+                              variant="ghost"
+                              aria-label={t("sidebar.moreActions")}
+                            >
+                              <MoreHorizontal size={14} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                        </TooltipTrigger>
+                        <TooltipContent>{t("sidebar.moreActions")}</TooltipContent>
+                      </Tooltip>
+                      <DropdownMenuContent align="end" className="min-w-40">
+                        <DropdownMenuItem onSelect={() => void onPinWorkspaceFolder(group.cwd)}>
+                          <Pin size={12} />
+                          <span>{t("sidebar.pinFolder")}</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="text-danger focus:text-danger" onSelect={() => void onRemoveWorkspaceFolder(group.cwd)}>
+                          <X size={12} />
+                          <span>{t("sidebar.removeFolder")}</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                   {open ? (
                     <div className="space-y-0.5 border-t border-border/60 p-1 pl-5">

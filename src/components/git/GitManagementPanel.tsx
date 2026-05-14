@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Check, ChevronDown, Cloud, GitBranch, GitCommitHorizontal, Loader2, Minus, Plus, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
+import { Check, ChevronDown, Cloud, Code2, ExternalLink, GitBranch, GitCommitHorizontal, Loader2, Minus, Plus, RefreshCw, RotateCcw, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/shared/i18n";
+import { loadPreferredOpenTarget, openCodeFile } from "@/shared/system-open";
 import { cn } from "@/shared/lib/cn";
 
 interface GitManagementPanelProps {
@@ -40,6 +41,13 @@ type GitCommit = {
   refs?: string;
 };
 
+type GitFileDiff = {
+  path: string;
+  absolutePath: string;
+  stat: string;
+  diff: string;
+};
+
 const MAX_RENDERED_GIT_FILES = 300;
 
 export function GitManagementPanel({ cwd, model, provider, thinkingLevel, isRunning = false }: GitManagementPanelProps) {
@@ -52,6 +60,10 @@ export function GitManagementPanel({ cwd, model, provider, thinkingLevel, isRunn
   const [stagedOpen, setStagedOpen] = useState(true);
   const [changesOpen, setChangesOpen] = useState(true);
   const [graphOpen, setGraphOpen] = useState(false);
+  const [diffTarget, setDiffTarget] = useState<{ file: GitFile; staged: boolean } | null>(null);
+  const [fileDiff, setFileDiff] = useState<GitFileDiff | null>(null);
+  const [diffBusy, setDiffBusy] = useState(false);
+  const [diffError, setDiffError] = useState<string | null>(null);
   const cwdRef = useRef(cwd);
   const busyRef = useRef<typeof busy>(busy);
   const graphOpenRef = useRef(graphOpen);
@@ -172,6 +184,31 @@ export function GitManagementPanel({ cwd, model, provider, thinkingLevel, isRunn
     }
   }
 
+  async function showFileDiff(file: GitFile, staged: boolean) {
+    setDiffTarget({ file, staged });
+    setFileDiff(null);
+    setDiffError(null);
+    setDiffBusy(true);
+    try {
+      const nextDiff = await invoke<GitFileDiff>("pi_git_file_diff", { cwd, path: file.path, staged });
+      setFileDiff(nextDiff);
+    } catch (caught) {
+      setDiffError(errorText(caught));
+    } finally {
+      setDiffBusy(false);
+    }
+  }
+
+  async function openSelectedFile() {
+    const path = fileDiff?.absolutePath ?? (diffTarget ? `${cwd.replace(/[\\/]+$/, "")}/${diffTarget.file.path}` : null);
+    if (!path) return;
+    try {
+      await openCodeFile(path, loadPreferredOpenTarget());
+    } catch (caught) {
+      setDiffError(errorText(caught));
+    }
+  }
+
   return (
     <section className="flex h-full min-h-0 flex-col bg-sidebar/70 text-xs">
       <header className="flex h-8 shrink-0 items-center justify-between border-b border-border px-2">
@@ -246,7 +283,7 @@ export function GitManagementPanel({ cwd, model, provider, thinkingLevel, isRunn
           actionTitle={t("git.unstageAll")}
           onAction={() => void runGitAction("unstage")}
         >
-          {visibleStagedFiles.map((file) => <GitFileRow key={`staged:${file.path}`} file={file} />)}
+          {visibleStagedFiles.map((file) => <GitFileRow key={`staged:${file.path}`} file={file} onOpenDiff={() => void showFileDiff(file, true)} />)}
           {stagedFiles.length > visibleStagedFiles.length ? <OverflowRow hidden={stagedFiles.length - visibleStagedFiles.length} /> : null}
         </ChangeGroup>
         <ChangeGroup
@@ -260,12 +297,23 @@ export function GitManagementPanel({ cwd, model, provider, thinkingLevel, isRunn
           actionTitle={t("git.stageAll")}
           onAction={() => void runGitAction("stage")}
         >
-          {visibleChangedFiles.map((file) => <GitFileRow key={`changed:${file.path}`} file={file} onStage={() => void runGitAction("stage", file.path)} onDiscard={() => void runGitAction("discard", file.path)} />)}
+          {visibleChangedFiles.map((file) => <GitFileRow key={`changed:${file.path}`} file={file} onOpenDiff={() => void showFileDiff(file, false)} onStage={() => void runGitAction("stage", file.path)} onDiscard={() => void runGitAction("discard", file.path)} />)}
           {changedFiles.length > visibleChangedFiles.length ? <OverflowRow hidden={changedFiles.length - visibleChangedFiles.length} /> : null}
         </ChangeGroup>
 
         <CommitGraph commits={commits} currentBranch={status?.branch} open={graphOpen} onToggle={() => setGraphOpen((value) => !value)} />
       </div>
+
+      {diffTarget ? (
+        <FileDiffDialog
+          target={diffTarget}
+          diff={fileDiff}
+          busy={diffBusy}
+          error={diffError}
+          onClose={() => setDiffTarget(null)}
+          onOpenFile={() => void openSelectedFile()}
+        />
+      ) : null}
     </section>
   );
 }
@@ -295,20 +343,121 @@ function ChangeGroup({ title, count, empty, open, tone = "neutral", onToggle, ac
   );
 }
 
-function GitFileRow({ file, onStage, onDiscard }: { file: GitFile; onStage?: () => void; onDiscard?: () => void }) {
+function GitFileRow({ file, onOpenDiff, onStage, onDiscard }: { file: GitFile; onOpenDiff?: () => void; onStage?: () => void; onDiscard?: () => void }) {
   const name = basename(file.path);
   const dir = dirname(file.path);
   return (
     <div className="group flex h-6 items-center gap-2 px-3 text-xs hover:bg-muted/60">
-      <FileGlyph path={file.path} status={statusLabel(file)} />
-      <span className="min-w-0 truncate text-foreground" title={file.originalPath ? `${file.originalPath} → ${file.path}` : file.path}>{name}</span>
-      {dir ? <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{dir}</span> : <span className="flex-1" />}
+      <button type="button" className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left" onClick={onOpenDiff} title={file.originalPath ? `${file.originalPath} → ${file.path}` : file.path}>
+        <FileGlyph path={file.path} status={statusLabel(file)} />
+        <span className="min-w-0 truncate text-foreground">{name}</span>
+        {dir ? <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{dir}</span> : <span className="flex-1" />}
+      </button>
       <div className="hidden items-center gap-0.5 group-hover:flex">
+        {onOpenDiff ? <IconButton title="Diff" onClick={onOpenDiff}><ExternalLink size={12} /></IconButton> : null}
         {onStage ? <IconButton title="Stage" onClick={onStage}><Plus size={12} /></IconButton> : null}
         {onDiscard ? <IconButton title="Discard" onClick={onDiscard}><RotateCcw size={12} /></IconButton> : null}
       </div>
       <span className={cn("font-mono text-[10px]", statusLabel(file) === "D" ? "text-danger" : "text-primary")}>{statusLabel(file)}</span>
     </div>
+  );
+}
+
+function FileDiffDialog({ target, diff, busy, error, onClose, onOpenFile }: { target: { file: GitFile; staged: boolean }; diff: GitFileDiff | null; busy: boolean; error: string | null; onClose: () => void; onOpenFile: () => void }) {
+  const { t } = useI18n();
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/35 p-6 backdrop-blur-[2px]" role="dialog" aria-modal="true">
+      <div className="flex max-h-[82vh] w-full max-w-4xl flex-col border border-border bg-popover text-xs shadow-2xl">
+        <header className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border px-3">
+          <div className="min-w-0">
+            <div className="truncate font-semibold text-foreground" title={target.file.path}>{target.file.path}</div>
+            <div className="font-mono text-[10px] text-muted-foreground">{target.staged ? t("git.stagedChanges") : t("git.changesPanel")}</div>
+          </div>
+          <div className="flex items-center gap-1">
+            <ToolbarButton title={t("git.openFile")} disabled={Boolean(error && !diff?.absolutePath)} onClick={onOpenFile}><Code2 size={13} /></ToolbarButton>
+            <ToolbarButton title={t("common.cancel")} onClick={onClose}><X size={14} /></ToolbarButton>
+          </div>
+        </header>
+        {diff ? <DiffSummary stat={diff.stat} diff={diff.diff} /> : null}
+        <div className="min-h-0 flex-1 overflow-auto bg-background/80">
+          {busy ? (
+            <div className="flex items-center gap-2 p-4 font-mono text-[11px] text-muted-foreground"><Loader2 size={13} className="animate-spin" /> {t("common.loading")}</div>
+          ) : error ? (
+            <div className="m-3 border border-danger/20 bg-danger/5 p-3 text-danger">{error}</div>
+          ) : diff?.diff?.trim() ? (
+            <GitDiffPreview diff={diff.diff} />
+          ) : (
+            <div className="p-4 text-muted-foreground">{t("git.noFileDiff")}</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DiffSummary({ stat, diff }: { stat?: string; diff?: string }) {
+  const stats = countDiffLines(diff ?? "");
+  return (
+    <div className="shrink-0 border-b border-border bg-background/75 px-3 py-2 font-mono text-[11px] leading-5">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="font-semibold text-foreground">diff</span>
+        <span className="text-success">+{stats.additions}</span>
+        <span className="text-danger">-{stats.deletions}</span>
+        {stat?.trim() ? <span className="min-w-0 flex-1 truncate text-muted-foreground" title={stat}>{stat.replace(/\s+/g, " ").trim()}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+function GitDiffPreview({ diff }: { diff: string }) {
+  const lines = diff.split(/\r?\n/);
+  return (
+    <div className="font-mono text-[11px] leading-5">
+      {lines.map((line, index) => {
+        const kind = diffLineKind(line);
+        return (
+          <div
+            key={`${index}-${line}`}
+            className={cn(
+              "grid grid-cols-[3.5rem_1fr] border-l-2 px-2",
+              kind === "add" && "border-l-success bg-success/10 text-success",
+              kind === "delete" && "border-l-danger bg-danger/10 text-danger",
+              kind === "hunk" && "border-l-primary bg-primary/10 text-primary",
+              kind === "meta" && "border-l-transparent bg-surface/70 text-muted-foreground",
+              kind === "context" && "border-l-transparent text-foreground",
+            )}
+          >
+            <span className="select-none pr-3 text-right text-muted-foreground/70">{lineNumberLabel(index, line)}</span>
+            <span className="whitespace-pre-wrap break-words">{line || " "}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function diffLineKind(line: string): "add" | "delete" | "hunk" | "meta" | "context" {
+  if (line.startsWith("+") && !line.startsWith("+++")) return "add";
+  if (line.startsWith("-") && !line.startsWith("---")) return "delete";
+  if (line.startsWith("@@")) return "hunk";
+  if (line.startsWith("diff --git") || line.startsWith("index ") || line.startsWith("---") || line.startsWith("+++") || line.startsWith("new file mode") || line.startsWith("deleted file mode")) return "meta";
+  return "context";
+}
+
+function lineNumberLabel(index: number, line: string) {
+  const hunk = line.match(/^@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/);
+  if (hunk) return `-${hunk[1]} +${hunk[2]}`;
+  return String(index + 1);
+}
+
+function countDiffLines(diff: string): { additions: number; deletions: number } {
+  return diff.split(/\r?\n/).reduce(
+    (stats, line) => {
+      if (line.startsWith("+") && !line.startsWith("+++")) stats.additions += 1;
+      if (line.startsWith("-") && !line.startsWith("---")) stats.deletions += 1;
+      return stats;
+    },
+    { additions: 0, deletions: 0 },
   );
 }
 
