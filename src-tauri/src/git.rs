@@ -202,28 +202,6 @@ pub(crate) async fn pi_git_generate_commit_message(cwd: String, model: Option<St
         .map_err(|error| format!("git commit message task failed: {error}"))?
 }
 
-#[tauri::command]
-pub(crate) async fn pi_optimize_prompt_keywords(input: String, model: Option<String>, provider: Option<String>, thinking_level: Option<String>) -> RpcResult<Vec<String>> {
-    tauri::async_runtime::spawn_blocking(move || pi_optimize_prompt_keywords_blocking(input, model, provider, thinking_level))
-        .await
-        .map_err(|error| format!("prompt optimize task failed: {error}"))?
-}
-
-pub(crate) fn pi_optimize_prompt_keywords_blocking(input: String, model: Option<String>, provider: Option<String>, thinking_level: Option<String>) -> RpcResult<Vec<String>> {
-    let trimmed = input.trim();
-    if trimmed.is_empty() {
-        return Err("input is required".to_string());
-    }
-    let prompt = "You are optimizing a user's short coding-agent prompt. Return exactly 3 improved Chinese prompt options as a JSON array of strings. Each option should preserve the user's intent, be concrete, actionable, and concise. Do not include markdown, numbering, explanations, or any extra text.";
-    let context = format!("Original user input:\n{trimmed}");
-    let raw = generate_commit_message_via_provider(model, provider, thinking_level, prompt, &context)?;
-    let options = parse_prompt_options(&raw);
-    if options.is_empty() {
-        return Err("model returned no prompt options".to_string());
-    }
-    Ok(options.into_iter().take(3).collect())
-}
-
 pub(crate) fn pi_git_generate_commit_message_blocking(cwd: String, model: Option<String>, provider: Option<String>, thinking_level: Option<String>) -> RpcResult<String> {
     let repo_root = git_repo_root(&cwd)?;
     let stat = git_output(&repo_root, &["diff", "--cached", "--stat"])?;
@@ -264,18 +242,18 @@ pub(crate) fn generate_commit_message_via_provider(model: Option<String>, provid
     }
 }
 
-struct CommitModelConfig {
-    model_id: String,
-    api: String,
-    base_url: String,
-    api_key: Option<String>,
-    headers: HashMap<String, String>,
-    auth_header: bool,
-    max_tokens: u64,
-    thinking_level: Option<String>,
+pub(crate) struct CommitModelConfig {
+    pub(crate) model_id: String,
+    pub(crate) api: String,
+    pub(crate) base_url: String,
+    pub(crate) api_key: Option<String>,
+    pub(crate) headers: HashMap<String, String>,
+    pub(crate) auth_header: bool,
+    pub(crate) max_tokens: u64,
+    pub(crate) thinking_level: Option<String>,
 }
 
-fn resolve_commit_model_config(model: Option<String>, provider: Option<String>, thinking_level: Option<String>) -> RpcResult<CommitModelConfig> {
+pub(crate) fn resolve_commit_model_config(model: Option<String>, provider: Option<String>, thinking_level: Option<String>) -> RpcResult<CommitModelConfig> {
     let models_json = read_models_json().unwrap_or_else(|_| serde_json::json!({}));
     let settings = read_pi_settings_json().unwrap_or_else(|_| serde_json::json!({}));
     let requested_model = model.as_deref().map(str::trim).filter(|value| !value.is_empty() && *value != "no model").map(str::to_string);
@@ -340,7 +318,7 @@ fn request_builder_with_auth(client: &reqwest::blocking::Client, config: &Commit
     request
 }
 
-fn call_openai_chat_completions(client: &reqwest::blocking::Client, config: &CommitModelConfig, prompt: &str, context: &str) -> RpcResult<String> {
+pub(crate) fn call_openai_chat_completions(client: &reqwest::blocking::Client, config: &CommitModelConfig, prompt: &str, context: &str) -> RpcResult<String> {
     let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
     let mut body = serde_json::json!({
         "model": config.model_id,
@@ -361,7 +339,7 @@ fn call_openai_chat_completions(client: &reqwest::blocking::Client, config: &Com
         .ok_or("OpenAI chat response missing message content".to_string())
 }
 
-fn call_openai_responses(client: &reqwest::blocking::Client, config: &CommitModelConfig, prompt: &str, context: &str) -> RpcResult<String> {
+pub(crate) fn call_openai_responses(client: &reqwest::blocking::Client, config: &CommitModelConfig, prompt: &str, context: &str) -> RpcResult<String> {
     let url = format!("{}/responses", config.base_url.trim_end_matches('/'));
     let mut body = serde_json::json!({
         "model": config.model_id,
@@ -374,10 +352,10 @@ fn call_openai_responses(client: &reqwest::blocking::Client, config: &CommitMode
         body["reasoning"] = serde_json::json!({ "effort": effort });
     }
     let value = send_json_request(request_builder_with_auth(client, config, url), body)?;
-    extract_openai_response_text(&value).ok_or("OpenAI responses output text missing".to_string())
+    extract_openai_response_text(&value).ok_or_else(|| format!("OpenAI responses output text missing: {}", compact_json_for_error(&value)))
 }
 
-fn call_anthropic_messages(client: &reqwest::blocking::Client, config: &CommitModelConfig, prompt: &str, context: &str) -> RpcResult<String> {
+pub(crate) fn call_anthropic_messages(client: &reqwest::blocking::Client, config: &CommitModelConfig, prompt: &str, context: &str) -> RpcResult<String> {
     let url = format!("{}/messages", config.base_url.trim_end_matches('/'));
     let mut request = request_builder_with_auth(client, config, url)
         .header("anthropic-version", "2023-06-01");
@@ -401,7 +379,7 @@ fn call_anthropic_messages(client: &reqwest::blocking::Client, config: &CommitMo
         .ok_or("Anthropic response missing text content".to_string())
 }
 
-fn call_google_generate_content(client: &reqwest::blocking::Client, config: &CommitModelConfig, prompt: &str, context: &str) -> RpcResult<String> {
+pub(crate) fn call_google_generate_content(client: &reqwest::blocking::Client, config: &CommitModelConfig, prompt: &str, context: &str) -> RpcResult<String> {
     let api_key = config.api_key.as_deref().ok_or("Google provider requires apiKey".to_string())?;
     let url = format!("{}/models/{}:generateContent?key={}", config.base_url.trim_end_matches('/'), config.model_id, api_key);
     let body = serde_json::json!({
@@ -437,19 +415,60 @@ pub(crate) fn send_json_request(request: reqwest::blocking::RequestBuilder, body
 }
 
 pub(crate) fn extract_openai_response_text(value: &serde_json::Value) -> Option<String> {
-    if let Some(text) = value.get("output_text").and_then(|value| value.as_str()) {
+    if let Some(text) = value.get("output_text").and_then(|value| value.as_str()).filter(|text| !text.trim().is_empty()) {
         return Some(text.to_string());
     }
-    let output = value.get("output")?.as_array()?;
-    for item in output {
-        let content = item.get("content").and_then(|value| value.as_array())?;
-        for part in content {
-            if let Some(text) = part.get("text").and_then(|value| value.as_str()) {
+    if let Some(text) = value.pointer("/choices/0/message/content").and_then(|value| value.as_str()).filter(|text| !text.trim().is_empty()) {
+        return Some(text.to_string());
+    }
+    if let Some(text) = value.pointer("/message/content").and_then(|value| value.as_str()).filter(|text| !text.trim().is_empty()) {
+        return Some(text.to_string());
+    }
+    for item in value.get("output").and_then(|value| value.as_array()).into_iter().flatten() {
+        if let Some(text) = item.get("text").and_then(|value| value.as_str()).filter(|text| !text.trim().is_empty()) {
+            return Some(text.to_string());
+        }
+        for part in item.get("content").and_then(|value| value.as_array()).into_iter().flatten() {
+            if let Some(text) = part.get("text").and_then(|value| value.as_str()).filter(|text| !text.trim().is_empty()) {
+                return Some(text.to_string());
+            }
+            if let Some(text) = part.get("output_text").and_then(|value| value.as_str()).filter(|text| !text.trim().is_empty()) {
                 return Some(text.to_string());
             }
         }
     }
-    None
+    collect_text_fields(value).into_iter().find(|text| !text.trim().is_empty())
+}
+
+fn collect_text_fields(value: &serde_json::Value) -> Vec<String> {
+    let mut texts = Vec::new();
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, child) in map {
+                if (key == "text" || key == "content" || key == "output_text") && child.as_str().is_some() {
+                    texts.push(child.as_str().unwrap_or_default().to_string());
+                } else {
+                    texts.extend(collect_text_fields(child));
+                }
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                texts.extend(collect_text_fields(item));
+            }
+        }
+        _ => {}
+    }
+    texts
+}
+
+fn compact_json_for_error(value: &serde_json::Value) -> String {
+    let text = value.to_string();
+    if text.chars().count() > 1200 {
+        format!("{}...", text.chars().take(1200).collect::<String>())
+    } else {
+        text
+    }
 }
 
 pub(crate) fn wait_with_output_timeout(mut child: Child, timeout: Duration) -> std::io::Result<std::process::Output> {
@@ -490,32 +509,6 @@ pub(crate) fn clean_commit_message(output: &str) -> String {
         .chars()
         .take(120)
         .collect::<String>()
-}
-
-pub(crate) fn parse_prompt_options(output: &str) -> Vec<String> {
-    if let Ok(values) = serde_json::from_str::<Vec<String>>(output.trim()) {
-        return values.into_iter().filter_map(clean_prompt_option).collect();
-    }
-    output
-        .lines()
-        .filter_map(|line| {
-            let cleaned = line
-                .trim()
-                .trim_start_matches(|ch: char| ch.is_ascii_digit() || ch == '.' || ch == '-' || ch == '*' || ch == '、')
-                .trim()
-                .trim_matches(|ch| ch == '"' || ch == '\'' || ch == '`' || ch == ',' || ch == '[' || ch == ']')
-                .to_string();
-            clean_prompt_option(cleaned)
-        })
-        .collect()
-}
-
-fn clean_prompt_option(value: String) -> Option<String> {
-    let cleaned = value.trim().trim_matches(|ch| ch == '"' || ch == '\'' || ch == '`').to_string();
-    if cleaned.is_empty() || cleaned.starts_with("```") {
-        return None;
-    }
-    Some(cleaned.chars().take(500).collect())
 }
 
 pub(crate) fn parse_git_log_line(line: &str) -> Option<serde_json::Value> {
