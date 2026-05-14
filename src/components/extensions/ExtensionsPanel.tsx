@@ -1,4 +1,5 @@
 import { AlertTriangle, Command, Loader2, PanelTop, Power, ShieldAlert, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/lib/cn";
 import type { PiCommand, PiExtensionError, PiExtensionPanel, PiExtensionResource } from "@/shared/pi/types";
@@ -57,24 +58,28 @@ export function ExtensionsPanel({ commands, extensionPanels, extensionErrors, ex
                         {resource.disabledByPattern ? <div className="mt-2 text-[11px] text-muted-foreground">{t("extension.disabledBySettings")}</div> : null}
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
-                        <button
+                        <Button
                           type="button"
-                          className="inline-flex h-7 cursor-pointer items-center gap-1 border border-border px-2 text-muted-foreground transition hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-45 [&_span]:text-[12px] [&_span]:leading-none"
+                          size="sm"
+                          variant="secondary"
+                          className="border-border bg-transparent text-muted-foreground hover:border-primary/40 hover:text-primary"
                           disabled={busy || !onToggleExtension}
                           onClick={() => onToggleExtension?.(resource)}
                         >
-                          {busy ? <Loader2 size={12} className="animate-spin" /> : <Power size={12} />}
+                          {busy ? <Loader2 className="animate-spin" /> : <Power />}
                           <span>{resource.enabled ? t("extension.stop") : t("extension.enable")}</span>
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           type="button"
-                          className="inline-flex h-7 cursor-pointer items-center gap-1 border border-danger/25 px-2 text-danger transition hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-45 [&_span]:text-[12px] [&_span]:leading-none"
+                          size="sm"
+                          variant="danger"
+                          className="border-danger/25 text-danger hover:bg-danger/10"
                           disabled={busy || !resource.removable || !onDeleteExtension}
                           onClick={() => onDeleteExtension?.(resource)}
                         >
-                          {busy ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                          {busy ? <Loader2 className="animate-spin" /> : <Trash2 />}
                           <span>{t("extension.delete")}</span>
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   </div>

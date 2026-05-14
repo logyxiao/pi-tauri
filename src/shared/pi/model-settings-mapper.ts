@@ -28,6 +28,7 @@ export function mapModel(raw: unknown): PiModel | null {
     provider,
     name: typeof model.name === "string" ? model.name : id,
     api: model.api as string | undefined,
+    baseUrl: model.baseUrl as string | undefined,
     reasoning: model.reasoning as boolean | undefined,
     contextWindow: nullableNumber(model.contextWindow) ?? undefined,
     maxTokens: nullableNumber(model.maxTokens) ?? undefined,

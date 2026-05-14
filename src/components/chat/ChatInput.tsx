@@ -1,9 +1,11 @@
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
-import { ArrowUp, AtSign, BarChart3, Image, Pause, X } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { ArrowUp, AtSign, Gauge, Image, Pause, RefreshCw, X } from "lucide-react";
 import { CommandPalette } from "@/components/chat/CommandPalette";
 import { ComposerExtensionShelf } from "@/components/extensions/ComposerExtensionShelf";
 import { ModelSelector } from "@/components/model/ModelSelector";
 import { SafetyConfirmDialog } from "@/components/safety/SafetyConfirmDialog";
+import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useI18n } from "@/shared/i18n";
 import { createSafetyEvent, detectDangerousCommand } from "@/shared/pi/safety";
@@ -284,7 +286,7 @@ function ChatInputComponent({
           <div className="flex items-center justify-end gap-1.5">
             <ModelSelector state={state} models={models} compact onModelChange={onModelChange} />
             <ExtensionStatusLine statuses={extensionStatuses} />
-            <StatsTooltip state={state} stats={stats} settings={settings} status={status} />
+            <StatsTooltip state={state} stats={stats} settings={settings} status={status} models={models} />
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -380,6 +382,19 @@ function IconHint({ label, disabled, onClick, children }: { label: string; disab
 
 const BUILTIN_COMMAND_NAMES = new Set(["compact", "cycle-model", "cycle-thinking", "abort-retry", "abort-bash", "export-html", "help", "models", "sessions", "extensions"]);
 
+interface ProviderProbeResult {
+  balance?: string;
+  balanceSource?: string;
+}
+
+interface ProviderBalanceSnapshot {
+  balance: string;
+  source?: string;
+  checkedAt: string;
+}
+
+const PROVIDER_BALANCE_STORAGE_KEY = "pi-tauri.providerBalances";
+
 function findExactSlashCommand(text: string, commands: PiCommand[]): PiCommand | null {
   const match = text.match(/^\/([\w.-]+)$/);
   if (!match) return null;
@@ -418,8 +433,42 @@ function ExtensionStatusLine({ statuses }: { statuses: PiExtensionStatus[] }) {
   );
 }
 
-const StatsTooltip = memo(function StatsTooltip({ state, stats, settings, status }: { state: PiState | null; stats: PiSessionStats | null; settings: PiSettings | null; status: string }) {
+const StatsTooltip = memo(function StatsTooltip({ state, stats, settings, status, models }: { state: PiState | null; stats: PiSessionStats | null; settings: PiSettings | null; status: string; models: PiModel[] }) {
   const { t } = useI18n();
+  const [balance, setBalance] = useState<{ value: string; checkedAt: string } | null>(null);
+  const [balanceBusy, setBalanceBusy] = useState(false);
+  const providerId = providerFromModelKey(state?.model) ?? settings?.provider;
+  const providerBaseUrl = models.find((model) => model.provider === providerId)?.baseUrl;
+  const balanceKey = providerId ? providerBalanceKey(providerId, providerBaseUrl) : null;
+
+  useEffect(() => {
+    if (!balanceKey) {
+      setBalance(null);
+      return;
+    }
+    const balances = readStoredProviderBalances();
+    const cached = balances[balanceKey] ?? balances[providerBalanceKey(providerId ?? "")];
+    setBalance(cached ? { value: remainingBalanceText(cached.balance), checkedAt: formatBalanceTime(cached.checkedAt) } : null);
+  }, [balanceKey, providerId]);
+
+  async function refreshBalance() {
+    if (!providerId || balanceBusy) return;
+    setBalanceBusy(true);
+    try {
+      const result = await invoke<ProviderProbeResult>("pi_probe_configured_provider", { providerId });
+      if (result.balance) {
+        const snapshot = { balance: balanceWithDefaultUnit(result.balance), source: result.balanceSource, checkedAt: new Date().toISOString() };
+        writeStoredProviderBalance(providerBalanceKey(providerId, providerBaseUrl), snapshot);
+        writeStoredProviderBalance(providerBalanceKey(providerId), snapshot);
+        setBalance({ value: remainingBalanceText(snapshot.balance), checkedAt: formatBalanceTime(snapshot.checkedAt) });
+      }
+    } catch {
+      // Balance is optional; provider test/query UI surfaces detailed errors.
+    } finally {
+      setBalanceBusy(false);
+    }
+  }
+
   const rows = [
     [t("composerStats.run"), state?.runState ?? status],
     [t("composerStats.context"), stats?.contextPercent == null ? "n/a" : `${stats.contextPercent.toFixed(1)}%`],
@@ -428,6 +477,7 @@ const StatsTooltip = memo(function StatsTooltip({ state, stats, settings, status
     [t("composerStats.model"), settings?.model ?? state?.model ?? t("common.unknown")],
     [t("composerStats.thinking"), settings?.thinkingLevel ?? state?.thinkingLevel ?? "off"],
   ];
+  const balanceText = balance ? `${balance.value} · ${balance.checkedAt}` : balanceBusy ? t("composerStats.balanceRefreshing") : "n/a";
 
   return (
     <Tooltip>
@@ -437,7 +487,7 @@ const StatsTooltip = memo(function StatsTooltip({ state, stats, settings, status
           className="inline-flex size-8 cursor-pointer items-center justify-center text-muted-foreground transition hover:text-primary"
           aria-label={t("composerStats.label")}
         >
-          <BarChart3 size={15} />
+          <Gauge size={15} />
         </button>
       </TooltipTrigger>
       <TooltipContent className="w-64 p-3">
@@ -449,8 +499,69 @@ const StatsTooltip = memo(function StatsTooltip({ state, stats, settings, status
               <span className="min-w-0 truncate font-mono text-foreground" title={value}>{value}</span>
             </div>
           ))}
+          {providerId ? (
+            <div className="flex items-center justify-between gap-3 text-xs">
+              <span className="text-muted-foreground">{t("composerStats.balance")}</span>
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span className="min-w-0 truncate font-mono text-success" title={balanceText}>{balanceText}</span>
+                <Button type="button" size="icon" variant="ghost" className="size-5" title={t("composerStats.refreshBalance")} aria-label={t("composerStats.refreshBalance")} disabled={balanceBusy} onClick={() => void refreshBalance()}>
+                  <RefreshCw className={balanceBusy ? "animate-spin" : undefined} />
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </TooltipContent>
     </Tooltip>
   );
 });
+
+function providerFromModelKey(value: string | undefined) {
+  return value?.includes("/") ? value.split("/")[0] : undefined;
+}
+
+function providerBalanceKey(providerId: string, baseUrl?: string) {
+  return `${providerId}::${baseUrl?.trim() ?? ""}`;
+}
+
+function remainingBalanceText(value: string) {
+  const normalized = balanceWithDefaultUnit(value);
+  const firstPart = normalized.split("·")[0]?.trim() ?? normalized;
+  const [, right] = firstPart.split(/[:：]/);
+  return formatBalanceAmount((right ?? firstPart).trim());
+}
+
+function balanceWithDefaultUnit(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "0 USD";
+  return /\b(USD|CNY|RMB|EUR|GBP|JPY|AUD|CAD|HKD|USDT)\b|[$¥€￥]/i.test(trimmed) ? trimmed : `${trimmed} USD`;
+}
+
+function formatBalanceAmount(value: string) {
+  return value.replace(/-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?/, (match) => {
+    const number = Number(match.replace(/,/g, ""));
+    return Number.isFinite(number) ? number.toFixed(1) : match;
+  });
+}
+
+function readStoredProviderBalances(): Record<string, ProviderBalanceSnapshot> {
+  if (typeof window === "undefined") return {};
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(PROVIDER_BALANCE_STORAGE_KEY) ?? "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredProviderBalance(key: string, value: ProviderBalanceSnapshot) {
+  if (typeof window === "undefined") return;
+  const balances = readStoredProviderBalances();
+  window.localStorage.setItem(PROVIDER_BALANCE_STORAGE_KEY, JSON.stringify({ ...balances, [key]: value }));
+}
+
+function formatBalanceTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString();
+}

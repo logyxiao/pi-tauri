@@ -58,13 +58,17 @@ export interface PiSessionListOptions {
   cwd?: string;
 }
 
+export interface PiNewSessionOptions {
+  cwd?: string;
+}
+
 export interface PiClient {
   connect(): Promise<void>;
   prompt(message: string, options?: PromptOptions): Promise<void>;
   steer(message: string): Promise<void>;
   followUp(message: string): Promise<void>;
   abort(): Promise<void>;
-  newSession(): Promise<void>;
+  newSession(options?: PiNewSessionOptions): Promise<void>;
   continueRecent(): Promise<void>;
   switchSession(sessionPath: string): Promise<void>;
   setSessionName(name: string): Promise<void>;
@@ -80,7 +84,7 @@ export interface PiClient {
   getState(): Promise<PiState>;
   getMessages(): Promise<PiMessage[]>;
   getSessionStats(): Promise<PiSessionStats>;
-  listModels(): Promise<PiModel[]>;
+  listModels(options?: { force?: boolean }): Promise<PiModel[]>;
   getSettings(): Promise<PiSettings>;
   updateSettings(settings: PiSettingsUpdate): Promise<PiSettings>;
   listCommands(): Promise<PiCommand[]>;

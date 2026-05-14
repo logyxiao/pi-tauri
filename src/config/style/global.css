@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  font-family: Inter, Geist, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --app-font-ui: "Maple Mono NF CN", "Maple Mono NF", "Maple Mono SC NF", "Maple Mono", "LXGW WenKai Mono", ui-monospace, "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  font-family: var(--app-font-ui);
   color: var(--foreground);
   background: var(--background);
   font-synthesis: none;
@@ -71,8 +72,8 @@
 * { box-sizing: border-box; }
 *, *::before, *::after { border-radius: 0 !important; }
 html, body, #root { width: 100%; height: 100%; margin: 0; }
-body { overflow: hidden; }
-button, textarea, input { font: inherit; }
+body { overflow: hidden; font-family: var(--app-font-ui); }
+button, textarea, input, select { font-family: var(--app-font-ui); }
 
 .window-drag-region {
   -webkit-app-region: drag;
@@ -211,4 +212,6 @@ button, textarea, input { font: inherit; }
   --radius-md: 0;
   --radius-lg: 0;
   --radius-xl: 0;
+  --font-sans: var(--app-font-ui);
+  --font-mono: var(--app-font-ui);
 }

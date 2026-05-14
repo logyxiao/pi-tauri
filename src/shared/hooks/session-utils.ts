@@ -50,6 +50,6 @@ export function applySessionOverride(state: PiState, session: PiSessionSummary |
   };
 }
 
-function isLowQualitySessionSummary(session: PiSessionSummary): boolean {
+export function isLowQualitySessionSummary(session: PiSessionSummary): boolean {
   return session.name === "Current session" || !session.cwd || session.cwd.toLowerCase() === "unknown cwd" || session.updatedAt === "current";
 }

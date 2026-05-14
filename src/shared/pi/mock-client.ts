@@ -13,7 +13,7 @@ import {
   demoSessionStats,
   demoSettings,
 } from "./mock-data";
-import type { PiClient, PiClientEvent, PiSessionListOptions } from "./client";
+import type { PiClient, PiClientEvent, PiNewSessionOptions, PiSessionListOptions } from "./client";
 import type {
   PiCommand,
   PiExtensionError,
@@ -142,14 +142,15 @@ export class MockPiClient implements PiClient {
     this.emit({ type: "aborted" });
   }
 
-  async newSession(): Promise<void> {
+  async newSession(options: PiNewSessionOptions = {}): Promise<void> {
     this.aborted = true;
     this.messages = [];
     const sessionId = crypto.randomUUID();
+    const cwd = options.cwd ?? this.state.cwd;
     const session: PiSessionSummary = {
       id: sessionId,
       name: "Untitled pi session",
-      cwd: this.state.cwd,
+      cwd,
       updatedAt: "now",
       model: this.state.model,
       status: "idle",
@@ -157,7 +158,7 @@ export class MockPiClient implements PiClient {
       messageCount: 0,
     };
     this.sessions = [session, ...this.sessions];
-    this.state = { ...this.state, runState: "idle", tokenCount: 0, costUsd: 0, sessionId, sessionName: session.name, sessionFile: session.filePath };
+    this.state = { ...this.state, cwd, runState: "idle", tokenCount: 0, costUsd: 0, sessionId, sessionName: session.name, sessionFile: session.filePath };
   }
 
   async continueRecent(): Promise<void> {

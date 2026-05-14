@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { PiClient, PiClientEvent, PiSessionListOptions, PromptOptions } from "./client";
+import type { PiClient, PiClientEvent, PiNewSessionOptions, PiSessionListOptions, PromptOptions } from "./client";
 import type {
   PiCommand,
   PiExtensionError,
@@ -60,6 +60,7 @@ type Listener = (event: PiClientEvent) => void;
 
 export class TauriPiRpcClient implements PiClient {
   private connected = false;
+  private rpcCwd: string | null = null;
   private listeners = new Set<Listener>();
   private pending = new Map<string, PendingRequest>();
   private unlistenMessage: UnlistenFn | null = null;
@@ -80,14 +81,34 @@ export class TauriPiRpcClient implements PiClient {
 
   async connect(): Promise<void> {
     if (this.connected) return;
+    await this.startRpc();
+  }
 
+  private async startRpc(cwd?: string): Promise<void> {
     this.unlistenMessage = await listen<RpcMessage>("pi-rpc-message", (event) => this.handleRpcMessage(event.payload));
     this.unlistenError = await listen<unknown>("pi-rpc-error", (event) => {
       console.error("pi rpc error", event.payload);
     });
 
-    await invoke("pi_rpc_start");
+    const normalizedCwd = normalizeOptionalCwd(cwd);
+    await invoke("pi_rpc_start", { cwd: normalizedCwd });
     this.connected = true;
+    this.rpcCwd = normalizedCwd;
+  }
+
+  private async reconnect(cwd?: string): Promise<void> {
+    this.pending.clear();
+    this.toolStartTimes.clear();
+    this.invalidateStateCache();
+    this.invalidateCapabilityCaches();
+    this.unlistenMessage?.();
+    this.unlistenError?.();
+    this.unlistenMessage = null;
+    this.unlistenError = null;
+    this.connected = false;
+    this.rpcCwd = null;
+    await invoke("pi_rpc_stop");
+    await this.startRpc(cwd);
   }
 
   async prompt(message: string, options?: PromptOptions): Promise<void> {
@@ -111,7 +132,10 @@ export class TauriPiRpcClient implements PiClient {
     this.emit({ type: "aborted" });
   }
 
-  async newSession(): Promise<void> {
+  async newSession(options: PiNewSessionOptions = {}): Promise<void> {
+    if (options.cwd && normalizeOptionalCwd(options.cwd) !== this.rpcCwd) {
+      await this.reconnect(options.cwd);
+    }
     this.invalidateStateCache();
     await this.request({ type: "new_session" });
   }
@@ -150,8 +174,9 @@ export class TauriPiRpcClient implements PiClient {
 
   async listSessions(options: PiSessionListOptions = {}): Promise<PiSessionSummary[]> {
     const state = await this.getState();
+    const hasExplicitCwd = options.cwd !== undefined;
     const cwd = options.cwd ?? state.cwd;
-    const fallback = currentSessionFallback(state);
+    const fallback = hasExplicitCwd ? [] : currentSessionFallback(state);
     if (!isUsableCwd(cwd)) return fallback;
     try {
       const sessions = await invoke<unknown[]>("pi_list_sessions", { cwd });
@@ -247,7 +272,11 @@ export class TauriPiRpcClient implements PiClient {
     };
   }
 
-  async listModels(): Promise<PiModel[]> {
+  async listModels(options: { force?: boolean } = {}): Promise<PiModel[]> {
+    if (options.force) {
+      this.modelsCache = null;
+      this.modelsRequest = null;
+    }
     const now = Date.now();
     if (this.modelsCache && this.modelsCache.expiresAt > now) return this.modelsCache.value;
     if (this.modelsRequest) return this.modelsRequest;
@@ -531,6 +560,7 @@ export class TauriPiRpcClient implements PiClient {
     this.pending.clear();
     this.toolStartTimes.clear();
     this.connected = false;
+    this.rpcCwd = null;
     await invoke("pi_rpc_stop");
   }
 
@@ -718,6 +748,11 @@ function currentSessionFallback(state: PiState): PiSessionSummary[] {
 
 function isUsableCwd(cwd: string | undefined): cwd is string {
   return Boolean(cwd && cwd.trim() && cwd !== "unknown cwd" && cwd !== "Unknown cwd");
+}
+
+function normalizeOptionalCwd(cwd: string | undefined): string | null {
+  if (!isUsableCwd(cwd)) return null;
+  return cwd.replace(/\\/g, "/").replace(/\/$/, "");
 }
 
 function isMissingCwdError(error: unknown): boolean {

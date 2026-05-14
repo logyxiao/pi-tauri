@@ -1,11 +1,13 @@
 import { lazy, Suspense, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ExtensionUiDialog } from "@/components/extensions/ExtensionUiDialog";
+import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { LeftSidebar } from "./LeftSidebar";
 import { MainArea } from "./MainArea";
 
 import { WindowTitlebar } from "./WindowTitlebar";
 
+import { ChunkErrorBoundary } from "@/components/status/ChunkErrorBoundary";
 import { GlobalLoadingOverlay } from "@/components/status/GlobalLoadingOverlay";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useI18n } from "@/shared/i18n";
@@ -13,7 +15,6 @@ import { usePiSession } from "@/shared/hooks/usePiSession";
 import type { PiToolCall } from "@/shared/pi/types";
 
 const RightInspector = lazy(() => import("./RightInspector").then((module) => ({ default: module.RightInspector })));
-const SettingsDialog = lazy(() => import("@/components/settings/SettingsDialog").then((module) => ({ default: module.SettingsDialog })));
 
 export function AppShell() {
   const { t } = useI18n();
@@ -80,7 +81,9 @@ export function AppShell() {
               onSwitchSession={switchSession}
               onDeleteSession={deleteSession}
               onNewSession={newSession}
-              onOpenSettings={() => setSettingsOpen(true)}
+              onOpenSettings={() => {
+                setSettingsOpen(true);
+              }}
             />
           <MainArea
             inspectorOpen={inspectorOpen}
@@ -114,33 +117,33 @@ export function AppShell() {
             onSelectTool={selectTool}
           />
             {inspectorOpen ? (
-              <Suspense fallback={null}>
-                <RightInspector
-                  state={state}
-                  settings={settings}
-                  isRunning={isRunning}
-                />
-              </Suspense>
+              <ChunkErrorBoundary fallback={null}>
+                <Suspense fallback={null}>
+                  <RightInspector
+                    state={state}
+                    settings={settings}
+                    isRunning={isRunning}
+                  />
+                </Suspense>
+              </ChunkErrorBoundary>
             ) : null}
           </div>
         </div>
       </div>
       <ExtensionUiDialog request={pendingExtensionUi[0] ?? null} onRespond={respondExtensionUi} />
       {settingsOpen ? (
-        <Suspense fallback={null}>
-          <SettingsDialog
-            open={settingsOpen}
-            onOpenChange={setSettingsOpen}
-            state={state}
-            settings={settings}
-            models={models}
-            commands={commands}
-            extensionPanels={extensionPanels}
-            extensionErrors={extensionErrors}
-            onUpdateSettings={updateSettings}
-            onRefresh={refresh}
-          />
-        </Suspense>
+        <SettingsDialog
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          state={state}
+          settings={settings}
+          models={models}
+          commands={commands}
+          extensionPanels={extensionPanels}
+          extensionErrors={extensionErrors}
+          onUpdateSettings={updateSettings}
+          onRefresh={refresh}
+        />
       ) : null}
       <GlobalLoadingOverlay
         open={isConnecting || isSwitchingSession}

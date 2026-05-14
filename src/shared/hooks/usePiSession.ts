@@ -16,7 +16,7 @@ import {
   persistWorkspacePaths,
   removePersistedSessionMessages,
 } from "@/shared/hooks/session-cache";
-import { applySessionOverride, filterDeletedSessions, findSessionByPath, isDeletedSession, isKnownCwd, mergeSessions, normalizeSessionKey } from "@/shared/hooks/session-utils";
+import { applySessionOverride, filterDeletedSessions, findSessionByPath, isDeletedSession, isKnownCwd, isLowQualitySessionSummary, mergeSessions, normalizeSessionKey } from "@/shared/hooks/session-utils";
 import { timed, logTimings, type TimingEntry } from "@/shared/hooks/timing";
 import { extractToolCallsFromMessage, mergeToolCall, mergeToolLists } from "@/shared/hooks/tool-merge";
 import type { PiClientEvent } from "@/shared/pi/client";
@@ -169,7 +169,7 @@ export function usePiSession() {
     }
   }, [client, workspacePaths]);
 
-  const refresh = useCallback(async (scope = "refresh") => {
+  const refresh = useCallback(async (scope = "refresh", options: { forceModels?: boolean; targetCwd?: string } = {}) => {
     const totalStartedAt = performance.now();
     const timings: TimingEntry[] = [];
     setStatus((current) => (current === "connecting" || current === "running" ? current : "refreshing"));
@@ -192,8 +192,8 @@ export function usePiSession() {
         timed(timings, "getMessages", () => client.getMessages()),
         timed(timings, "getState", () => client.getState()),
         timed(timings, "getSessionStats", () => client.getSessionStats()),
-        timed(timings, "listSessions.current", () => client.listSessions()),
-        timed(timings, "listModels", () => client.listModels()),
+        timed(timings, "listSessions.current", () => client.listSessions(options.targetCwd ? { cwd: options.targetCwd } : undefined)),
+        timed(timings, "listModels", () => client.listModels({ force: options.forceModels })),
         timed(timings, "getSettings", () => client.getSettings()),
         timed(timings, "listCommands", () => client.listCommands()),
         timed(timings, "listExtensionPanels", () => client.listExtensionPanels()),
@@ -209,10 +209,12 @@ export function usePiSession() {
       }
       setState((current) => {
         const mergedState = applySessionOverride(nextState, activeSessionOverrideRef.current);
-        return activeAssistantIdRef.current ? { ...(current ?? mergedState), ...mergedState, runState: "running" } : mergedState;
+        const stableState = options.targetCwd && !isKnownCwd(mergedState.cwd) ? { ...mergedState, cwd: options.targetCwd } : mergedState;
+        return activeAssistantIdRef.current ? { ...(current ?? stableState), ...stableState, runState: "running" } : stableState;
       });
       setStats(nextStats);
-      setSessions((current) => filterDeletedSessions(mergeSessions(current, nextSessions), deletedSessionKeysRef.current));
+      const sessionsForMerge = options.targetCwd ? nextSessions.filter((session) => !isLowQualitySessionSummary(session)) : nextSessions;
+      setSessions((current) => filterDeletedSessions(mergeSessions(current, sessionsForMerge), deletedSessionKeysRef.current));
       setModels(nextModels);
       setSettings(nextSettings);
       setCommands(nextCommands);
@@ -434,15 +436,16 @@ export function usePiSession() {
     }
   }
 
-  async function newSession() {
+  async function newSession(cwd?: string) {
     try {
       activeSessionOverrideRef.current = null;
-      await client.newSession();
+      await client.newSession(cwd ? { cwd } : undefined);
       activeAssistantIdRef.current = null;
+      if (cwd) setState((current) => (current ? { ...current, cwd, sessionName: undefined } : current));
       setMessages([]);
       setFilePreview(null);
       setError(null);
-      await refresh();
+      await refresh("newSession", cwd ? { targetCwd: cwd } : undefined);
     } catch (caught) {
       setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");

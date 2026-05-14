@@ -1,9 +1,6 @@
 import { useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import {
-  ChevronDown,
-  ChevronRight,
-  CircleDot,
   Folder,
   FolderPlus,
   MessageSquarePlus,
@@ -27,7 +24,7 @@ interface LeftSidebarProps {
   onOpenWorkspaceFolder: () => Promise<void> | void;
   onSwitchSession: (sessionPath: string) => Promise<void> | void;
   onDeleteSession: (sessionPath: string) => Promise<void> | void;
-  onNewSession: () => Promise<void> | void;
+  onNewSession: (cwd?: string) => Promise<void> | void;
   onOpenSettings: () => void;
 }
 
@@ -130,8 +127,8 @@ export function LeftSidebar({
         <div className={cn("flex items-center", collapsed ? "flex-col gap-2" : "gap-1")}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button className="cursor-pointer" size="icon" variant="ghost" aria-label={t("sidebar.openWorkspace")} onClick={() => void onOpenWorkspaceFolder()}>
-                <FolderPlus size={16} />
+              <Button  className="cursor-pointer" size="icon" variant="ghost" aria-label={t("sidebar.openWorkspace")} onClick={() => void onOpenWorkspaceFolder()}>
+                <FolderPlus size={17} />
               </Button>
             </TooltipTrigger>
             <TooltipContent>{t("sidebar.openFolder")}</TooltipContent>
@@ -139,10 +136,10 @@ export function LeftSidebar({
           {!collapsed ? (
             <>
               <Button className="cursor-pointer" size="icon" variant="ghost" aria-label={t("sidebar.settings")} onClick={onOpenSettings}>
-                <Settings size={16} />
+                <Settings size={17} />
               </Button>
               <Button className="cursor-pointer" size="icon" variant="ghost" aria-label={t("sidebar.collapse")} onClick={onToggle}>
-                <PanelLeftClose size={16} />
+                <PanelLeftClose size={17} />
               </Button>
             </>
           ) : null}
@@ -188,29 +185,25 @@ export function LeftSidebar({
                 <div
                   key={group.cwd}
                   className={cn(
-                    "rounded-none border transition",
+                    "group/project rounded-none border transition",
                     selectedProject ? "border-primary/30 bg-surface/70" : "border-transparent hover:border-border hover:bg-surface/45",
                   )}
                 >
                   <div className="flex items-center gap-1 px-2 py-1.5">
                     <button className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left" onClick={() => toggleProject(group.cwd)}>
-                      {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                       <Folder size={14} className={selectedProject ? "text-primary" : "text-muted-foreground"} />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-xs font-medium">{group.label}</div>
-                        <div className="truncate font-mono text-[9px] text-muted-foreground" title={group.cwd}>
-                          {group.cwd}
-                        </div>
+                      <div className="min-w-0 flex-1" title={group.cwd}>
+                        <div className="truncate text-xs font-medium leading-5">{group.label}</div>
                       </div>
                     </button>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
-                          className="size-7 shrink-0 cursor-pointer text-muted-foreground transition hover:bg-transparent hover:text-primary"
+                          className="size-7 shrink-0 cursor-pointer text-muted-foreground opacity-0 transition hover:bg-transparent hover:text-primary group-hover/project:opacity-100 focus-visible:opacity-100"
                           size="icon"
                           variant="ghost"
                           aria-label={t("sidebar.newSession")}
-                          onClick={() => void onNewSession()}
+                          onClick={() => void onNewSession(group.cwd)}
                         >
                           <MessageSquarePlus size={13} />
                         </Button>
@@ -228,7 +221,6 @@ export function LeftSidebar({
                             selected={isSelectedSession(session, currentSessionId)}
                             onSwitchSession={onSwitchSession}
                             onDeleteSession={deleteSession}
-                            messagesLabel={t("sidebar.messagesShort")}
                             deleteLabel={t("sidebar.deleteAria", { name: session.name })}
                           />
                         ))
@@ -289,14 +281,12 @@ function SessionRow({
   selected,
   onSwitchSession,
   onDeleteSession,
-  messagesLabel,
   deleteLabel,
 }: {
   session: PiSessionSummary;
   selected: boolean;
   onSwitchSession: (sessionPath: string) => Promise<void> | void;
   onDeleteSession: (session: PiSessionSummary) => Promise<void> | void;
-  messagesLabel: string;
   deleteLabel: string;
 }) {
   const switchTarget = session.filePath ?? session.id;
@@ -307,20 +297,24 @@ function SessionRow({
         selected ? "border-primary bg-primary/12 shadow-[inset_3px_0_0_var(--primary),0_8px_24px_rgb(44_54_70/0.08)]" : "border-transparent hover:border-border hover:bg-card/80",
       )}
     >
-      <div className="flex items-center gap-1 pr-1">
-        <button className="min-w-0 flex-1 cursor-pointer px-2 py-1.5 text-left" onClick={() => void onSwitchSession(switchTarget)}>
-          <div className="flex items-center gap-1.5">
-            <CircleDot size={9} className={selected || session.status === "running" ? "text-primary" : "text-muted-foreground"} />
-            <span className={cn("truncate text-xs font-medium leading-snug", selected && "font-semibold text-primary")}>{session.name}</span>
-          </div>
-          <div className={cn("mt-0.5 flex items-center gap-2 pl-[17px] font-mono text-[9px]", selected ? "text-primary/75" : "text-muted-foreground")}>
-            <span className="truncate">{session.updatedAt}</span>
-            <span>{session.messageCount ?? 0} {messagesLabel}</span>
-          </div>
+      <div className="relative">
+        <button className="flex w-full min-w-0 cursor-pointer items-center gap-2 px-2 py-1.5 text-left" onClick={() => void onSwitchSession(switchTarget)}>
+          <span className={cn("min-w-0 flex-1 truncate text-xs font-medium leading-5", selected && "font-semibold text-primary")} title={session.name}>
+            {session.name}
+          </span>
+          <span
+            className={cn(
+              "shrink-0 truncate font-mono text-[9px] leading-5 transition",
+              selected ? "text-primary/75" : "text-muted-foreground",
+              session.filePath && "group-hover:opacity-0",
+            )}
+          >
+            {session.updatedAt}
+          </span>
         </button>
         {session.filePath ? (
           <Button
-            className="size-7 cursor-pointer opacity-0 transition group-hover:opacity-100"
+            className="absolute right-0 top-1/2 size-7 -translate-y-1/2 cursor-pointer opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100"
             size="icon"
             variant="ghost"
             aria-label={deleteLabel}

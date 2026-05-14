@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="π logo">
-  <rect width="256" height="256" fill="#ece7e4"/>
-  <path d="M42 76H214" stroke="#3e638c" stroke-width="24" stroke-linecap="square"/>
-  <path d="M88 76V190" stroke="#3e638c" stroke-width="24" stroke-linecap="square"/>
-  <path d="M168 76V190" stroke="#3e638c" stroke-width="24" stroke-linecap="square"/>
-  <path d="M60 198H112" stroke="#6686a6" stroke-width="10" stroke-linecap="square"/>
-  <path d="M144 198H196" stroke="#6686a6" stroke-width="10" stroke-linecap="square"/>
-  <rect x="28" y="28" width="200" height="200" fill="none" stroke="#9aa8b8" stroke-width="4" opacity="0.75"/>
-</svg>
