@@ -600,6 +600,7 @@ export function SettingsDialog({
                                   <div className="min-w-0">
                                     <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{t("settings.providerProbe")}</div>
                                     {providerTest ? <div className="mt-1 text-xs text-muted-foreground">{providerTestSummary(providerTest, t)}</div> : null}
+                                    {providerProbe ? <div className="mt-1 text-xs text-muted-foreground">{providerProbeSummary(providerProbe, t)}</div> : null}
                                     {activeProviderLastBalance ? <BalanceLine balance={activeProviderLastBalance.balance} checkedAt={activeProviderLastBalance.checkedAt} locale={locale} /> : null}
                                   </div>
                                   <div className="flex shrink-0 items-center gap-2">
@@ -820,6 +821,12 @@ function providerTestSummary(result: ProviderTestResult, t: (key: string, vars?:
     return t("settings.providerProbeModels", { count: result.modelCount });
   }
   return result.detail ?? t("settings.providerTestOk");
+}
+
+function providerProbeSummary(result: ProviderProbeResult, t: (key: string, vars?: Record<string, string | number>) => string) {
+  const modelText = typeof result.modelCount === "number" ? t("settings.providerProbeModels", { count: result.modelCount }) : t("settings.providerProbeModelsUnknown");
+  const balanceText = result.balance ? t("settings.providerProbeBalance", { balance: balanceWithDefaultUnit(result.balance) }) : t("settings.providerProbeBalanceUnknown");
+  return result.detail ? `${modelText} · ${balanceText} · ${result.detail}` : `${modelText} · ${balanceText}`;
 }
 
 function providerEnabled(provider: ModelProviderConfig) {
