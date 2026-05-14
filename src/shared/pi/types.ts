@@ -29,6 +29,7 @@ export interface PiModel {
   provider: string;
   api?: string;
   baseUrl?: string;
+  enabled?: boolean;
   reasoning?: boolean;
   contextWindow?: number;
   maxTokens?: number;

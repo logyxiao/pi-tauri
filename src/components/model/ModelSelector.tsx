@@ -2,7 +2,7 @@ import { memo, useMemo, useState } from "react";
 import { Check, ChevronDown, Search } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useI18n } from "@/shared/i18n";
-import { demoModels, demoPiState } from "@/shared/pi/mock-data";
+import { demoPiState } from "@/shared/pi/mock-data";
 import type { PiModel, PiState } from "@/shared/pi/types";
 
 interface ModelSelectorProps {
@@ -16,7 +16,7 @@ export const ModelSelector = memo(function ModelSelector({ state, models, onMode
   const { t } = useI18n();
   const [query, setQuery] = useState("");
   const current = state ?? demoPiState;
-  const availableModels = models.length ? models : demoModels;
+  const availableModels = models.length ? models.filter((model) => model.enabled !== false) : [];
   const currentKey = modelKeyFromState(current.model);
   const groupedModels = useMemo(() => groupModels(filterModels(availableModels, query)), [availableModels, query]);
 

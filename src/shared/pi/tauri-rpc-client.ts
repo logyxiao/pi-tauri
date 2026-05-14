@@ -51,6 +51,16 @@ type RpcResponse = {
 
 type RpcMessage = RpcResponse | Record<string, unknown>;
 
+type ModelsConfig = {
+  providers?: Record<string, {
+    enabled?: boolean;
+    models?: Array<{
+      id?: string;
+      enabled?: boolean;
+    }>;
+  }>;
+};
+
 type PendingRequest = {
   resolve: (value: RpcResponse) => void;
   reject: (error: Error) => void;
@@ -290,8 +300,9 @@ export class TauriPiRpcClient implements PiClient {
     try {
       const response = await this.request({ type: "get_available_models" });
       const data = response.data as { models?: unknown[] } | undefined;
-      const models = (data?.models ?? []).map(mapModel).filter((model): model is PiModel => Boolean(model));
-      if (models.length) {
+      const rawModels = (data?.models ?? []).map(mapModel).filter((model): model is PiModel => Boolean(model));
+      if (rawModels.length) {
+        const models = await this.filterConfiguredModels(rawModels);
         this.modelsCache = { value: models, expiresAt: Date.now() + 30_000 };
         return models;
       }
@@ -303,6 +314,30 @@ export class TauriPiRpcClient implements PiClient {
     const fallback = [modelFromState(state)];
     this.modelsCache = { value: fallback, expiresAt: Date.now() + 5_000 };
     return fallback;
+  }
+
+  private async filterConfiguredModels(models: PiModel[]): Promise<PiModel[]> {
+    const config = await this.readModelsConfig().catch((error) => {
+      console.warn("models.json filtering unavailable", error);
+      return null;
+    });
+    if (!config) return models.filter((model) => model.enabled !== false);
+    const providers = config.providers ?? {};
+    return models.filter((model) => {
+      const provider = providers[model.provider];
+      if (!provider) return model.enabled !== false;
+      if (provider.enabled === false) return false;
+      const configuredModel = provider.models?.find((item) => item.id === model.id);
+      return configuredModel?.enabled !== false && model.enabled !== false;
+    });
+  }
+
+  private async readModelsConfig(): Promise<ModelsConfig | null> {
+    const state = await invoke<{ content?: string }>("pi_models_json_read");
+    const content = state.content;
+    if (!content) return null;
+    const parsed = JSON.parse(content) as ModelsConfig;
+    return parsed && typeof parsed === "object" ? parsed : null;
   }
 
   async getSettings(): Promise<PiSettings> {

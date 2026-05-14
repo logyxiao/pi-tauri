@@ -1,9 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="π logo">
-  <rect width="256" height="256" fill="#ece7e4"/>
-  <path d="M42 76H214" stroke="#3e638c" stroke-width="24" stroke-linecap="square"/>
-  <path d="M88 76V190" stroke="#3e638c" stroke-width="24" stroke-linecap="square"/>
-  <path d="M168 76V190" stroke="#3e638c" stroke-width="24" stroke-linecap="square"/>
-  <path d="M60 198H112" stroke="#6686a6" stroke-width="10" stroke-linecap="square"/>
-  <path d="M144 198H196" stroke="#6686a6" stroke-width="10" stroke-linecap="square"/>
-  <rect x="28" y="28" width="200" height="200" fill="none" stroke="#9aa8b8" stroke-width="4" opacity="0.75"/>
+  <title>π logo</title>
+  <path fill="#3e638c" d="M42 61C83 54 173 54 214 61C221 62 225 68 224 75C223 83 216 88 208 87C197 85 185 84 174 83L188 190C190 204 180 214 167 214C155 214 148 206 150 193L163 84C142 83 117 83 93 84L80 193C78 206 69 214 56 214C45 214 38 206 40 194L54 87C49 87 43 88 38 88C30 88 24 82 25 74C26 67 33 62 42 61Z"/>
 </svg>
