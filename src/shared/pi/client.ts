@@ -58,6 +58,12 @@ export interface PiSessionListOptions {
   cwd?: string;
 }
 
+export interface PiFileListOptions {
+  path?: string;
+  depth?: number;
+  limit?: number;
+}
+
 export interface PiNewSessionOptions {
   cwd?: string;
 }
@@ -95,7 +101,7 @@ export interface PiClient {
   listExtensionErrors(): Promise<PiExtensionError[]>;
   listSafetyEvents(): Promise<PiSafetyEvent[]>;
   recordSafetyEvent(event: PiSafetyEvent): Promise<void>;
-  listFiles(): Promise<PiFileEntry[]>;
+  listFiles(options?: PiFileListOptions): Promise<PiFileEntry[]>;
   readFile(path: string): Promise<PiFilePreview>;
   respondExtensionUi(response: PiExtensionUiResponse): Promise<void>;
   subscribe(listener: (event: PiClientEvent) => void): () => void;

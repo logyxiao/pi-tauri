@@ -71,12 +71,16 @@ export function ExtensionUiDialog({ request, onRespond }: ExtensionUiDialogProps
             {request.timeoutMs ? <div className="mt-2">{t("extension.timeout", { ms: request.timeoutMs })}</div> : null}
           </div>
 
-          {error ? <div className="rounded-none border border-danger/20 bg-danger/5 p-3 text-xs text-danger">{error}</div> : null}
+          {request.uiState === "expired" ? (
+            <div className="rounded-none border border-warning/25 bg-warning/5 p-3 text-xs text-warning">This extension request timed out. You can still try to cancel it, but the extension may have moved on.</div>
+          ) : null}
+
+          {request.uiError || error ? <div className="rounded-none border border-danger/20 bg-danger/5 p-3 text-xs text-danger">{request.uiError ?? error}</div> : null}
 
           {request.method === "confirm" ? (
             <div className="flex justify-end gap-2">
-              <Button variant="ghost" disabled={busy} onClick={() => submit("false")}>{t("common.no")}</Button>
-              <Button variant="primary" disabled={busy} onClick={() => submit("true")}>{busy ? t("common.sending") : t("common.yes")}</Button>
+              <Button variant="ghost" disabled={busy || request.uiState === "submitting"} onClick={() => submit("false")}>{t("common.no")}</Button>
+              <Button variant="primary" disabled={busy || request.uiState === "submitting"} onClick={() => submit("true")}>{busy || request.uiState === "submitting" ? t("common.sending") : t("common.yes")}</Button>
             </div>
           ) : null}
 
@@ -86,7 +90,7 @@ export function ExtensionUiDialog({ request, onRespond }: ExtensionUiDialogProps
                 options.map((option) => (
                   <button
                     key={option}
-                    disabled={busy}
+                    disabled={busy || request.uiState === "submitting"}
                     className="cursor-pointer w-full rounded-none border border-border bg-surface px-3 py-2 text-left text-sm transition hover:border-primary/40 hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
                     onClick={() => submit(option)}
                   >
@@ -104,7 +108,7 @@ export function ExtensionUiDialog({ request, onRespond }: ExtensionUiDialogProps
               <span>{t("extension.value")}</span>
               <input
                 autoFocus
-                disabled={busy}
+                disabled={busy || request.uiState === "submitting"}
                 value={value}
                 placeholder={request.placeholder}
                 className="h-10 w-full rounded-none border border-border bg-surface px-3 text-sm text-foreground outline-none transition focus:border-primary disabled:opacity-60"
@@ -121,7 +125,7 @@ export function ExtensionUiDialog({ request, onRespond }: ExtensionUiDialogProps
               <span>{t("extension.editor")}</span>
               <textarea
                 autoFocus
-                disabled={busy}
+                disabled={busy || request.uiState === "submitting"}
                 value={value}
                 placeholder={request.placeholder}
                 className="min-h-48 w-full resize-y rounded-none border border-border bg-surface p-3 font-mono text-sm text-foreground outline-none transition focus:border-primary disabled:opacity-60"
@@ -132,12 +136,12 @@ export function ExtensionUiDialog({ request, onRespond }: ExtensionUiDialogProps
 
           {request.method === "input" || request.method === "editor" ? (
             <div className="flex justify-end gap-2">
-              <Button variant="ghost" disabled={busy} onClick={cancel}>{t("common.cancel")}</Button>
-              <Button variant="primary" disabled={busy} onClick={() => submit()}>{busy ? t("common.sending") : t("common.submit")}</Button>
+              <Button variant="ghost" disabled={busy || request.uiState === "submitting"} onClick={cancel}>{t("common.cancel")}</Button>
+              <Button variant="primary" disabled={busy || request.uiState === "submitting"} onClick={() => submit()}>{busy || request.uiState === "submitting" ? t("common.sending") : t("common.submit")}</Button>
             </div>
           ) : request.method === "select" || request.method === "confirm" ? (
             <div className="flex justify-end">
-              <Button variant="ghost" disabled={busy} onClick={cancel}>{t("common.cancel")}</Button>
+              <Button variant="ghost" disabled={busy || request.uiState === "submitting"} onClick={cancel}>{t("common.cancel")}</Button>
             </div>
           ) : null}
         </div>

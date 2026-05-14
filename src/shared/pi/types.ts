@@ -275,6 +275,9 @@ export interface PiExtensionMessage {
   placeholder?: string;
   prefill?: string;
   timeoutMs?: number;
+  uiState?: "pending" | "submitting" | "failed" | "expired";
+  uiError?: string;
+  expiresAt?: number;
   expectsResponse?: boolean;
 }
 

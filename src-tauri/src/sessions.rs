@@ -1,4 +1,18 @@
 use super::*;
+use std::sync::OnceLock;
+
+#[derive(Clone)]
+pub(crate) struct SessionSummaryCacheEntry {
+    modified_ms: u128,
+    len: u64,
+    summary: serde_json::Value,
+}
+
+static SESSION_SUMMARY_CACHE: OnceLock<Mutex<HashMap<String, SessionSummaryCacheEntry>>> = OnceLock::new();
+
+fn session_summary_cache() -> &'static Mutex<HashMap<String, SessionSummaryCacheEntry>> {
+    SESSION_SUMMARY_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 #[tauri::command]
 pub(crate) async fn pi_list_sessions(cwd: String) -> RpcResult<Vec<serde_json::Value>> {
@@ -372,7 +386,7 @@ pub(crate) fn collect_session_files(root: &Path, target_cwd: Option<&str>, sessi
         if path.is_dir() {
             collect_session_files(&path, target_cwd, sessions)?;
         } else if path.extension().and_then(|value| value.to_str()) == Some("jsonl") {
-            if let Some(summary) = parse_session_summary(&path, target_cwd) {
+            if let Some(summary) = parse_session_summary_cached(&path, target_cwd) {
                 sessions.push(summary);
             }
         }
@@ -380,7 +394,47 @@ pub(crate) fn collect_session_files(root: &Path, target_cwd: Option<&str>, sessi
     Ok(())
 }
 
-pub(crate) fn parse_session_summary(path: &Path, target_cwd: Option<&str>) -> Option<serde_json::Value> {
+pub(crate) fn parse_session_summary_cached(path: &Path, target_cwd: Option<&str>) -> Option<serde_json::Value> {
+    let metadata = fs::metadata(path).ok()?;
+    let modified_ms = metadata
+        .modified()
+        .ok()
+        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    let len = metadata.len();
+    let key = normalize_session_path(&path.to_string_lossy());
+
+    if let Ok(cache) = session_summary_cache().lock() {
+        if let Some(entry) = cache.get(&key) {
+            if entry.modified_ms == modified_ms && entry.len == len {
+                return filter_session_summary(entry.summary.clone(), target_cwd);
+            }
+        }
+    }
+
+    let summary = parse_session_summary_uncached(path)?;
+    if let Ok(mut cache) = session_summary_cache().lock() {
+        cache.insert(
+            key,
+            SessionSummaryCacheEntry {
+                modified_ms,
+                len,
+                summary: summary.clone(),
+            },
+        );
+    }
+    filter_session_summary(summary, target_cwd)
+}
+
+pub(crate) fn filter_session_summary(summary: serde_json::Value, target_cwd: Option<&str>) -> Option<serde_json::Value> {
+    if target_cwd.is_some_and(|target| summary.get("cwd").and_then(|value| value.as_str()).map(normalize_session_path).as_deref() != Some(target)) {
+        return None;
+    }
+    Some(summary)
+}
+
+pub(crate) fn parse_session_summary_uncached(path: &Path) -> Option<serde_json::Value> {
     let file = fs::File::open(path).ok()?;
     let reader = BufReader::new(file);
     let mut id = String::new();
@@ -432,7 +486,7 @@ pub(crate) fn parse_session_summary(path: &Path, target_cwd: Option<&str>) -> Op
         }
     }
 
-    if id.is_empty() || target_cwd.is_some_and(|target| normalize_session_path(&cwd) != target) {
+    if id.is_empty() {
         return None;
     }
 

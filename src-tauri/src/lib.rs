@@ -131,14 +131,9 @@ fn app_restart(app: AppHandle) -> RpcResult<()> {
     Ok(())
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init())
-        .manage(RpcState::default())
-        .manage(SdkSidecarState::default())
-        .invoke_handler(tauri::generate_handler![
+macro_rules! pi_invoke_handlers {
+    () => {
+        tauri::generate_handler![
             app_info,
             app_restart,
             pi_models_json_read,
@@ -181,7 +176,18 @@ pub fn run() {
             pi_git_commit,
             pi_git_generate_commit_message,
             pi_optimize_prompt_keywords
-        ])
+        ]
+    };
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .manage(RpcState::default())
+        .manage(SdkSidecarState::default())
+        .invoke_handler(pi_invoke_handlers!())
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

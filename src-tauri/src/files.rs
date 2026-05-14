@@ -1,16 +1,20 @@
 use super::*;
 
 #[tauri::command]
-pub(crate) async fn pi_list_files(cwd: String) -> RpcResult<Vec<serde_json::Value>> {
-    tauri::async_runtime::spawn_blocking(move || pi_list_files_blocking(cwd))
+pub(crate) async fn pi_list_files(cwd: String, path: Option<String>, depth: Option<usize>, limit: Option<usize>) -> RpcResult<Vec<serde_json::Value>> {
+    tauri::async_runtime::spawn_blocking(move || pi_list_files_blocking(cwd, path, depth, limit))
         .await
         .map_err(|error| format!("list files task failed: {error}"))?
 }
 
-pub(crate) fn pi_list_files_blocking(cwd: String) -> RpcResult<Vec<serde_json::Value>> {
+pub(crate) fn pi_list_files_blocking(cwd: String, path: Option<String>, depth: Option<usize>, limit: Option<usize>) -> RpcResult<Vec<serde_json::Value>> {
     let root = safe_root(&cwd)?;
+    let start = match path.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        Some(relative_path) => safe_join_directory(&root, relative_path)?,
+        None => root.clone(),
+    };
     let mut entries = Vec::new();
-    collect_files(&root, &root, 0, &mut entries)?;
+    collect_files(&root, &start, 0, depth.unwrap_or(3), limit.unwrap_or(120), &mut entries)?;
     Ok(entries)
 }
 
@@ -80,8 +84,16 @@ pub(crate) fn safe_join(root: &Path, relative_path: &str) -> RpcResult<PathBuf> 
     Ok(canonical)
 }
 
-pub(crate) fn collect_files(root: &Path, current: &Path, depth: usize, entries: &mut Vec<serde_json::Value>) -> RpcResult<()> {
-    if depth > 3 || entries.len() >= 120 {
+pub(crate) fn safe_join_directory(root: &Path, relative_path: &str) -> RpcResult<PathBuf> {
+    let path = safe_join(root, relative_path)?;
+    if !path.is_dir() {
+        return Err("file list path must be a directory".to_string());
+    }
+    Ok(path)
+}
+
+pub(crate) fn collect_files(root: &Path, current: &Path, depth: usize, max_depth: usize, limit: usize, entries: &mut Vec<serde_json::Value>) -> RpcResult<()> {
+    if depth > max_depth || entries.len() >= limit {
         return Ok(());
     }
 
@@ -94,7 +106,7 @@ pub(crate) fn collect_files(root: &Path, current: &Path, depth: usize, entries: 
     children.sort_by_key(|entry| entry.file_name().to_string_lossy().to_ascii_lowercase());
 
     for entry in children {
-        if entries.len() >= 120 {
+        if entries.len() >= limit {
             break;
         }
         let path = entry.path();
@@ -116,7 +128,7 @@ pub(crate) fn collect_files(root: &Path, current: &Path, depth: usize, entries: 
         }));
 
         if metadata.is_dir() {
-            collect_files(root, &path, depth + 1, entries)?;
+            collect_files(root, &path, depth + 1, max_depth, limit, entries)?;
         }
     }
 

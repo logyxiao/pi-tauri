@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createPiClient } from "@/shared/pi/create-client";
 import { useI18n } from "@/shared/i18n";
 import { commandFeedbackContent, isRpcTimeoutError, mergeTransientCommandMessages, type CommandFeedbackState } from "@/shared/hooks/command-feedback";
 import {
-  clearSessionCache,
   normalizePath,
   loadPersistedSessionMessages,
   loadPersistedSessions,
@@ -19,16 +18,17 @@ import {
 import { applySessionOverride, filterDeletedSessions, findSessionByPath, isDeletedSession, isKnownCwd, isLowQualitySessionSummary, mergeSessions, normalizeSessionKey } from "@/shared/hooks/session-utils";
 import { timed, logTimings, type TimingEntry } from "@/shared/hooks/timing";
 import { extractToolCallsFromMessage, mergeToolCall, mergeToolLists } from "@/shared/hooks/tool-merge";
+import { clearScheduledCacheWrite, scheduleSessionCacheWrite } from "@/shared/hooks/cache-scheduler";
+import { appendAssistantDelta, createAssistantMessage, ensureAssistantMessage, reconcileFinalMessages, upsertAssistantTool } from "@/shared/hooks/live-message";
+import { expirePendingExtensionMessages, markPendingExtensionMessage, removePendingExtensionMessage, upsertPendingExtensionMessage } from "@/shared/hooks/extension-pending";
+import { createWarmSessionCacheQueue, type WarmSessionCacheQueue } from "@/shared/hooks/warm-session-cache";
+import { loadSessionMessagesFromDb, loadSessionsFromDb, persistSessionMessagesToDb, persistSessionsToDb, removeSessionMessagesFromDb } from "@/shared/hooks/session-db-cache";
+import { initialSessionPanelState, sessionPanelReducer } from "@/shared/hooks/session-panel-state";
 import type { PiClientEvent } from "@/shared/pi/client";
 import type {
   PiCommand,
-  PiExtensionError,
   PiExtensionMessage,
-  PiExtensionPanel,
-  PiExtensionStatus,
   PiExtensionUiResponse,
-  PiFileEntry,
-  PiFilePreview,
   PiMessage,
   PiModel,
   PiSafetyEvent,
@@ -62,7 +62,6 @@ async function pickWorkspaceFolder(title: string, promptLabel: string): Promise<
 export function usePiSession() {
   const { t } = useI18n();
   const client = useMemo(() => createPiClient(), []);
-  useEffect(() => clearSessionCache(), []);
   const [messages, setMessages] = useState<PiMessage[]>([]);
   const [state, setState] = useState<PiState | null>(null);
   const [stats, setStats] = useState<PiSessionStats | null>(null);
@@ -71,15 +70,8 @@ export function usePiSession() {
   const [models, setModels] = useState<PiModel[]>([]);
   const [settings, setSettings] = useState<PiSettings | null>(() => loadPersistedSettings());
   const [commands, setCommands] = useState<PiCommand[]>([]);
-  const [extensionPanels, setExtensionPanels] = useState<PiExtensionPanel[]>([]);
-  const [extensionStatuses, setExtensionStatuses] = useState<PiExtensionStatus[]>([]);
-  const [extensionMessages, setExtensionMessages] = useState<PiExtensionMessage[]>([]);
+  const [panelState, dispatchPanel] = useReducer(sessionPanelReducer, initialSessionPanelState);
   const [pendingExtensionUi, setPendingExtensionUi] = useState<PiExtensionMessage[]>([]);
-  const [extensionErrors, setExtensionErrors] = useState<PiExtensionError[]>([]);
-  const [safetyEvents, setSafetyEvents] = useState<PiSafetyEvent[]>([]);
-  const [files, setFiles] = useState<PiFileEntry[]>([]);
-  const [filePreview, setFilePreview] = useState<PiFilePreview | null>(null);
-  const [prefillInput, setPrefillInput] = useState("");
   const [status, setStatus] = useState<PiSessionStatus>("connecting");
   const [isSwitchingSession, setIsSwitchingSession] = useState(false);
   const [pendingSessionTarget, setPendingSessionTarget] = useState<string | null>(null);
@@ -88,17 +80,58 @@ export function usePiSession() {
   const activeSessionOverrideRef = useRef<PiSessionSummary | null>(null);
   const deletedSessionKeysRef = useRef<Set<string>>(new Set());
   const messagePersistTimerRef = useRef<number | null>(null);
+  const liveDeltaBufferRef = useRef("");
+  const liveDeltaRafRef = useRef<number | null>(null);
+  const sessionEpochRef = useRef(0);
+  const suppressRuntimeEventsRef = useRef(false);
+  const warmSessionCacheQueueRef = useRef<WarmSessionCacheQueue | null>(null);
+
+  const isCurrentEpoch = useCallback((epoch: number) => sessionEpochRef.current === epoch, []);
+
+  const nextSessionEpoch = useCallback(() => {
+    sessionEpochRef.current += 1;
+    return sessionEpochRef.current;
+  }, []);
+
+  const flushLiveAssistantDelta = useCallback(() => {
+    const assistantId = activeAssistantIdRef.current;
+    if (!assistantId) return;
+    const delta = liveDeltaBufferRef.current;
+    if (!delta) return;
+    liveDeltaBufferRef.current = "";
+    setMessages((current) => appendAssistantDelta(current, assistantId, delta));
+  }, []);
 
   const appendDeltaToLiveAssistant = useCallback((delta: string) => {
     if (!delta) return;
-    const assistantId = activeAssistantIdRef.current;
-    if (!assistantId) return;
-    setMessages((current) => current.map((message) => (message.id === assistantId ? { ...message, content: `${message.content}${delta}` } : message)));
+    liveDeltaBufferRef.current += delta;
+    if (liveDeltaRafRef.current !== null) return;
+    liveDeltaRafRef.current = window.requestAnimationFrame(() => {
+      liveDeltaRafRef.current = null;
+      flushLiveAssistantDelta();
+    });
+  }, [flushLiveAssistantDelta]);
+
+  const clearLiveAssistantDelta = useCallback(() => {
+    if (liveDeltaRafRef.current !== null) {
+      window.cancelAnimationFrame(liveDeltaRafRef.current);
+      liveDeltaRafRef.current = null;
+    }
+    liveDeltaBufferRef.current = "";
   }, []);
 
   useEffect(() => () => {
-    if (messagePersistTimerRef.current !== null) window.clearTimeout(messagePersistTimerRef.current);
-  }, []);
+    messagePersistTimerRef.current = clearScheduledCacheWrite(messagePersistTimerRef.current);
+    clearLiveAssistantDelta();
+  }, [clearLiveAssistantDelta]);
+
+  useEffect(() => {
+    if (!pendingExtensionUi.some((item) => item.expiresAt && item.uiState !== "expired")) return;
+    const timer = window.setInterval(() => {
+      setPendingExtensionUi((current) => expirePendingExtensionMessages(current));
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [pendingExtensionUi]);
 
   useEffect(() => {
     persistWorkspacePaths(workspacePaths);
@@ -106,7 +139,19 @@ export function usePiSession() {
 
   useEffect(() => {
     persistSessions(sessions);
+    void persistSessionsToDb(sessions);
   }, [sessions]);
+
+  useEffect(() => {
+    let disposed = false;
+    void loadSessionsFromDb().then((dbSessions) => {
+      if (disposed || !dbSessions.length) return;
+      setSessions((current) => filterDeletedSessions(mergeSessions(current, dbSessions), deletedSessionKeysRef.current));
+    });
+    return () => {
+      disposed = true;
+    };
+  }, []);
 
   useEffect(() => {
     persistSettings(settings);
@@ -115,29 +160,26 @@ export function usePiSession() {
   useEffect(() => {
     const sessionPath = state?.sessionFile ?? state?.sessionId;
     if (!sessionPath || !messages.length || activeAssistantIdRef.current) return;
-    if (messagePersistTimerRef.current !== null) window.clearTimeout(messagePersistTimerRef.current);
-    messagePersistTimerRef.current = window.setTimeout(() => {
+    messagePersistTimerRef.current = scheduleSessionCacheWrite(messagePersistTimerRef.current, () => {
       messagePersistTimerRef.current = null;
       persistSessionMessages(sessionPath, messages);
-    }, 500);
+      void persistSessionMessagesToDb(sessionPath, messages);
+    });
     return () => {
-      if (messagePersistTimerRef.current !== null) {
-        window.clearTimeout(messagePersistTimerRef.current);
-        messagePersistTimerRef.current = null;
-      }
+      messagePersistTimerRef.current = clearScheduledCacheWrite(messagePersistTimerRef.current);
     };
   }, [messages, state?.sessionFile, state?.sessionId]);
 
   const ensureLiveAssistantMessage = useCallback(() => {
     const existingId = activeAssistantIdRef.current;
     if (existingId) {
-      setMessages((current) => current.some((message) => message.id === existingId) ? current : [...current, { id: existingId, role: "assistant", content: "", createdAt: nowLabel(), tools: [] }]);
+      setMessages((current) => ensureAssistantMessage(current, existingId, nowLabel()));
       return existingId;
     }
 
     const assistantId = crypto.randomUUID();
     activeAssistantIdRef.current = assistantId;
-    setMessages((current) => [...current, { id: assistantId, role: "assistant", content: "", createdAt: nowLabel(), tools: [] }]);
+    setMessages((current) => [...current, createAssistantMessage(assistantId, nowLabel())]);
     return assistantId;
   }, []);
 
@@ -160,16 +202,15 @@ export function usePiSession() {
         )
       ).flat();
       setSessions((current) => filterDeletedSessions(mergeSessions(current, workspaceSessions), deletedSessionKeysRef.current));
-      for (const session of workspaceSessions.slice(0, 20)) {
-        if (session.filePath) void warmSessionCache(session.filePath);
-      }
+      warmSessionCacheQueueRef.current?.enqueue(workspaceSessions.slice(0, 20).map((session) => session.filePath).filter((path): path is string => Boolean(path)));
       logTimings("workspaceSessions.refresh", timings, totalStartedAt);
     } catch {
       logTimings("workspaceSessions.refresh: failed", timings, totalStartedAt);
     }
   }, [client, workspacePaths]);
 
-  const refresh = useCallback(async (scope = "refresh", options: { forceModels?: boolean; targetCwd?: string } = {}) => {
+  const refresh = useCallback(async (scope = "refresh", options: { forceModels?: boolean; targetCwd?: string; epoch?: number } = {}) => {
+    const epoch = options.epoch ?? sessionEpochRef.current;
     const totalStartedAt = performance.now();
     const timings: TimingEntry[] = [];
     setStatus((current) => (current === "connecting" || current === "running" ? current : "refreshing"));
@@ -201,8 +242,9 @@ export function usePiSession() {
         timed(timings, "listExtensionMessages", () => client.listExtensionMessages()),
         timed(timings, "listExtensionErrors", () => client.listExtensionErrors()),
         timed(timings, "listSafetyEvents", () => client.listSafetyEvents()),
-        timed(timings, "listFiles", () => client.listFiles()),
+        timed(timings, "listFiles", () => client.listFiles({ depth: 1, limit: 80 })),
       ]);
+      if (!isCurrentEpoch(epoch)) return;
       if (!activeAssistantIdRef.current) {
         setMessages((current) => mergeTransientCommandMessages(current, nextMessages));
         persistMessagesForState(nextState, nextMessages);
@@ -218,40 +260,41 @@ export function usePiSession() {
       setModels(nextModels);
       setSettings(nextSettings);
       setCommands(nextCommands);
-      setExtensionPanels(nextExtensionPanels);
-      setExtensionStatuses(nextExtensionStatuses);
-      setExtensionMessages(nextExtensionMessages);
-      setExtensionErrors(nextExtensionErrors);
-      setSafetyEvents(nextSafetyEvents);
-      setFiles(nextFiles);
+      dispatchPanel({ type: "setExtensionPanels", panels: nextExtensionPanels });
+      dispatchPanel({ type: "setExtensionStatuses", statuses: nextExtensionStatuses });
+      dispatchPanel({ type: "setExtensionMessages", messages: nextExtensionMessages });
+      dispatchPanel({ type: "setExtensionErrors", errors: nextExtensionErrors });
+      dispatchPanel({ type: "setSafetyEvents", events: nextSafetyEvents });
+      dispatchPanel({ type: "setFiles", files: nextFiles });
       setError(null);
       setStatus(activeAssistantIdRef.current || nextState.runState === "running" ? "running" : "ready");
       logTimings(scope, timings, totalStartedAt);
       if (scope.startsWith("startup")) void refreshWorkspaceSessions();
     } catch (caught) {
+      if (!isCurrentEpoch(epoch)) return;
       logTimings(`${scope}: failed`, timings, totalStartedAt);
       setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     }
-  }, [client, refreshWorkspaceSessions, t]);
+  }, [client, isCurrentEpoch, refreshWorkspaceSessions, t]);
 
   const upsertTool = useCallback((tool: PiToolCall) => {
     const assistantId = ensureLiveAssistantMessage();
-    setMessages((current) =>
-      current.map((message) => {
-        if (message.id !== assistantId) return message;
-        const tools = message.tools ?? [];
-        const exists = tools.some((item) => item.id === tool.id);
-        return {
-          ...message,
-          tools: exists ? tools.map((item) => (item.id === tool.id ? mergeToolCall(item, tool) : item)) : [...tools, tool],
-        };
-      }),
-    );
+    setMessages((current) => upsertAssistantTool(current, assistantId, tool, mergeToolCall));
   }, [ensureLiveAssistantMessage]);
 
   const handleEvent = useCallback(
     (event: PiClientEvent) => {
+      const eventEpoch = sessionEpochRef.current;
+      const isRuntimeEvent =
+        event.type === "agent_start" ||
+        event.type === "message_update" ||
+        event.type === "tool_execution_start" ||
+        event.type === "tool_execution_update" ||
+        event.type === "tool_execution_end" ||
+        event.type === "agent_end" ||
+        event.type === "aborted";
+      if (isRuntimeEvent && suppressRuntimeEventsRef.current) return;
       if (event.type === "agent_start") {
         ensureLiveAssistantMessage();
         setStatus("running");
@@ -261,8 +304,10 @@ export function usePiSession() {
       }
 
       if (event.type === "message_update") {
+        if (!isCurrentEpoch(eventEpoch)) return;
         const assistantId = ensureLiveAssistantMessage();
         if (event.message) {
+          flushLiveAssistantDelta();
           const eventMessage = event.message;
           setMessages((current) =>
             current.map((message) => {
@@ -289,59 +334,46 @@ export function usePiSession() {
         event.type === "tool_execution_update" ||
         event.type === "tool_execution_end"
       ) {
+        if (!isCurrentEpoch(eventEpoch)) return;
+        flushLiveAssistantDelta();
         upsertTool(event.tool);
         if (event.tool.safety) void refresh();
         return;
       }
 
       if (event.type === "extension_error") {
-        setExtensionErrors((current) => [event.error, ...current.filter((item) => item.id !== event.error.id)].slice(0, 30));
+        dispatchPanel({ type: "upsertExtensionError", error: event.error });
         return;
       }
 
       if (event.type === "extension_ui_request") {
-        setExtensionMessages((current) => [event.message, ...current.filter((item) => item.id !== event.message.id)].slice(0, 40));
+        dispatchPanel({ type: "upsertExtensionMessage", message: event.message });
         if (event.message.expectsResponse) {
-          setPendingExtensionUi((current) => [...current.filter((item) => item.id !== event.message.id), event.message]);
+          setPendingExtensionUi((current) => upsertPendingExtensionMessage(current, event.message));
         }
         if (event.panel) {
-          setExtensionPanels((current) => {
-            const next = current.filter((item) => item.key !== event.panel?.key);
-            return event.panel?.lines.length ? [event.panel, ...next].slice(0, 12) : next;
-          });
+          dispatchPanel({ type: "upsertExtensionPanel", panel: event.panel });
         }
         if (event.status) {
-          setExtensionStatuses((current) => {
-            const next = current.filter((item) => item.key !== event.status?.key);
-            return event.status?.text ? [event.status, ...next].slice(0, 12) : next;
-          });
+          dispatchPanel({ type: "upsertExtensionStatus", status: event.status });
         }
-        if (event.editorText) setPrefillInput(event.editorText);
+        if (event.editorText) dispatchPanel({ type: "setPrefillInput", value: event.editorText });
         return;
       }
 
       if (event.type === "agent_end" || event.type === "aborted") {
         const assistantId = activeAssistantIdRef.current;
+        flushLiveAssistantDelta();
         if (event.type === "agent_end" && event.messages?.length) {
-          setMessages((current) => {
-            const liveMessage = assistantId ? current.find((message) => message.id === assistantId) : undefined;
-            const withoutLive = assistantId ? current.filter((message) => message.id !== assistantId) : current;
-            const finalMessages = event.messages?.map((message, index) => {
-              if (index === 0 && message.role === "assistant" && assistantId) {
-                return { ...message, id: assistantId, createdAt: liveMessage?.createdAt ?? message.createdAt, tools: liveMessage?.tools ?? message.tools };
-              }
-              return message;
-            }) ?? [];
-            return [...withoutLive, ...finalMessages];
-          });
+          setMessages((current) => reconcileFinalMessages(current, assistantId, event.messages ?? []));
         }
         setStatus("ready");
         setState((current) => (current ? { ...current, runState: "idle" } : current));
         activeAssistantIdRef.current = null;
-        void refresh();
+        void refresh("agentEnd.refresh", { epoch: eventEpoch });
       }
     },
-    [appendDeltaToLiveAssistant, ensureLiveAssistantMessage, refresh, upsertTool],
+    [appendDeltaToLiveAssistant, ensureLiveAssistantMessage, flushLiveAssistantDelta, isCurrentEpoch, refresh, upsertTool],
   );
 
   useEffect(() => {
@@ -380,6 +412,7 @@ export function usePiSession() {
   async function prompt(content: string) {
     const trimmed = content.trim();
     if (!trimmed || state?.runState === "running") return;
+    const epoch = sessionEpochRef.current;
 
     const userMessage: PiMessage = {
       id: crypto.randomUUID(),
@@ -397,7 +430,9 @@ export function usePiSession() {
     try {
       await client.prompt(trimmed);
     } catch (caught) {
+      if (!isCurrentEpoch(epoch)) return;
       activeAssistantIdRef.current = null;
+      clearLiveAssistantDelta();
       setMessages((current) => current.filter((message) => message.id !== assistantId));
       setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
@@ -437,32 +472,48 @@ export function usePiSession() {
   }
 
   async function newSession(cwd?: string) {
+    const epoch = nextSessionEpoch();
     try {
+      suppressRuntimeEventsRef.current = true;
       activeSessionOverrideRef.current = null;
       await client.newSession(cwd ? { cwd } : undefined);
+      if (!isCurrentEpoch(epoch)) return;
       activeAssistantIdRef.current = null;
+      clearLiveAssistantDelta();
       if (cwd) setState((current) => (current ? { ...current, cwd, sessionName: undefined } : current));
       setMessages([]);
-      setFilePreview(null);
+      dispatchPanel({ type: "setFilePreview", preview: null });
       setError(null);
-      await refresh("newSession", cwd ? { targetCwd: cwd } : undefined);
+      suppressRuntimeEventsRef.current = false;
+      await refresh("newSession", cwd ? { targetCwd: cwd, epoch } : { epoch });
     } catch (caught) {
+      if (!isCurrentEpoch(epoch)) return;
       setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
+    } finally {
+      if (isCurrentEpoch(epoch)) suppressRuntimeEventsRef.current = false;
     }
   }
 
   async function continueRecent() {
+    const epoch = nextSessionEpoch();
     try {
+      suppressRuntimeEventsRef.current = true;
       activeSessionOverrideRef.current = null;
       await client.continueRecent();
+      if (!isCurrentEpoch(epoch)) return;
       activeAssistantIdRef.current = null;
-      setFilePreview(null);
+      clearLiveAssistantDelta();
+      dispatchPanel({ type: "setFilePreview", preview: null });
       setError(null);
-      await refresh();
+      suppressRuntimeEventsRef.current = false;
+      await refresh("continueRecent", { epoch });
     } catch (caught) {
+      if (!isCurrentEpoch(epoch)) return;
       setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
+    } finally {
+      if (isCurrentEpoch(epoch)) suppressRuntimeEventsRef.current = false;
     }
   }
 
@@ -470,14 +521,21 @@ export function usePiSession() {
     try {
       const cached = loadPersistedSessionMessages(sessionPath);
       if (cached.length) return;
+      const dbMessages = await loadSessionMessagesFromDb(sessionPath);
+      if (dbMessages.length) {
+        persistSessionMessages(sessionPath, dbMessages);
+        return;
+      }
       const messages = await client.readSessionMessages(sessionPath);
       if (messages.length) persistSessionMessages(sessionPath, messages);
+      if (messages.length) void persistSessionMessagesToDb(sessionPath, messages);
     } catch {
       // Warm cache is best-effort.
     }
   }
 
   async function switchSession(sessionPath: string) {
+    const epoch = nextSessionEpoch();
     const totalStartedAt = performance.now();
     const timings: TimingEntry[] = [];
     const targetSession = findSessionByPath(sessions, sessionPath) ?? null;
@@ -485,13 +543,21 @@ export function usePiSession() {
     const cachedMessages = loadPersistedSessionMessages(sessionPath);
     const hasCachedMessages = cachedMessages.length > 0;
     try {
+      suppressRuntimeEventsRef.current = true;
       activeSessionOverrideRef.current = targetSession;
       setPendingSessionTarget(sessionPath);
       setIsSwitchingSession(!hasCachedMessages);
       setStatus("refreshing");
       if (targetCwd) setState((current) => (current ? { ...current, cwd: targetCwd, sessionFile: targetSession?.filePath ?? current.sessionFile, sessionId: targetSession?.id ?? current.sessionId, sessionName: targetSession?.name ?? current.sessionName } : current));
       setMessages(cachedMessages);
+      if (!cachedMessages.length) {
+        void loadSessionMessagesFromDb(sessionPath).then((dbMessages) => {
+          if (!isCurrentEpoch(epoch) || !dbMessages.length) return;
+          setMessages(dbMessages);
+        });
+      }
       await timed(timings, "switchSession.rpc", () => client.switchSession(sessionPath));
+      if (!isCurrentEpoch(epoch)) return;
 
       const [nextMessages, nextState, nextStats, nextSessions] = await Promise.all([
         timed(timings, "switchSession.getMessages", () => client.getMessages()),
@@ -499,27 +565,42 @@ export function usePiSession() {
         timed(timings, "switchSession.getSessionStats", () => client.getSessionStats()),
         timed(timings, "switchSession.listSessions.current", () => client.listSessions()),
       ]);
+      if (!isCurrentEpoch(epoch)) return;
 
       activeAssistantIdRef.current = null;
+      clearLiveAssistantDelta();
       setMessages(nextMessages);
       persistMessagesForState(nextState, nextMessages);
+      if (nextState.sessionFile || nextState.sessionId) void persistSessionMessagesToDb(nextState.sessionFile ?? nextState.sessionId ?? sessionPath, nextMessages);
       setState(applySessionOverride(nextState, targetSession));
       setStats(nextStats);
       setSessions((current) => filterDeletedSessions(mergeSessions(current, nextSessions), deletedSessionKeysRef.current));
-      setFilePreview(null);
+      dispatchPanel({ type: "setFilePreview", preview: null });
       setError(null);
       setStatus(nextState.runState === "running" ? "running" : "ready");
       setPendingSessionTarget(null);
+      suppressRuntimeEventsRef.current = false;
       logTimings("switchSession.total", timings, totalStartedAt);
-      void refresh("switchSession.backgroundRefresh");
+      void refresh("switchSession.backgroundRefresh", { epoch });
     } catch (caught) {
+      if (!isCurrentEpoch(epoch)) return;
       logTimings("switchSession.total: failed", timings, totalStartedAt);
       setPendingSessionTarget(null);
       setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
     } finally {
-      setIsSwitchingSession(false);
+      if (isCurrentEpoch(epoch)) {
+        suppressRuntimeEventsRef.current = false;
+        setIsSwitchingSession(false);
+      }
     }
+  }
+
+  if (!warmSessionCacheQueueRef.current) {
+    warmSessionCacheQueueRef.current = createWarmSessionCacheQueue({
+      normalizeKey: normalizeSessionKey,
+      warm: warmSessionCache,
+    });
   }
 
   async function setSessionName(name: string) {
@@ -539,6 +620,7 @@ export function usePiSession() {
       deletedSessionKeysRef.current.add(normalizeSessionKey(sessionPath));
       setSessions((current) => current.filter((session) => !isDeletedSession(session, deletedSessionKeysRef.current)));
       removePersistedSessionMessages(sessionPath);
+      void removeSessionMessagesFromDb(sessionPath);
       setError(null);
       await refresh();
     } catch (caught) {
@@ -624,7 +706,7 @@ export function usePiSession() {
       setError(null);
       if (safetyEvent) {
         await client.recordSafetyEvent(safetyEvent);
-        setSafetyEvents((current) => [safetyEvent, ...current.filter((item) => item.id !== safetyEvent.id)].slice(0, 20));
+        dispatchPanel({ type: "upsertSafetyEvent", event: safetyEvent });
       }
       await client.executeCommand(normalizedName);
       appendCommandFeedback(feedbackId, normalizedName, "done");
@@ -644,7 +726,7 @@ export function usePiSession() {
   async function recordSafetyEvent(event: PiSafetyEvent) {
     try {
       await client.recordSafetyEvent(event);
-      setSafetyEvents((current) => [event, ...current.filter((item) => item.id !== event.id)].slice(0, 20));
+      dispatchPanel({ type: "upsertSafetyEvent", event });
     } catch (caught) {
       setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
@@ -653,11 +735,13 @@ export function usePiSession() {
 
   async function respondExtensionUi(response: PiExtensionUiResponse) {
     try {
+      setPendingExtensionUi((current) => markPendingExtensionMessage(current, response.id, "submitting"));
       await client.respondExtensionUi(response);
-      setPendingExtensionUi((current) => current.filter((item) => item.id !== response.id));
+      setPendingExtensionUi((current) => removePendingExtensionMessage(current, response.id));
       setError(null);
     } catch (caught) {
       const message = errorMessage(caught, t("hook.unknownError"));
+      setPendingExtensionUi((current) => markPendingExtensionMessage(current, response.id, "failed", message));
       setError(message);
       setStatus("error");
       throw new Error(message);
@@ -668,7 +752,22 @@ export function usePiSession() {
     try {
       setError(null);
       const preview = await client.readFile(path);
-      setFilePreview(preview);
+      dispatchPanel({ type: "setFilePreview", preview });
+    } catch (caught) {
+      setError(errorMessage(caught, t("hook.unknownError")));
+      setStatus("error");
+    }
+  }
+
+  async function loadFiles(path?: string) {
+    try {
+      setError(null);
+      const nextFiles = await client.listFiles(path ? { path, depth: 1, limit: 80 } : { depth: 1, limit: 80 });
+      if (!path) {
+        dispatchPanel({ type: "setFiles", files: nextFiles });
+        return;
+      }
+      dispatchPanel({ type: "mergeFiles", parentPath: path, files: nextFiles });
     } catch (caught) {
       setError(errorMessage(caught, t("hook.unknownError")));
       setStatus("error");
@@ -676,7 +775,7 @@ export function usePiSession() {
   }
 
   function clearPrefillInput() {
-    setPrefillInput("");
+    dispatchPanel({ type: "setPrefillInput", value: "" });
   }
 
   function clearError() {
@@ -693,15 +792,15 @@ export function usePiSession() {
     models,
     settings,
     commands,
-    extensionPanels,
-    extensionStatuses,
-    extensionMessages,
+    extensionPanels: panelState.extensionPanels,
+    extensionStatuses: panelState.extensionStatuses,
+    extensionMessages: panelState.extensionMessages,
     pendingExtensionUi,
-    extensionErrors,
-    safetyEvents,
-    files,
-    filePreview,
-    prefillInput,
+    extensionErrors: panelState.extensionErrors,
+    safetyEvents: panelState.safetyEvents,
+    files: panelState.files,
+    filePreview: panelState.filePreview,
+    prefillInput: panelState.prefillInput,
     status,
     error,
     isConnecting: status === "connecting",
@@ -727,6 +826,7 @@ export function usePiSession() {
     recordSafetyEvent,
     respondExtensionUi,
     previewFile,
+    loadFiles,
     clearPrefillInput,
     clearError,
     refresh,

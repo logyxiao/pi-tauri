@@ -34,6 +34,8 @@ export function AppShell() {
     extensionStatuses,
     pendingExtensionUi,
     extensionErrors,
+    files,
+    filePreview,
     prefillInput,
     status,
     error,
@@ -57,6 +59,7 @@ export function AppShell() {
     recordSafetyEvent,
     respondExtensionUi,
     previewFile,
+    loadFiles,
     clearPrefillInput,
     clearError,
     refresh,
@@ -127,6 +130,10 @@ export function AppShell() {
                     state={state}
                     settings={settings}
                     isRunning={isRunning}
+                    files={files}
+                    filePreview={filePreview}
+                    onPreviewFile={previewFile}
+                    onLoadFiles={loadFiles}
                   />
                 </Suspense>
               </ChunkErrorBoundary>

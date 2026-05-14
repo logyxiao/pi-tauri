@@ -4,6 +4,15 @@ const WORKSPACE_PATHS_STORAGE_KEY = "pi-tauri.workspacePaths";
 const SESSION_CACHE_STORAGE_KEY = "pi-tauri.sessions.cache";
 const SESSION_MESSAGES_CACHE_PREFIX = "pi-tauri.sessionMessages.";
 const SETTINGS_CACHE_STORAGE_KEY = "pi-tauri.settings.cache";
+const CACHE_VERSION = 1;
+const SESSION_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 14;
+const SESSION_MESSAGES_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+
+interface CacheEnvelope<T> {
+  version: number;
+  savedAt: number;
+  value: T;
+}
 
 export function normalizePath(path: string) {
   return path.replace(/\\/g, "/").replace(/\/$/, "");
@@ -40,13 +49,19 @@ export function clearSessionCache() {
 }
 
 export function loadPersistedSessions(): PiSessionSummary[] {
-  return [];
+  try {
+    const value = readCacheEnvelope<unknown>(SESSION_CACHE_STORAGE_KEY, SESSION_CACHE_TTL_MS);
+    if (!Array.isArray(value)) return [];
+    return value.filter(isSessionSummaryLike).slice(0, 200);
+  } catch {
+    return [];
+  }
 }
 
 export function persistSessions(sessions: PiSessionSummary[]) {
   try {
     const durableSessions = sessions.filter((session) => session.filePath && !isLowQualitySessionSummary(session));
-    window.localStorage.setItem(SESSION_CACHE_STORAGE_KEY, JSON.stringify(durableSessions.slice(0, 200)));
+    writeCacheEnvelope(SESSION_CACHE_STORAGE_KEY, durableSessions.slice(0, 200));
   } catch {
     // Cache only; ignore storage failures.
   }
@@ -54,8 +69,7 @@ export function persistSessions(sessions: PiSessionSummary[]) {
 
 export function loadPersistedSessionMessages(sessionPath: string): PiMessage[] {
   try {
-    const raw = window.localStorage.getItem(sessionMessagesCacheKey(sessionPath));
-    const value: unknown = raw ? JSON.parse(raw) : [];
+    const value = readCacheEnvelope<unknown>(sessionMessagesCacheKey(sessionPath), SESSION_MESSAGES_CACHE_TTL_MS);
     if (!Array.isArray(value)) return [];
     return value.filter(isMessageLike).slice(-200);
   } catch {
@@ -65,7 +79,7 @@ export function loadPersistedSessionMessages(sessionPath: string): PiMessage[] {
 
 export function persistSessionMessages(sessionPath: string, messages: PiMessage[]) {
   try {
-    window.localStorage.setItem(sessionMessagesCacheKey(sessionPath), JSON.stringify(messages.slice(-200)));
+    writeCacheEnvelope(sessionMessagesCacheKey(sessionPath), messages.slice(-200));
   } catch {
     // Cache only; ignore storage failures.
   }
@@ -108,8 +122,50 @@ function sessionMessagesCacheKey(sessionPath: string): string {
   return `${SESSION_MESSAGES_CACHE_PREFIX}${encodeURIComponent(normalizePath(sessionPath))}`;
 }
 
+function readCacheEnvelope<T>(key: string, ttlMs: number): T | null {
+  const raw = window.localStorage.getItem(key);
+  if (!raw) return null;
+  const parsed: unknown = JSON.parse(raw);
+  if (isCacheEnvelope<T>(parsed)) {
+    if (parsed.version !== CACHE_VERSION || Date.now() - parsed.savedAt > ttlMs) {
+      window.localStorage.removeItem(key);
+      return null;
+    }
+    return parsed.value;
+  }
+  return parsed as T;
+}
+
+function writeCacheEnvelope<T>(key: string, value: T) {
+  const envelope: CacheEnvelope<T> = {
+    version: CACHE_VERSION,
+    savedAt: Date.now(),
+    value,
+  };
+  window.localStorage.setItem(key, JSON.stringify(envelope));
+}
+
+function isCacheEnvelope<T>(value: unknown): value is CacheEnvelope<T> {
+  if (!value || typeof value !== "object") return false;
+  const envelope = value as Record<string, unknown>;
+  return typeof envelope.version === "number" && typeof envelope.savedAt === "number" && "value" in envelope;
+}
+
 function isLowQualitySessionSummary(session: PiSessionSummary): boolean {
   return session.name === "Current session" || !session.cwd || session.cwd.toLowerCase() === "unknown cwd" || session.updatedAt === "current";
+}
+
+function isSessionSummaryLike(value: unknown): value is PiSessionSummary {
+  if (!value || typeof value !== "object") return false;
+  const session = value as Record<string, unknown>;
+  return (
+    typeof session.id === "string" &&
+    typeof session.name === "string" &&
+    typeof session.cwd === "string" &&
+    typeof session.updatedAt === "string" &&
+    typeof session.model === "string" &&
+    (session.status === "idle" || session.status === "running")
+  );
 }
 
 function isMessageLike(value: unknown): value is PiMessage {

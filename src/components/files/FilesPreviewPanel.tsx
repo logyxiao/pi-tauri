@@ -1,7 +1,8 @@
-import { File, FileCode2, FileImage, Folder, Globe2, SearchX, Text } from "lucide-react";
+import { ChevronRight, File, FileCode2, FileImage, Folder, Globe2, Loader2, SearchX, Text } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
 import { useI18n } from "@/shared/i18n";
 import type { PiFileEntry, PiFilePreview } from "@/shared/pi/types";
+import { useState } from "react";
 
 interface FilesPreviewPanelProps {
   cwd: string;
@@ -9,10 +10,31 @@ interface FilesPreviewPanelProps {
   preview: PiFilePreview | null;
   selectedPath?: string | null;
   onSelectFile: (path: string) => Promise<void> | void;
+  onLoadDirectory?: (path: string) => Promise<void> | void;
 }
 
-export function FilesPreviewPanel({ cwd, files, preview, selectedPath, onSelectFile }: FilesPreviewPanelProps) {
+export function FilesPreviewPanel({ cwd, files, preview, selectedPath, onSelectFile, onLoadDirectory }: FilesPreviewPanelProps) {
   const { t } = useI18n();
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [loadingPath, setLoadingPath] = useState<string | null>(null);
+  const visibleFiles = files.filter((entry) => isEntryVisible(entry, expanded));
+
+  async function toggleDirectory(path: string) {
+    if (!onLoadDirectory) return;
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+    if (expanded.has(path)) return;
+    setLoadingPath(path);
+    try {
+      await onLoadDirectory(path);
+    } finally {
+      setLoadingPath(null);
+    }
+  }
 
   return (
     <section className="rounded-none border border-border bg-background/60 p-3">
@@ -25,21 +47,25 @@ export function FilesPreviewPanel({ cwd, files, preview, selectedPath, onSelectF
       </div>
 
       <div className="max-h-56 space-y-1 overflow-auto rounded-none border border-border bg-surface p-1.5">
-        {files.length ? (
-          files.map((entry) => (
+        {visibleFiles.length ? (
+          visibleFiles.map((entry) => (
             <button
               key={entry.path}
               className={cn(
                 "flex w-full cursor-pointer items-center gap-2 rounded-none px-2 py-1.5 text-left text-xs transition disabled:cursor-default",
-                entry.kind === "directory" ? "text-muted-foreground" : "text-foreground hover:bg-muted",
+                entry.kind === "directory" ? "text-muted-foreground hover:bg-muted" : "text-foreground hover:bg-muted",
                 selectedPath === entry.path && "bg-primary/10 text-primary",
               )}
               style={{ paddingLeft: `${8 + entry.depth * 12}px` }}
-              disabled={entry.kind === "directory"}
-              onClick={() => void onSelectFile(entry.path)}
+              onClick={() => entry.kind === "directory" ? void toggleDirectory(entry.path) : void onSelectFile(entry.path)}
               title={entry.path}
             >
-              {entry.kind === "directory" ? <Folder size={13} /> : <File size={13} />}
+              {entry.kind === "directory" ? (
+                loadingPath === entry.path ? <Loader2 size={13} className="animate-spin" /> : <ChevronRight size={13} className={cn("transition", expanded.has(entry.path) && "rotate-90")} />
+              ) : (
+                <File size={13} />
+              )}
+              {entry.kind === "directory" ? <Folder size={13} /> : null}
               <span className="min-w-0 flex-1 truncate font-mono">{entry.name}</span>
               {entry.size != null && entry.kind === "file" ? (
                 <span className="shrink-0 text-[10px] text-muted-foreground">{formatBytes(entry.size)}</span>
@@ -58,6 +84,21 @@ export function FilesPreviewPanel({ cwd, files, preview, selectedPath, onSelectF
       </div>
     </section>
   );
+}
+
+function isEntryVisible(entry: PiFileEntry, expanded: Set<string>): boolean {
+  if (entry.depth === 0) return true;
+  const normalized = normalizePath(entry.path);
+  const segments = normalized.split("/").filter(Boolean);
+  for (let index = 1; index < segments.length; index++) {
+    const ancestor = segments.slice(0, index).join("/");
+    if (!expanded.has(ancestor)) return false;
+  }
+  return true;
+}
+
+function normalizePath(path: string) {
+  return path.replace(/\\/g, "/").replace(/\/$/, "");
 }
 
 function PreviewBody({ preview }: { preview: PiFilePreview }) {

@@ -13,7 +13,7 @@ import {
   demoSessionStats,
   demoSettings,
 } from "./mock-data";
-import type { PiClient, PiClientEvent, PiNewSessionOptions, PiSessionListOptions } from "./client";
+import type { PiClient, PiClientEvent, PiFileListOptions, PiNewSessionOptions, PiSessionListOptions } from "./client";
 import type {
   PiCommand,
   PiExtensionError,
@@ -392,7 +392,11 @@ export class MockPiClient implements PiClient {
     this.safetyEvents = [event, ...this.safetyEvents.filter((item) => item.id !== event.id)].slice(0, 20);
   }
 
-  async listFiles(): Promise<PiFileEntry[]> {
+  async listFiles(options: PiFileListOptions = {}): Promise<PiFileEntry[]> {
+    if (options.path) {
+      const prefix = `${normalizePath(options.path)}/`;
+      return demoFiles.filter((file) => normalizePath(file.path).startsWith(prefix));
+    }
     return demoFiles;
   }
 

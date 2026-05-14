@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, Brain, Check, ChevronRight, Copy, FilePenLine, FileText, ImageIcon, Loader2, Terminal } from "lucide-react";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
 import { LoadingPanel } from "@/components/status/LoadingPanel";
@@ -28,6 +29,9 @@ type RenderItem =
   | { type: "message"; message: PiMessage; activityTools?: PiToolCall[]; activityMessages?: PiMessage[] }
   | { type: "activityGroup"; id: string; tools: PiToolCall[]; messages: PiMessage[] };
 
+const MESSAGE_WINDOW_INITIAL = 160;
+const MESSAGE_WINDOW_STEP = 160;
+
 export function MessageList({ messages, isConnecting = false, isRefreshing = false, isSwitchingSession = false, isRunning = false, onSelectTool }: MessageListProps) {
   const { t } = useI18n();
   const showEmptyState = !messages.length && !isConnecting;
@@ -36,12 +40,27 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
   const shouldAutoScrollRef = useRef(true);
   const activeTimelineIdRef = useRef<string | null>(null);
   const scrollRafRef = useRef<number | null>(null);
-  const timelineItems = useMemo(() => buildTimelineItems(messages, t), [messages, t]);
-  const activeAssistantId = isRunning ? findLastAssistantId(messages) : null;
-  const renderItems = useMemo(() => buildRenderItems(messages, activeAssistantId), [messages, activeAssistantId]);
+  const [messageWindowSize, setMessageWindowSize] = useState(MESSAGE_WINDOW_INITIAL);
+  const visibleMessages = useMemo(() => messages.length > messageWindowSize ? messages.slice(-messageWindowSize) : messages, [messages, messageWindowSize]);
+  const hiddenMessageCount = Math.max(messages.length - visibleMessages.length, 0);
+  const timelineItems = useMemo(() => buildTimelineItems(visibleMessages, t), [visibleMessages, t]);
+  const activeAssistantId = isRunning ? findLastAssistantId(visibleMessages) : null;
+  const renderItems = useMemo(() => buildRenderItems(visibleMessages, activeAssistantId), [visibleMessages, activeAssistantId]);
   const [activeTimelineId, setActiveTimelineId] = useState<string | null>(timelineItems[0]?.id ?? null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  const streamSignature = useMemo(() => buildStreamSignature(messages), [messages]);
+  const streamSignature = useMemo(() => buildStreamSignature(visibleMessages), [visibleMessages]);
+  const virtualizer = useVirtualizer({
+    count: renderItems.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (index) => estimateRenderItemHeight(renderItems[index]),
+    getItemKey: (index) => renderItemKey(renderItems[index], index),
+    overscan: 8,
+  });
+  const virtualItems = virtualizer.getVirtualItems();
+
+  useEffect(() => {
+    setMessageWindowSize((current) => Math.max(MESSAGE_WINDOW_INITIAL, Math.min(current, Math.max(messages.length, MESSAGE_WINDOW_INITIAL))));
+  }, [messages.length]);
 
   useEffect(() => {
     activeTimelineIdRef.current = activeTimelineId;
@@ -65,10 +84,10 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
     if (!container || isConnecting || isSwitchingSession) return;
     if (isPromptStart(messages, activeAssistantId)) shouldAutoScrollRef.current = true;
     if (!shouldAutoScrollRef.current) return;
-    container.scrollTo({ top: container.scrollHeight, behavior: "auto" });
+    virtualizer.scrollToIndex(Math.max(renderItems.length - 1, 0), { align: "end" });
     setShowScrollToBottom(false);
     updateActiveTimelineItem();
-  }, [streamSignature, isConnecting, isSwitchingSession, messages, activeAssistantId]);
+  }, [streamSignature, isConnecting, isSwitchingSession, visibleMessages, activeAssistantId, renderItems.length, virtualizer]);
 
   function scheduleTimelineUpdate() {
     if (scrollRafRef.current !== null) return;
@@ -111,22 +130,41 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
     const container = scrollRef.current;
     if (!container) return;
     shouldAutoScrollRef.current = true;
-    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    virtualizer.scrollToIndex(Math.max(renderItems.length - 1, 0), { align: "end", behavior: "smooth" });
     setShowScrollToBottom(false);
   }
 
   function scrollToMessage(id: string) {
     const container = scrollRef.current;
-    const node = messageRefs.current.get(id);
-    if (!container || !node) return;
+    if (!container) return;
 
     setActiveTimelineId(id);
+    const itemIndex = renderItems.findIndex((item) => item.type === "message" && item.message.id === id);
+    if (itemIndex >= 0 && !messageRefs.current.get(id)) {
+      virtualizer.scrollToIndex(itemIndex, { align: "start" });
+      window.requestAnimationFrame(() => scrollToMessage(id));
+      return;
+    }
+    const node = messageRefs.current.get(id);
+    if (!node) return;
     const containerRect = container.getBoundingClientRect();
     const nodeRect = node.getBoundingClientRect();
     const safeBottom = 180;
     const targetTop = container.scrollTop + nodeRect.top - containerRect.top - container.clientHeight * 0.28;
     const maxTop = Math.max(container.scrollHeight - container.clientHeight + safeBottom, 0);
     container.scrollTo({ top: Math.min(Math.max(targetTop, 0), maxTop), behavior: "auto" });
+  }
+
+  function showEarlierMessages() {
+    const container = scrollRef.current;
+    const previousHeight = container?.scrollHeight ?? 0;
+    const previousTop = container?.scrollTop ?? 0;
+    setMessageWindowSize((current) => current + MESSAGE_WINDOW_STEP);
+    window.requestAnimationFrame(() => {
+      const nextContainer = scrollRef.current;
+      if (!nextContainer) return;
+      nextContainer.scrollTop = previousTop + Math.max(nextContainer.scrollHeight - previousHeight, 0);
+    });
   }
 
   return (
@@ -148,19 +186,34 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
 
           {showEmptyState ? <div className="min-h-[28vh]" /> : null}
 
-          <div className="flex flex-col gap-4">
-            {renderItems.map((item) => {
+          {hiddenMessageCount ? (
+            <button
+              type="button"
+              className="mx-auto w-fit cursor-pointer border border-border bg-surface/85 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground shadow-sm transition hover:border-primary/30 hover:text-primary"
+              onClick={showEarlierMessages}
+            >
+              Show {Math.min(MESSAGE_WINDOW_STEP, hiddenMessageCount)} earlier messages
+            </button>
+          ) : null}
+
+          <div>
+            <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
+            {virtualItems.map((virtualItem) => {
+              const item = renderItems[virtualItem.index];
               if (item.type === "message") {
                 const isActiveAssistant = item.message.id === activeAssistantId;
                 if (!isActiveAssistant && isHiddenAssistantMessage(item.message) && !item.activityTools?.length && !item.activityMessages?.length) return null;
                 return (
                   <div
-                    key={item.message.id}
+                    key={virtualItem.key}
+                    data-index={virtualItem.index}
                     ref={(node) => {
+                      virtualizer.measureElement(node);
                       if (node) messageRefs.current.set(item.message.id, node);
                       else messageRefs.current.delete(item.message.id);
                     }}
-                    className="scroll-mt-16"
+                    className="absolute left-0 top-0 w-full scroll-mt-16"
+                    style={{ transform: `translateY(${virtualItem.start}px)`, paddingBottom: "1rem" }}
                   >
                     <MessageBubble message={item.message} activityTools={item.activityTools} activityMessages={item.activityMessages} onSelectTool={onSelectTool} isActive={isActiveAssistant} />
                   </div>
@@ -168,11 +221,18 @@ export function MessageList({ messages, isConnecting = false, isRefreshing = fal
               }
 
               return (
-                <div key={item.id} className="scroll-mt-16">
+                <div
+                  key={virtualItem.key}
+                  data-index={virtualItem.index}
+                  ref={(node) => virtualizer.measureElement(node)}
+                  className="absolute left-0 top-0 w-full scroll-mt-16"
+                  style={{ transform: `translateY(${virtualItem.start}px)`, paddingBottom: "1rem" }}
+                >
                   <ActivityGroup tools={item.tools} messages={item.messages} onSelectTool={onSelectTool} live={isRunning} />
                 </div>
               );
             })}
+            </div>
           </div>
         </div>
       </div>
@@ -901,19 +961,52 @@ function isPromptStart(messages: PiMessage[], activeAssistantId: string | null):
 }
 
 function buildStreamSignature(messages: PiMessage[]): string {
-  return messages
-    .map((message) => {
-      const blocks = message.contentBlocks?.map((block) => {
-        if (block.type === "text") return `t:${block.text.length}`;
-        if (block.type === "thinking") return `h:${block.thinking.length}:${block.redacted ? 1 : 0}`;
-        if (block.type === "toolCall") return `c:${block.id ?? ""}:${block.name}:${JSON.stringify(block.arguments ?? {}).length}`;
-        if (block.type === "image") return "i";
-        return `u:${block.label}`;
-      }).join(",") ?? "";
-      const tools = message.tools?.map((tool) => `${tool.id}:${tool.status}:${tool.output?.length ?? 0}`).join(",") ?? "";
-      return `${message.id}:${message.role}:${message.content.length}:${blocks}:${tools}:${message.stopReason ?? ""}`;
-    })
-    .join("|");
+  const last = messages[messages.length - 1];
+  const activeAssistant = findLastAssistant(messages);
+  return [
+    messages.length,
+    last ? compactMessageSignature(last) : "",
+    activeAssistant && activeAssistant.id !== last?.id ? compactMessageSignature(activeAssistant) : "",
+  ].join("|");
+}
+
+function findLastAssistant(messages: PiMessage[]): PiMessage | null {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (messages[index].role === "assistant") return messages[index];
+  }
+  return null;
+}
+
+function compactMessageSignature(message: PiMessage): string {
+  const blocksLength = message.contentBlocks?.reduce((total, block) => {
+    if (block.type === "text") return total + block.text.length;
+    if (block.type === "thinking") return total + block.thinking.length + (block.redacted ? 1 : 0);
+    if (block.type === "toolCall") return total + (block.id?.length ?? 0) + block.name.length + JSON.stringify(block.arguments ?? {}).length;
+    if (block.type === "image") return total + 1;
+    return total + block.label.length;
+  }, 0) ?? 0;
+  const toolsLength = message.tools?.reduce((total, tool) => total + tool.id.length + tool.status.length + (tool.output?.length ?? 0), 0) ?? 0;
+  return `${message.id}:${message.role}:${message.content.length}:${blocksLength}:${toolsLength}:${message.stopReason ?? ""}`;
+}
+
+function estimateRenderItemHeight(item: RenderItem | undefined): number {
+  if (!item) return 120;
+  if (item.type === "activityGroup") return Math.min(360, 64 + (item.tools.length + item.messages.length) * 44);
+  const message = item.message;
+  if (message.role === "user") return Math.min(260, 72 + Math.ceil(message.content.length / 80) * 18);
+  if (message.role === "assistant") {
+    const toolCount = (message.tools?.length ?? 0) + (item.activityTools?.length ?? 0);
+    const activityCount = item.activityMessages?.length ?? 0;
+    return Math.min(700, 96 + Math.ceil(message.content.length / 90) * 20 + toolCount * 56 + activityCount * 48);
+  }
+  if (message.role === "toolResult" || message.role === "bashExecution") return 220;
+  return 120;
+}
+
+function renderItemKey(item: RenderItem | undefined, index: number): string {
+  if (!item) return `missing:${index}`;
+  if (item.type === "activityGroup") return `activity:${item.id}`;
+  return `message:${item.message.id}`;
 }
 
 function getNearbyTimelineItems(items: TimelineItem[], activeIndex: number, limit: number): TimelineItem[] {

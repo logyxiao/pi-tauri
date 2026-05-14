@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { PiClient, PiClientEvent, PiNewSessionOptions, PiSessionListOptions, PromptOptions } from "./client";
+import type { PiClient, PiClientEvent, PiFileListOptions, PiNewSessionOptions, PiSessionListOptions, PromptOptions } from "./client";
 import type {
   PiCommand,
   PiExtensionError,
@@ -68,6 +68,7 @@ type PiSettingsJsonConfig = {
 type PendingRequest = {
   resolve: (value: RpcResponse) => void;
   reject: (error: Error) => void;
+  timeoutId: number;
 };
 
 type Listener = (event: PiClientEvent) => void;
@@ -117,7 +118,7 @@ export class TauriPiRpcClient implements PiClient {
   }
 
   private async reconnect(cwd?: string): Promise<void> {
-    this.pending.clear();
+    this.rejectPendingRequests("pi rpc reconnecting");
     this.toolStartTimes.clear();
     this.invalidateStateCache();
     this.invalidateCapabilityCaches();
@@ -570,11 +571,11 @@ export class TauriPiRpcClient implements PiClient {
     this.safetyEvents = [event, ...this.safetyEvents.filter((item) => item.id !== event.id)].slice(0, 20);
   }
 
-  async listFiles(): Promise<PiFileEntry[]> {
+  async listFiles(options: PiFileListOptions = {}): Promise<PiFileEntry[]> {
     const state = await this.getState();
     if (!isUsableCwd(state.cwd)) return [];
     try {
-      const entries = await invoke<unknown[]>("pi_list_files", { cwd: state.cwd });
+      const entries = await invoke<unknown[]>("pi_list_files", { cwd: state.cwd, path: options.path, depth: options.depth, limit: options.limit });
       return entries.map(mapFileEntry).filter((entry): entry is PiFileEntry => Boolean(entry));
     } catch (error) {
       if (!isMissingCwdError(error)) console.warn("pi file list unavailable", error);
@@ -617,7 +618,7 @@ export class TauriPiRpcClient implements PiClient {
     this.unlistenError?.();
     this.unlistenMessage = null;
     this.unlistenError = null;
-    this.pending.clear();
+    this.rejectPendingRequests("pi rpc disposed");
     this.toolStartTimes.clear();
     this.connected = false;
     this.rpcCwd = null;
@@ -643,15 +644,24 @@ export class TauriPiRpcClient implements PiClient {
     const timeoutMs = options.timeoutMs ?? 30_000;
 
     const response = new Promise<RpcResponse>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      window.setTimeout(() => {
+      const timeoutId = window.setTimeout(() => {
         if (!this.pending.has(id)) return;
         this.pending.delete(id);
         reject(new Error(`pi rpc request timed out: ${String(command.type)}`));
       }, timeoutMs);
+      this.pending.set(id, { resolve, reject, timeoutId });
     });
 
-    await invoke("pi_rpc_send", { message: JSON.stringify(payload) });
+    try {
+      await invoke("pi_rpc_send", { message: JSON.stringify(payload) });
+    } catch (error) {
+      const pending = this.pending.get(id);
+      if (pending) {
+        window.clearTimeout(pending.timeoutId);
+        this.pending.delete(id);
+      }
+      throw error;
+    }
     return response.then((result) => {
       if (!result.success) throw new Error(result.error ?? `pi rpc command failed: ${result.command}`);
       return result;
@@ -672,8 +682,17 @@ export class TauriPiRpcClient implements PiClient {
     const pending = this.pending.get(response.id);
     if (!pending) return;
     this.pending.delete(response.id);
+    window.clearTimeout(pending.timeoutId);
     if (response.success) pending.resolve(response);
     else pending.reject(new Error(response.error ?? `pi rpc command failed: ${response.command}`));
+  }
+
+  private rejectPendingRequests(reason: string) {
+    for (const pending of this.pending.values()) {
+      window.clearTimeout(pending.timeoutId);
+      pending.reject(new Error(reason));
+    }
+    this.pending.clear();
   }
 
   private mapEvent(event: Record<string, unknown>) {
