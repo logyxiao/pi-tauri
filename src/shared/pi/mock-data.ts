@@ -174,6 +174,15 @@ export const demoSettings: PiSettings = {
     { provider: "anthropic", status: "configured", detail: "mock key present" },
     { provider: "openai", status: "unknown", detail: "not checked in mock" },
   ],
+  extensionResources: [
+    { id: "~/.pi/agent/extensions/mock-ui.ts", name: "mock-ui", path: "~/.pi/agent/extensions/mock-ui.ts", scope: "global", source: "auto", enabled: true, removable: true },
+    { id: ".pi/extensions/shell-guard.ts", name: "shell-guard", path: ".pi/extensions/shell-guard.ts", scope: "project", source: "auto", enabled: true, removable: true },
+    { id: "~/.pi/agent/extensions/old.ts", name: "old", path: "~/.pi/agent/extensions/old.ts", scope: "global", source: "auto", enabled: false, removable: true, disabledByPattern: true },
+  ],
+  skillResources: [
+    { id: "~/.pi/agent/skills/caveman", name: "caveman", path: "~/.pi/agent/skills/caveman", scope: "global", source: "auto", enabled: true, removable: true },
+    { id: ".agents/skills/code-review", name: "code-review", path: ".agents/skills/code-review", scope: "project", source: "auto", enabled: true, removable: true },
+  ],
 };
 
 export const demoSessionStats: PiSessionStats = {

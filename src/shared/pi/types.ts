@@ -43,6 +43,20 @@ export interface PiAuthStatus {
 
 export type PiSettingsFieldSource = "runtime" | "persisted" | "fallback" | "unknown";
 
+export interface PiManagedResource {
+  id: string;
+  name: string;
+  path: string;
+  scope: "global" | "project" | "settings" | "package" | "unknown";
+  source: "auto" | "settings" | "package";
+  enabled: boolean;
+  removable: boolean;
+  disabledByPattern?: boolean;
+}
+
+export type PiExtensionResource = PiManagedResource;
+export type PiSkillResource = PiManagedResource;
+
 export interface PiSettings {
   model?: string;
   provider?: string;
@@ -64,6 +78,8 @@ export interface PiSettings {
   steeringMode?: PiDeliveryMode;
   followUpMode?: PiDeliveryMode;
   auth?: PiAuthStatus[];
+  extensionResources?: PiExtensionResource[];
+  skillResources?: PiSkillResource[];
 }
 
 export interface PiSettingsUpdate {

@@ -25,6 +25,7 @@ import type {
   PiExtensionError,
   PiExtensionMessage,
   PiExtensionPanel,
+  PiExtensionStatus,
   PiExtensionUiResponse,
   PiFileEntry,
   PiFilePreview,
@@ -71,6 +72,7 @@ export function usePiSession() {
   const [settings, setSettings] = useState<PiSettings | null>(() => loadPersistedSettings());
   const [commands, setCommands] = useState<PiCommand[]>([]);
   const [extensionPanels, setExtensionPanels] = useState<PiExtensionPanel[]>([]);
+  const [extensionStatuses, setExtensionStatuses] = useState<PiExtensionStatus[]>([]);
   const [extensionMessages, setExtensionMessages] = useState<PiExtensionMessage[]>([]);
   const [pendingExtensionUi, setPendingExtensionUi] = useState<PiExtensionMessage[]>([]);
   const [extensionErrors, setExtensionErrors] = useState<PiExtensionError[]>([]);
@@ -181,6 +183,7 @@ export function usePiSession() {
         nextSettings,
         nextCommands,
         nextExtensionPanels,
+        nextExtensionStatuses,
         nextExtensionMessages,
         nextExtensionErrors,
         nextSafetyEvents,
@@ -194,6 +197,7 @@ export function usePiSession() {
         timed(timings, "getSettings", () => client.getSettings()),
         timed(timings, "listCommands", () => client.listCommands()),
         timed(timings, "listExtensionPanels", () => client.listExtensionPanels()),
+        timed(timings, "listExtensionStatuses", () => client.listExtensionStatuses()),
         timed(timings, "listExtensionMessages", () => client.listExtensionMessages()),
         timed(timings, "listExtensionErrors", () => client.listExtensionErrors()),
         timed(timings, "listSafetyEvents", () => client.listSafetyEvents()),
@@ -213,6 +217,7 @@ export function usePiSession() {
       setSettings(nextSettings);
       setCommands(nextCommands);
       setExtensionPanels(nextExtensionPanels);
+      setExtensionStatuses(nextExtensionStatuses);
       setExtensionMessages(nextExtensionMessages);
       setExtensionErrors(nextExtensionErrors);
       setSafetyEvents(nextSafetyEvents);
@@ -301,6 +306,12 @@ export function usePiSession() {
           setExtensionPanels((current) => {
             const next = current.filter((item) => item.key !== event.panel?.key);
             return event.panel?.lines.length ? [event.panel, ...next].slice(0, 12) : next;
+          });
+        }
+        if (event.status) {
+          setExtensionStatuses((current) => {
+            const next = current.filter((item) => item.key !== event.status?.key);
+            return event.status?.text ? [event.status, ...next].slice(0, 12) : next;
           });
         }
         if (event.editorText) setPrefillInput(event.editorText);
@@ -666,6 +677,7 @@ export function usePiSession() {
     settings,
     commands,
     extensionPanels,
+    extensionStatuses,
     extensionMessages,
     pendingExtensionUi,
     extensionErrors,

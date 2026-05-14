@@ -6,7 +6,9 @@ import type {
   PiExtensionError,
   PiExtensionMessage,
   PiExtensionPanel,
+  PiExtensionResource,
   PiExtensionStatus,
+  PiSkillResource,
   PiExtensionUiResponse,
   PiFileEntry,
   PiFilePreview,
@@ -293,6 +295,16 @@ export class TauriPiRpcClient implements PiClient {
     const persistedAutoRetry = pickBoolean(persistedSettings, ["autoRetry", "retryEnabled"]);
     const persistedSteeringMode = normalizeDeliveryMode(pickString(persistedSettings, ["steeringMode"]));
     const persistedFollowUpMode = normalizeDeliveryMode(pickString(persistedSettings, ["followUpMode"]));
+    const [extensionResources, skillResources] = await Promise.all([
+      this.listExtensionResources(state.cwd).catch((error) => {
+        console.warn("pi extension resources unavailable", error);
+        return [];
+      }),
+      this.listSkillResources(state.cwd).catch((error) => {
+        console.warn("pi skill resources unavailable", error);
+        return [];
+      }),
+    ]);
     const auth = sdkSidecar.available
       ? await withTimeout(sdkSidecarClient.request<PiSettings["auth"]>("sdk_auth_status"), 1_200, inferAuthStatus(state.model)).catch(() => inferAuthStatus(state.model))
       : inferAuthStatus(state.model);
@@ -321,7 +333,17 @@ export class TauriPiRpcClient implements PiClient {
       steeringMode: persistedSteeringMode ?? "one-at-a-time",
       followUpMode: persistedFollowUpMode ?? "one-at-a-time",
       auth,
+      extensionResources,
+      skillResources,
     };
+  }
+
+  private async listExtensionResources(cwd: string): Promise<PiExtensionResource[]> {
+    return invoke<PiExtensionResource[]>("pi_extension_resources", { cwd });
+  }
+
+  private async listSkillResources(cwd: string): Promise<PiSkillResource[]> {
+    return invoke<PiSkillResource[]>("pi_skill_resources", { cwd });
   }
 
   async updateSettings(update: PiSettingsUpdate): Promise<PiSettings> {
@@ -437,6 +459,10 @@ export class TauriPiRpcClient implements PiClient {
 
   async listExtensionPanels(): Promise<PiExtensionPanel[]> {
     return [...this.extensionPanels.values()];
+  }
+
+  async listExtensionStatuses(): Promise<PiExtensionStatus[]> {
+    return [...this.extensionStatuses.values()];
   }
 
   async listExtensionMessages(): Promise<PiExtensionMessage[]> {

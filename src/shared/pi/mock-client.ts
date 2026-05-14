@@ -19,6 +19,7 @@ import type {
   PiExtensionError,
   PiExtensionMessage,
   PiExtensionPanel,
+  PiExtensionStatus,
   PiExtensionUiResponse,
   PiFileEntry,
   PiFilePreview,
@@ -368,6 +369,10 @@ export class MockPiClient implements PiClient {
 
   async listExtensionPanels(): Promise<PiExtensionPanel[]> {
     return this.extensionPanels;
+  }
+
+  async listExtensionStatuses(): Promise<PiExtensionStatus[]> {
+    return [];
   }
 
   async listExtensionMessages(): Promise<PiExtensionMessage[]> {

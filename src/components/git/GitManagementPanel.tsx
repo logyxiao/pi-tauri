@@ -239,6 +239,7 @@ export function GitManagementPanel({ cwd, model, thinkingLevel, isRunning = fals
           count={stagedFiles.length}
           empty={t("git.noStagedChanges")}
           open={stagedOpen}
+          tone="staged"
           onToggle={() => setStagedOpen((value) => !value)}
           actionIcon={<Minus size={13} />}
           actionTitle={t("git.unstageAll")}
@@ -252,6 +253,7 @@ export function GitManagementPanel({ cwd, model, thinkingLevel, isRunning = fals
           count={changedFiles.length}
           empty={t("git.noChangesLoaded")}
           open={changesOpen}
+          tone="changed"
           onToggle={() => setChangesOpen((value) => !value)}
           actionIcon={<Plus size={13} />}
           actionTitle={t("git.stageAll")}
@@ -267,17 +269,24 @@ export function GitManagementPanel({ cwd, model, thinkingLevel, isRunning = fals
   );
 }
 
-function ChangeGroup({ title, count, empty, open, onToggle, actionIcon, actionTitle, onAction, children }: { title: string; count: number; empty: string; open: boolean; onToggle: () => void; actionIcon?: ReactNode; actionTitle?: string; onAction?: () => void; children: ReactNode }) {
+function ChangeGroup({ title, count, empty, open, tone = "neutral", onToggle, actionIcon, actionTitle, onAction, children }: { title: string; count: number; empty: string; open: boolean; tone?: "neutral" | "staged" | "changed"; onToggle: () => void; actionIcon?: ReactNode; actionTitle?: string; onAction?: () => void; children: ReactNode }) {
+  const toneClass = tone === "staged"
+    ? "border-l-success/55 bg-success/[0.045]"
+    : tone === "changed"
+      ? "border-l-warning/55 bg-warning/[0.05]"
+      : "border-l-transparent";
+  const textClass = tone === "staged" ? "text-success" : tone === "changed" ? "text-warning" : "text-muted-foreground";
+  const countClass = tone === "staged" ? "bg-success/12 text-success" : tone === "changed" ? "bg-warning/14 text-warning" : "bg-primary/20 text-primary";
   return (
-    <div className="mt-1">
+    <div className={cn("mt-1 border-l-2", toneClass)}>
       <div className="group flex h-6 items-center justify-between px-2 text-[11px] font-medium text-muted-foreground">
-        <button type="button" onClick={onToggle} className="flex min-w-0 cursor-pointer items-center gap-1 hover:text-foreground">
+        <button type="button" onClick={onToggle} className={cn("flex min-w-0 cursor-pointer items-center gap-1 hover:text-foreground", textClass)}>
           <ChevronDown size={13} className={cn("transition-transform", !open && "-rotate-90")} />
           <span className="truncate">{title}</span>
         </button>
         <div className="flex items-center gap-1">
-          {count && onAction ? <button type="button" title={actionTitle} onClick={onAction} className="inline-flex size-5 cursor-pointer items-center justify-center opacity-0 hover:text-primary group-hover:opacity-100">{actionIcon}</button> : null}
-          {count ? <span className="rounded-full bg-primary/20 px-1.5 font-mono text-[10px] text-primary">{count}</span> : null}
+          {count && onAction ? <button type="button" title={actionTitle} onClick={onAction} className={cn("inline-flex size-5 cursor-pointer items-center justify-center opacity-0 group-hover:opacity-100", textClass, "hover:text-primary")}>{actionIcon}</button> : null}
+          {count ? <span className={cn("rounded-full px-1.5 font-mono text-[10px]", countClass)}>{count}</span> : null}
         </div>
       </div>
       {open ? (count ? <div>{children}</div> : <div className="px-6 py-1 text-[11px] text-muted-foreground">{empty}</div>) : null}

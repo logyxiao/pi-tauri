@@ -30,6 +30,7 @@ export function AppShell() {
     settings,
     commands,
     extensionPanels,
+    extensionStatuses,
     pendingExtensionUi,
     extensionErrors,
     prefillInput,
@@ -89,6 +90,8 @@ export function AppShell() {
             settings={settings}
             models={models}
             commands={commands}
+            extensionPanels={extensionPanels}
+            extensionStatuses={extensionStatuses}
             workspacePaths={workspacePaths}
             prefillInput={prefillInput}
             status={status}

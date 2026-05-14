@@ -86,6 +86,7 @@ export interface PiClient {
   listCommands(): Promise<PiCommand[]>;
   executeCommand(commandName: string): Promise<void>;
   listExtensionPanels(): Promise<PiExtensionPanel[]>;
+  listExtensionStatuses(): Promise<PiExtensionStatus[]>;
   listExtensionMessages(): Promise<PiExtensionMessage[]>;
   listExtensionErrors(): Promise<PiExtensionError[]>;
   listSafetyEvents(): Promise<PiSafetyEvent[]>;

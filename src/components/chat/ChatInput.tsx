@@ -1,16 +1,19 @@
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
 import { ArrowUp, AtSign, BarChart3, Image, Pause, X } from "lucide-react";
 import { CommandPalette } from "@/components/chat/CommandPalette";
+import { ComposerExtensionShelf } from "@/components/extensions/ComposerExtensionShelf";
 import { ModelSelector } from "@/components/model/ModelSelector";
 import { SafetyConfirmDialog } from "@/components/safety/SafetyConfirmDialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useI18n } from "@/shared/i18n";
 import { createSafetyEvent, detectDangerousCommand } from "@/shared/pi/safety";
-import type { PiCommand, PiModel, PiSafetyEvent, PiSessionStats, PiSettings, PiState } from "@/shared/pi/types";
+import type { PiCommand, PiExtensionPanel, PiExtensionStatus, PiModel, PiSafetyEvent, PiSessionStats, PiSettings, PiState } from "@/shared/pi/types";
 
 interface ChatInputProps {
   isRunning: boolean;
   commands: PiCommand[];
+  extensionPanels: PiExtensionPanel[];
+  extensionStatuses: PiExtensionStatus[];
   state: PiState | null;
   stats: PiSessionStats | null;
   settings: PiSettings | null;
@@ -31,6 +34,8 @@ interface ChatInputProps {
 function ChatInputComponent({
   isRunning,
   commands,
+  extensionPanels,
+  extensionStatuses,
   state,
   stats,
   settings,
@@ -175,6 +180,8 @@ function ChatInputComponent({
         </div>
       ) : null}
 
+      <ComposerExtensionShelf extensionPanels={extensionPanels} placement="aboveEditor" />
+
       <div className="rounded-none border border-border bg-surface/90 p-2.5 shadow-[0_12px_42px_rgb(44_54_70/0.10)] backdrop-blur-[2px] transition focus-within:border-primary/45 focus-within:bg-surface/95">
         {images.length ? (
           <div className="mb-2 flex flex-wrap gap-2 border-b border-border/70 pb-2">
@@ -276,6 +283,7 @@ function ChatInputComponent({
           </div>
           <div className="flex items-center justify-end gap-1.5">
             <ModelSelector state={state} models={models} compact onModelChange={onModelChange} />
+            <ExtensionStatusLine statuses={extensionStatuses} />
             <StatsTooltip state={state} stats={stats} settings={settings} status={status} />
             <Tooltip>
               <TooltipTrigger asChild>
@@ -295,6 +303,7 @@ function ChatInputComponent({
         </div>
       </div>
 
+      <ComposerExtensionShelf extensionPanels={extensionPanels} placement="belowEditor" />
 
       <SafetyConfirmDialog
         open={Boolean(pendingDangerousCommand)}
@@ -335,6 +344,8 @@ function areChatInputPropsEqual(previous: ChatInputProps, next: ChatInputProps) 
     previous.disabled === next.disabled &&
     previous.prefillValue === next.prefillValue &&
     previous.commands === next.commands &&
+    previous.extensionPanels === next.extensionPanels &&
+    previous.extensionStatuses === next.extensionStatuses &&
     previous.models === next.models &&
     previous.settings === next.settings &&
     previous.onSubmit === next.onSubmit &&
@@ -392,6 +403,19 @@ function readImageFile(file: File): Promise<{ id: string; name: string; dataUrl:
     reader.onerror = () => reject(reader.error ?? new Error("failed to read image"));
     reader.readAsDataURL(file);
   });
+}
+
+function ExtensionStatusLine({ statuses }: { statuses: PiExtensionStatus[] }) {
+  if (!statuses.length) return null;
+  return (
+    <div className="hidden max-w-48 items-center gap-1 overflow-hidden sm:flex">
+      {statuses.slice(0, 3).map((status) => (
+        <span key={status.key} className="truncate border border-border/70 bg-background/70 px-1.5 py-1 font-mono text-[10px] leading-none text-muted-foreground" title={`${status.key}: ${status.text}`}>
+          {status.text}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 const StatsTooltip = memo(function StatsTooltip({ state, stats, settings, status }: { state: PiState | null; stats: PiSessionStats | null; settings: PiSettings | null; status: string }) {

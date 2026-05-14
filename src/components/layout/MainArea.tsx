@@ -8,7 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/lib/cn";
 import { openProjectPath, type ProjectOpenTarget } from "@/shared/system-open";
-import type { PiCommand, PiMessage, PiModel, PiSafetyEvent, PiSessionStats, PiSettings, PiSettingsUpdate, PiState, PiToolCall } from "@/shared/pi/types";
+import type { PiCommand, PiExtensionPanel, PiExtensionStatus, PiMessage, PiModel, PiSafetyEvent, PiSessionStats, PiSettings, PiSettingsUpdate, PiState, PiToolCall } from "@/shared/pi/types";
 
 interface MainAreaProps {
   inspectorOpen: boolean;
@@ -18,6 +18,8 @@ interface MainAreaProps {
   settings: PiSettings | null;
   models: PiModel[];
   commands: PiCommand[];
+  extensionPanels: PiExtensionPanel[];
+  extensionStatuses: PiExtensionStatus[];
   workspacePaths: string[];
   prefillInput: string;
   status: string;
@@ -101,6 +103,8 @@ export function MainArea({
   settings,
   models,
   commands,
+  extensionPanels,
+  extensionStatuses,
   workspacePaths,
   prefillInput,
   status,
@@ -232,6 +236,8 @@ export function MainArea({
           <ChatInput
             isRunning={isRunning}
             commands={commands}
+            extensionPanels={extensionPanels}
+            extensionStatuses={extensionStatuses}
             state={state}
             stats={stats}
             settings={settings}

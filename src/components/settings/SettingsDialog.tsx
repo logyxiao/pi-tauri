@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { AppWindow, Brain, Code2, Command, Loader2, PanelTop, Plus, RefreshCw, Save, Settings, Trash2 } from "lucide-react";
+import { AppWindow, Brain, Code2, Command, Loader2, PanelTop, Plus, RefreshCw, Save, Settings, Sparkles, Trash2 } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { ExtensionsPanel } from "@/components/extensions/ExtensionsPanel";
 import { SearchableSelect, type SearchableSelectOption } from "@/components/ui/searchable-select";
 import { cn } from "@/shared/lib/cn";
 import { useI18n } from "@/shared/i18n";
-import type { PiCommand, PiExtensionError, PiExtensionPanel, PiModel, PiSettings, PiSettingsUpdate, PiState, PiThinkingLevel } from "@/shared/pi/types";
+import type { PiCommand, PiExtensionError, PiExtensionPanel, PiExtensionResource, PiModel, PiSettings, PiSettingsUpdate, PiSkillResource, PiState, PiThinkingLevel } from "@/shared/pi/types";
 
 const thinkingLevels: PiThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
-type SettingsSection = "model" | "commands" | "extensionPanels" | "app";
+type SettingsSection = "model" | "commands" | "extensionPanels" | "skills" | "app";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -71,6 +71,10 @@ export function SettingsDialog({
   const [modelsJson, setModelsJson] = useState<ModelsJsonState | null>(null);
   const [modelsJsonDraft, setModelsJsonDraft] = useState("");
   const [modelsJsonStatus, setModelsJsonStatus] = useState<{ kind: "idle" | "success" | "error"; text: string }>({ kind: "idle", text: "" });
+  const [extensionActionStatus, setExtensionActionStatus] = useState<{ kind: "idle" | "success" | "error"; text: string }>({ kind: "idle", text: "" });
+  const [skillActionStatus, setSkillActionStatus] = useState<{ kind: "idle" | "success" | "error"; text: string }>({ kind: "idle", text: "" });
+  const [busyExtensionPath, setBusyExtensionPath] = useState<string | null>(null);
+  const [busySkillPath, setBusySkillPath] = useState<string | null>(null);
   const [modelsJsonBusy, setModelsJsonBusy] = useState(false);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [providerQuery, setProviderQuery] = useState("");
@@ -86,6 +90,7 @@ export function SettingsDialog({
     { id: "model", icon: <Brain size={15} />, label: t("settings.navModel"), description: t("settings.navModelDesc") },
     { id: "commands", icon: <Command size={15} />, label: t("settings.navCommands"), description: t("settings.navCommandsDesc") },
     { id: "extensionPanels", icon: <PanelTop size={15} />, label: t("settings.navExtensionPanels"), description: t("settings.navExtensionPanelsDesc") },
+    { id: "skills", icon: <Sparkles size={15} />, label: t("settings.navSkills"), description: t("settings.navSkillsDesc") },
     { id: "app", icon: <AppWindow size={15} />, label: t("settings.navApp"), description: t("settings.navAppDesc") },
   ];
   const activeNav = navItems.find((item) => item.id === activeSection) ?? navItems[0];
@@ -445,9 +450,83 @@ export function SettingsDialog({
               ) : null}
 
               {activeSection === "extensionPanels" ? (
-                <ExtensionsPanel commands={commands} extensionPanels={extensionPanels} extensionErrors={extensionErrors} sections={["panels"]} />
+                <ExtensionsPanel
+                  commands={commands}
+                  extensionPanels={extensionPanels}
+                  extensionErrors={extensionErrors}
+                  extensionResources={(settings?.extensionResources ?? []) as PiExtensionResource[]}
+                  actionStatus={extensionActionStatus}
+                  busyPath={busyExtensionPath}
+                  sections={["resources", "panels", "errors"]}
+                  onToggleExtension={async (resource) => {
+                    setBusyExtensionPath(resource.path);
+                    setExtensionActionStatus({ kind: "idle", text: "" });
+                    try {
+                      await invoke("pi_extension_set_enabled", { path: resource.path, enabled: !resource.enabled });
+                      setExtensionActionStatus({ kind: "success", text: resource.enabled ? t("extension.disabled") : t("extension.enabled") });
+                      await onRefresh?.();
+                    } catch (error) {
+                      setExtensionActionStatus({ kind: "error", text: error instanceof Error ? error.message : String(error) });
+                    } finally {
+                      setBusyExtensionPath(null);
+                    }
+                  }}
+                  onDeleteExtension={async (resource) => {
+                    if (!window.confirm(t("extension.deleteConfirm", { name: resource.name }))) return;
+                    setBusyExtensionPath(resource.path);
+                    setExtensionActionStatus({ kind: "idle", text: "" });
+                    try {
+                      await invoke("pi_extension_delete", { path: resource.path });
+                      setExtensionActionStatus({ kind: "success", text: t("extension.deleted") });
+                      await onRefresh?.();
+                    } catch (error) {
+                      setExtensionActionStatus({ kind: "error", text: error instanceof Error ? error.message : String(error) });
+                    } finally {
+                      setBusyExtensionPath(null);
+                    }
+                  }}
+                />
               ) : null}
 
+
+              {activeSection === "skills" ? (
+                <ExtensionsPanel
+                  commands={commands.filter((command) => command.source === "skill")}
+                  extensionPanels={[]}
+                  extensionErrors={[]}
+                  extensionResources={(settings?.skillResources ?? []) as PiSkillResource[]}
+                  actionStatus={skillActionStatus}
+                  busyPath={busySkillPath}
+                  sections={["resources", "commands"]}
+                  onToggleExtension={async (resource) => {
+                    setBusySkillPath(resource.path);
+                    setSkillActionStatus({ kind: "idle", text: "" });
+                    try {
+                      await invoke("pi_skill_set_enabled", { path: resource.path, enabled: !resource.enabled });
+                      setSkillActionStatus({ kind: "success", text: resource.enabled ? t("skill.disabled") : t("skill.enabled") });
+                      await onRefresh?.();
+                    } catch (error) {
+                      setSkillActionStatus({ kind: "error", text: error instanceof Error ? error.message : String(error) });
+                    } finally {
+                      setBusySkillPath(null);
+                    }
+                  }}
+                  onDeleteExtension={async (resource) => {
+                    if (!window.confirm(t("skill.deleteConfirm", { name: resource.name }))) return;
+                    setBusySkillPath(resource.path);
+                    setSkillActionStatus({ kind: "idle", text: "" });
+                    try {
+                      await invoke("pi_skill_delete", { path: resource.path });
+                      setSkillActionStatus({ kind: "success", text: t("skill.deleted") });
+                      await onRefresh?.();
+                    } catch (error) {
+                      setSkillActionStatus({ kind: "error", text: error instanceof Error ? error.message : String(error) });
+                    } finally {
+                      setBusySkillPath(null);
+                    }
+                  }}
+                />
+              ) : null}
 
               {activeSection === "app" ? (
                 <div className="space-y-4">
@@ -471,6 +550,7 @@ function sectionDescription(section: SettingsSection, t: (key: string) => string
   if (section === "model") return t("settings.sectionModelDesc");
   if (section === "commands") return t("settings.sectionCommandsDesc");
   if (section === "extensionPanels") return t("settings.sectionExtensionPanelsDesc");
+  if (section === "skills") return t("settings.sectionSkillsDesc");
   return t("settings.sectionAppDesc");
 }
 
