@@ -202,6 +202,28 @@ pub(crate) async fn pi_git_generate_commit_message(cwd: String, model: Option<St
         .map_err(|error| format!("git commit message task failed: {error}"))?
 }
 
+#[tauri::command]
+pub(crate) async fn pi_optimize_prompt_keywords(input: String, model: Option<String>, provider: Option<String>, thinking_level: Option<String>) -> RpcResult<Vec<String>> {
+    tauri::async_runtime::spawn_blocking(move || pi_optimize_prompt_keywords_blocking(input, model, provider, thinking_level))
+        .await
+        .map_err(|error| format!("prompt optimize task failed: {error}"))?
+}
+
+pub(crate) fn pi_optimize_prompt_keywords_blocking(input: String, model: Option<String>, provider: Option<String>, thinking_level: Option<String>) -> RpcResult<Vec<String>> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("input is required".to_string());
+    }
+    let prompt = "You are optimizing a user's short coding-agent prompt. Return exactly 3 improved Chinese prompt options as a JSON array of strings. Each option should preserve the user's intent, be concrete, actionable, and concise. Do not include markdown, numbering, explanations, or any extra text.";
+    let context = format!("Original user input:\n{trimmed}");
+    let raw = generate_commit_message_via_provider(model, provider, thinking_level, prompt, &context)?;
+    let options = parse_prompt_options(&raw);
+    if options.is_empty() {
+        return Err("model returned no prompt options".to_string());
+    }
+    Ok(options.into_iter().take(3).collect())
+}
+
 pub(crate) fn pi_git_generate_commit_message_blocking(cwd: String, model: Option<String>, provider: Option<String>, thinking_level: Option<String>) -> RpcResult<String> {
     let repo_root = git_repo_root(&cwd)?;
     let stat = git_output(&repo_root, &["diff", "--cached", "--stat"])?;
@@ -468,6 +490,32 @@ pub(crate) fn clean_commit_message(output: &str) -> String {
         .chars()
         .take(120)
         .collect::<String>()
+}
+
+pub(crate) fn parse_prompt_options(output: &str) -> Vec<String> {
+    if let Ok(values) = serde_json::from_str::<Vec<String>>(output.trim()) {
+        return values.into_iter().filter_map(clean_prompt_option).collect();
+    }
+    output
+        .lines()
+        .filter_map(|line| {
+            let cleaned = line
+                .trim()
+                .trim_start_matches(|ch: char| ch.is_ascii_digit() || ch == '.' || ch == '-' || ch == '*' || ch == '、')
+                .trim()
+                .trim_matches(|ch| ch == '"' || ch == '\'' || ch == '`' || ch == ',' || ch == '[' || ch == ']')
+                .to_string();
+            clean_prompt_option(cleaned)
+        })
+        .collect()
+}
+
+fn clean_prompt_option(value: String) -> Option<String> {
+    let cleaned = value.trim().trim_matches(|ch| ch == '"' || ch == '\'' || ch == '`').to_string();
+    if cleaned.is_empty() || cleaned.starts_with("```") {
+        return None;
+    }
+    Some(cleaned.chars().take(500).collect())
 }
 
 pub(crate) fn parse_git_log_line(line: &str) -> Option<serde_json::Value> {

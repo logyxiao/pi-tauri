@@ -1,14 +1,5 @@
 use super::*;
 
-
-mod cc_switch;
-mod provider_probe;
-mod resources;
-
-pub(crate) use self::cc_switch::*;
-pub(crate) use self::provider_probe::*;
-pub(crate) use self::resources::*;
-
 #[tauri::command]
 pub(crate) fn pi_models_json_read() -> RpcResult<serde_json::Value> {
     let path = pi_models_json_path()?;

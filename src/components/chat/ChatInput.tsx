@@ -1,6 +1,6 @@
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowUp, AtSign, Gauge, Image, Pause, RefreshCw, X } from "lucide-react";
+import { ArrowUp, AtSign, Check, Gauge, Image, Loader2, Pause, RefreshCw, Sparkles, X } from "lucide-react";
 import { CommandPalette } from "@/components/chat/CommandPalette";
 import { ComposerExtensionShelf } from "@/components/extensions/ComposerExtensionShelf";
 import { ModelSelector } from "@/components/model/ModelSelector";
@@ -64,6 +64,9 @@ function ChatInputComponent({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [pendingDangerousCommand, setPendingDangerousCommand] = useState<PiCommand | null>(null);
   const [images, setImages] = useState<Array<{ id: string; name: string; dataUrl: string }>>([]);
+  const [optimizeBusy, setOptimizeBusy] = useState(false);
+  const [optimizeOptions, setOptimizeOptions] = useState<string[]>([]);
+  const [optimizeError, setOptimizeError] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -139,10 +142,40 @@ function ChatInputComponent({
     await onAbort();
   }
 
+  async function optimizeDraft() {
+    const input = draftRef.current.trim();
+    if (!input || isRunning || disabled || optimizeBusy) return;
+    setOptimizeBusy(true);
+    setOptimizeError(null);
+    setOptimizeOptions([]);
+    try {
+      const options = await invoke<string[]>("pi_optimize_prompt_keywords", {
+        input,
+        model: settings?.model ?? state?.model ?? null,
+        provider: settings?.provider ?? null,
+        thinkingLevel: settings?.thinkingLevel ?? state?.thinkingLevel ?? null,
+      });
+      setOptimizeOptions(options.filter(Boolean).slice(0, 3));
+    } catch (caught) {
+      setOptimizeError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setOptimizeBusy(false);
+    }
+  }
+
+  function applyOptimizedOption(option: string) {
+    setDraftValue(option);
+    setOptimizeOptions([]);
+    setOptimizeError(null);
+    textareaRef.current?.focus();
+  }
+
   function clearInput() {
     setDraftValue("");
     setSelectedIndex(0);
     setImages([]);
+    setOptimizeOptions([]);
+    setOptimizeError(null);
   }
 
   async function addImages(files: FileList | File[] | null) {
@@ -183,6 +216,10 @@ function ChatInputComponent({
       ) : null}
 
       <ComposerExtensionShelf extensionPanels={extensionPanels} placement="aboveEditor" />
+
+      {optimizeOptions.length || optimizeError ? (
+        <PromptOptimizePanel options={optimizeOptions} error={optimizeError} onSelect={applyOptimizedOption} onClose={() => { setOptimizeOptions([]); setOptimizeError(null); }} />
+      ) : null}
 
       <div className="rounded-none border border-border bg-surface/90 p-2.5 shadow-[0_12px_42px_rgb(44_54_70/0.10)] backdrop-blur-[2px] transition focus-within:border-primary/45 focus-within:bg-surface/95">
         {images.length ? (
@@ -291,6 +328,20 @@ function ChatInputComponent({
               <TooltipTrigger asChild>
                 <button
                   type="button"
+                  className="inline-flex size-8 cursor-pointer items-center justify-center text-muted-foreground transition hover:text-primary disabled:cursor-not-allowed disabled:text-muted-foreground/45"
+                  aria-label={t("chat.optimizePrompt")}
+                  disabled={disabled || isRunning || optimizeBusy || !canSubmit}
+                  onClick={() => void optimizeDraft()}
+                >
+                  {optimizeBusy ? <Loader2 size={15} className="animate-spin text-primary" /> : <Sparkles size={15} />}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("chat.optimizePrompt")}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
                   className="inline-flex size-8 cursor-pointer items-center justify-center text-primary transition hover:text-primary/80 disabled:cursor-not-allowed disabled:text-muted-foreground/45"
                   aria-label={isRunning ? t("chat.pause") : t("chat.send")}
                   disabled={disabled || (!isRunning && !canSubmit && !images.length)}
@@ -339,6 +390,40 @@ function ChatInputComponent({
 }
 
 export const ChatInput = memo(ChatInputComponent, areChatInputPropsEqual);
+
+function PromptOptimizePanel({ options, error, onSelect, onClose }: { options: string[]; error: string | null; onSelect: (option: string) => void; onClose: () => void }) {
+  const { t } = useI18n();
+  return (
+    <div className="absolute bottom-full right-0 z-50 mb-3 w-full max-w-2xl border border-border bg-popover/95 p-2 shadow-2xl backdrop-blur-[2px]">
+      <div className="mb-2 flex items-center justify-between gap-2 border-b border-border/70 pb-2">
+        <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+          <span className="inline-flex size-6 items-center justify-center bg-primary/10 text-primary"><Sparkles size={13} /></span>
+          {t("chat.optimizePromptOptions")}
+        </div>
+        <button type="button" className="inline-flex size-6 cursor-pointer items-center justify-center text-muted-foreground transition hover:text-foreground" onClick={onClose} aria-label={t("common.cancel")}>
+          <X size={13} />
+        </button>
+      </div>
+      {error ? <div className="border border-danger/20 bg-danger/5 px-3 py-2 text-xs leading-5 text-danger">{error}</div> : null}
+      {options.length ? (
+        <div className="grid gap-1.5">
+          {options.map((option, index) => (
+            <button
+              type="button"
+              key={`${index}-${option}`}
+              className="group flex cursor-pointer items-start gap-2 border border-border/70 bg-background/70 px-3 py-2 text-left transition hover:border-primary/40 hover:bg-primary/5"
+              onClick={() => onSelect(option)}
+            >
+              <span className="mt-0.5 inline-flex size-5 shrink-0 items-center justify-center bg-surface font-mono text-[10px] text-primary">{index + 1}</span>
+              <span className="min-w-0 flex-1 text-xs leading-5 text-foreground">{option}</span>
+              <Check size={13} className="mt-1 shrink-0 text-muted-foreground opacity-0 transition group-hover:text-primary group-hover:opacity-100" />
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function areChatInputPropsEqual(previous: ChatInputProps, next: ChatInputProps) {
   return (

@@ -10,21 +10,26 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use rusqlite::{Connection, OpenFlags};
 use tauri::{AppHandle, Emitter, State};
 
 type RpcResult<T> = Result<T, String>;
 
+mod cc_switch;
 mod files;
 mod git;
 mod process;
+mod provider_probe;
+mod resources;
 mod sessions;
 mod settings;
 mod system_open;
 
+use cc_switch::*;
 use files::*;
 use git::*;
 use process::*;
+use provider_probe::*;
+use resources::*;
 use sessions::*;
 use settings::*;
 use system_open::*;
@@ -172,7 +177,8 @@ pub fn run() {
             pi_git_file_diff,
             pi_git_sync,
             pi_git_commit,
-            pi_git_generate_commit_message
+            pi_git_generate_commit_message,
+            pi_optimize_prompt_keywords
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

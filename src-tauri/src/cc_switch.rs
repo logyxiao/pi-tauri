@@ -1,4 +1,5 @@
 use super::*;
+use rusqlite::{Connection, OpenFlags};
 
 struct CcSwitchProviderImport {
     provider_key: String,
